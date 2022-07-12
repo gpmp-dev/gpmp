@@ -146,6 +146,22 @@ def ldrandunif(dim, n, box):
 
     return sample_ld
 
+def maximinlhs(dim, n, box):
+    ''' maximin low-discrepancy Latin hypercube sampling '''
+    sampler = qmc.LatinHypercube(d=dim, optimization=None)
+
+    max_iter = 20
+    maximindist = 0
+    for i in range(max_iter):
+        sample = sampler.random(n)
+        d = mindist(sample)
+        if d > maximindist:
+            maximindist = d
+            sample_maximin = sample
+
+    sample_maximin = scale(sample_maximin, box)
+
+    return sample_maximin
 
 def maximinldlhs(dim, n, box):
     ''' maximin low-discrepancy Latin hypercube sampling '''
