@@ -245,7 +245,7 @@ def anisotropic_parameters_initial_guess_with_zero_mean(model, xi, zi):
     rho = jnp.std(xi, axis=0)
     covparam = jnp.concatenate((jnp.array([jnp.log(1.0)]), -jnp.log(rho)))
     n = xi.shape[0]
-    sigma2_GLS = 1 / n * model.norm_k_sqrd_with_zero_mean(xi, zi, covparam)
+    sigma2_GLS = 1 / n * model.norm_k_sqrd_with_zero_mean(xi, zi.reshape((-1,)), covparam)
 
     return jnp.concatenate((jnp.array([jnp.log(sigma2_GLS)]), -jnp.log(rho)))
 
@@ -276,7 +276,7 @@ def anisotropic_parameters_initial_guess(model, xi, zi):
     rho = jnp.std(xi, axis=0)
     covparam = jnp.concatenate((jnp.array([jnp.log(1.0)]), -jnp.log(rho)))
     n = xi.shape[0]
-    sigma2_GLS = 1 / n * model.norm_k_sqrd(xi, zi, covparam)
+    sigma2_GLS = 1 / n * model.norm_k_sqrd(xi, zi.reshape((-1,)), covparam)
 
     return jnp.concatenate((jnp.array([jnp.log(sigma2_GLS)]), -jnp.log(rho)))
 
