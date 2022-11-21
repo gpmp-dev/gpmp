@@ -1,8 +1,8 @@
-## --------------------------------------------------------------
+# --------------------------------------------------------------
 # Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
 # Copyright (c) 2022, CentraleSupelec
 # License: GPLv3 (see LICENSE)
-## --------------------------------------------------------------
+# --------------------------------------------------------------
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as linalg
@@ -14,24 +14,24 @@ class Model:
 
     Attributes
     ----------
-    mean : 
-    covariance : 
-    meanparam : 
+    mean :
+    covariance :
+    meanparam :
     covparam :
 
     Methods
     -------
-    
     """
+
     def __init__(self, mean, covariance, meanparam=None, covparam=None):
         self.mean = mean
         self.covariance = covariance
-        
+
         self.meanparam = meanparam
         self.covparam = covparam
 
     def __repr__(self):
-        output = str("<gpmp.core.Model object> "+hex(id(self)))
+        output = str("<gpmp.core.Model object> " + hex(id(self)))
         return output
 
     def __str__(self):
@@ -41,10 +41,18 @@ class Model:
     def kriging_predictor_with_zero_mean(self, xi, xt):
         Kii = self.covariance(xi, xi, self.covparam)
         Kit = self.covariance(xi, xt, self.covparam)
-        lambda_t = linalg.solve(Kii, Kit, sym_pos=True, overwrite_a=True, overwrite_b=True)
+        lambda_t = linalg.solve(Kii,
+                                Kit,
+                                sym_pos=True,
+                                overwrite_a=True,
+                                overwrite_b=True)
 
-        zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=True)
-        zt_posterior_variance = zt_prior_variance - jnp.einsum('i..., i...', lambda_t, Kit)
+        zt_prior_variance = self.covariance(xt,
+                                            None,
+                                            self.covparam,
+                                            pairwise=True)
+        zt_posterior_variance = zt_prior_variance - jnp.einsum(
+            'i..., i...', lambda_t, Kit)
 
         return lambda_t, zt_posterior_variance
 
@@ -54,11 +62,11 @@ class Model:
         Pi = self.mean(xi, self.meanparam)
         (ni, q) = Pi.shape
         # build [ [K P] ; [P' 0] ]
-        LHS = jnp.vstack((\
-                    jnp.hstack((Kii, Pi)),
-                    jnp.hstack((Pi.transpose(), jnp.zeros((q, q))))
-                    ))
-        
+        LHS = jnp.vstack((
+            jnp.hstack((Kii, Pi)),
+            jnp.hstack((Pi.transpose(), jnp.zeros((q, q))))
+        ))
+
         # RHS
         Kit = self.covariance(xi, xt, self.covparam)
         Pt = self.mean(xt, self.meanparam)
@@ -69,22 +77,26 @@ class Model:
 
         lambda_t = lambdamu_t[0:ni, :]
 
-        zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=True)
-        zt_posterior_variance = zt_prior_variance - jnp.einsum('i..., i...', lambdamu_t, RHS)
+        zt_prior_variance = self.covariance(xt,
+                                            None,
+                                            self.covparam,
+                                            pairwise=True)
+        zt_posterior_variance = zt_prior_variance - jnp.einsum(
+            'i..., i...', lambdamu_t, RHS)
 
         return lambda_t, zt_posterior_variance
-        
+
     def predict(self, xi, zi, xt, return_lambdas=False):
         """Performs a prediction at target points xt given the data (xi, zi).
 
         Parameters
         ----------
         xi : ndarray(ni,dim)
-            _description_
+            observation points
         zi : ndarray(ni,1)
-            _description_
+            observed values
         xt : ndarray(nt,dim)
-            _description_
+            prediction points
         return_lambdas : bool, optional
             Set return_lambdas=True if lambdas should be returned, by default False
 
@@ -94,7 +106,7 @@ class Model:
             2d array of shape nt x 1
         z_posterior variance : ndarray
             2d array of shape nt x 1
-        
+
         Notes
         -----
         From a Bayesian point of view, the outputs are
@@ -103,10 +115,11 @@ class Model:
         """
 
         if self.mean is None:
-            lambda_t, zt_posterior_variance = self.kriging_predictor_with_zero_mean(xi, xt)
+            lambda_t, zt_posterior_variance = \
+                self.kriging_predictor_with_zero_mean(xi, xt)
         else:
             lambda_t, zt_posterior_variance = self.kriging_predictor(xi, xt)
-        
+
         # posterior mean
         zt_posterior_mean = jnp.einsum('i..., i...', lambda_t, zi)
 
@@ -135,10 +148,9 @@ class Model:
 
         # zloo_i = z_i - e_loo,i
         zloo = zi - eloo
-        
+
         return zloo, sigma2loo, eloo
 
-        
     def loo(self, xi, zi):
 
         n = xi.shape[0]
@@ -176,17 +188,17 @@ class Model:
 
         Parameters
         ----------
-        xi : _type_
-            _description_
-        zi : _type_
-            _description_
+        xi : ndarray(ni,d)
+            points
+        zi : ndarray(ni,1)
+            values
         covparam : _type_
             _description_
 
         Returns
         -------
-        _type_
-            _description_
+        nll : scalar
+            negative log likelihood
         """
         K = self.covariance(xi, xi, covparam)
         n = K.shape[0]
@@ -200,23 +212,23 @@ class Model:
         L = 1 / 2 * (n * jnp.log(2 * jnp.pi) + ldetK + norm2)
 
         return L.reshape(())
-    
+
     def negative_log_restricted_likelihood(self, xi, zi, covparam):
         """Computes the negative log- restricted likelihood of the model
 
         Parameters
         ----------
-        xi : _type_
-            _description_
-        zi : _type_
-            _description_
+        xi : ndarray(ni,d)
+            points
+        zi : ndarray(ni,1)
+            values
         covparam : _type_
             _description_
 
         Returns
         -------
-        _type_
-            _description_
+        nll : scalar
+            negative log likelihood
         """
         K = self.covariance(xi, xi, covparam)
         P = self.mean(xi, self.meanparam)
@@ -244,7 +256,7 @@ class Model:
         norm2 = jnp.einsum('i..., i...', Wzi, WKWinv_Wzi)
 
         L = 1 / 2 * ((n - q) * jnp.log(2 * jnp.pi) + ldetWKW + norm2)
-        
+
         return L.reshape(())
 
     def make_ml_criterion(self, xi, zi):
@@ -252,10 +264,10 @@ class Model:
 
         Parameters
         ----------
-        xi : _type_
-            _description_
-        zi : _type_
-            _description_
+        xi : ndarray(ni, d)
+            points
+        zi : ndarray(ni, 1)
+            values
 
         Returns
         -------
@@ -264,7 +276,8 @@ class Model:
         _type_
             maximum likelihood criterion's gradient
         """
-        nll = jax.jit(lambda covparam: self.negative_log_likelihood(xi, zi, covparam))
+        nll = jax.jit(
+            lambda covparam: self.negative_log_likelihood(xi, zi, covparam))
         dnll = jax.grad(nll)
         return nll, dnll
 
@@ -273,10 +286,10 @@ class Model:
 
         Parameters
         ----------
-        xi : _type_
-            _description_
-        zi : _type_
-            _description_
+        xi : ndarray(ni, d)
+            points
+        zi : ndarray(ni, 1)
+            values
 
         Returns
         -------
@@ -285,7 +298,8 @@ class Model:
         _type_
             restricted maximum likelihood criterion's gradient
         """
-        nlrel = jax.jit(lambda covparam: self.negative_log_restricted_likelihood(xi, zi, covparam))
+        nlrel = jax.jit(lambda covparam: self.
+                        negative_log_restricted_likelihood(xi, zi, covparam))
         dnlrel = jax.grad(nlrel)
 
         return nlrel, dnlrel
@@ -295,10 +309,10 @@ class Model:
 
         Parameters
         ----------
-        xi : _type_
-            _description_
-        zi : _type_
-            _description_
+        xi : ndarray(ni, d)
+            points
+        zi : ndarray(ni, 1)
+            values
         covparam : _type_
             _description_
 
@@ -318,9 +332,9 @@ class Model:
 
         Parameters
         ----------
-        xi : _type_
+        xi : ndarray(ni, d)
             _description_
-        zi : _type_
+        zi : ndarray(ni, 1)
             _description_
         covparam : _type_
             _description_
@@ -354,11 +368,12 @@ class Model:
         return norm_sqrd
 
     def sample_paths(self, xt, nb_paths):
-        """Generates m sample paths on xt
+        """Generates nb_paths sample paths on xt from the GP model GP(0, k),
+        where k is the covariance specified by Model.covariance
 
         Parameters
         ----------
-        xt : _type_
+        xt : ndarray(nt, 1)
             _description_
         nb_paths : int
             _description_
@@ -367,6 +382,7 @@ class Model:
         -------
         _type_
             _description_
+
         """
         K = self.covariance(xt, xt, self.covparam)
 
@@ -386,25 +402,39 @@ class Model:
                                  zi,
                                  xi_ind,
                                  noisesim=None):
-        """Generates m conditional sample paths on xt
+        """Generates conditionned sample paths on xt from unconditioned
+        sample paths ztsim, using the matrix of kriging weights
+        lambda_t, which is provided by kriging_predictor() or predict().
+
+        Conditioning is done with respect to ni observations, located
+        at the indices given by xi_ind in ztsim, with corresponding
+        observed values zi.
+
+        In the case of noisy observations, user must also provide
+        noisesim, corresponding to simulated noise values.
+
+        NOTE: the function implements "conditioning by kriging" (see,
+        e.g., Chiles and Delfiner, Geostatistics: Modeling Spatial
+        Uncertainty, Wiley, 1999)
 
         Parameters
         ----------
-        ztsim : _type_
-            _description_
-        lambda_t : _type_
-            _description_
-        zi : _type_
-            _description_
-        xi_ind : _type_
-            _description_
-        noisesim : bool, optional
-            _description_, by default None
+        ztsim : ndarray(nt, nb_paths)
+            unconditioned sample paths
+        lambda_t : ndarray(ni, nt)
+            kriging weights
+        zi : ndarray(ni, 1)
+            observed values
+        xi_ind : ndarray(ni, 1, dtype=int)
+            observed indices in ztsim
+        noisesim : ndarray(ni, nb_paths), optional
+            simulated noise values, by default None
 
         Returns
         -------
-        ztsimc : _type_
-            _description_
+        ztsimc : ndarray(nt, nb_paths)
+            conditioned sample paths
+
         """
 
         # dealing with noisy observations?
