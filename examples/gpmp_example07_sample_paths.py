@@ -29,7 +29,7 @@ xt, zt, xi, zi, xi_ind = generate_data()
 ## -- model specification
 
 
-def kernel(x, y, covparamm, pairwise=False):
+def kernel(x, y, covparam, pairwise=False):
     p = 1
     return gp.kernel.maternp_covariance(x, y, p, covparam, pairwise)
 
@@ -54,23 +54,18 @@ fig = gp.misc.plotutils.Figure(isinteractive=True)
 fig.plot(xt, zsim)
 
 
-## -- prediction
+## -- conditional sample paths
 
 zpm, zpv, lambda_t = model.predict(xi, zi, xt, return_lambdas=True)
 
-zpv = np.maximum(zpv, 0)  # zeroes negative variances
-
-
-## -- conditional sample paths
-
-zpsim = model.conditional_sample_paths(zsim, lambda_t, zi, xi_ind)
+zpsim = model.conditional_sample_paths(zsim, xi_ind,  zi, np.arange(xt.shape[0]), lambda_t)
 
 
 ## -- visualization
 
 fig = gp.misc.plotutils.Figure(isinteractive=True)
-fig.plot(xt, zt, 'C2', linewidth=0.5)
-fig.plot(xt, zpsim, 'C0', linewidth=0.5)
+fig.plot(xt, zt, 'C2', linewidth=1)
+fig.plot(xt, zpsim, 'C0', linewidth=1)
 fig.plot(xi, zi, 'rs')
 fig.plotgp(xt, zpm, zpv)
 fig.show()

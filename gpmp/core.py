@@ -398,11 +398,11 @@ class Model:
 
     def conditional_sample_paths(self,
                                  ztsim,
-                                 lambda_t,
-                                 zi,
                                  xi_ind,
-                                 noisesim=None):
-        """Generates conditionned sample paths on xt from unconditioned
+                                 zi,
+                                 xt_ind,
+                                 lambda_t):
+        """Generates conditionnal sample paths on xt from unconditional
         sample paths ztsim, using the matrix of kriging weights
         lambda_t, which is provided by kriging_predictor() or predict().
 
@@ -419,32 +419,26 @@ class Model:
 
         Parameters
         ----------
-        ztsim : ndarray(nt, nb_paths)
-            unconditioned sample paths
-        lambda_t : ndarray(ni, nt)
-            kriging weights
+        ztsim : ndarray(n, nb_paths)
+            Unconditional sample paths
         zi : ndarray(ni, 1)
-            observed values
+            Observed values
         xi_ind : ndarray(ni, 1, dtype=int)
-            observed indices in ztsim
-        noisesim : ndarray(ni, nb_paths), optional
-            simulated noise values, by default None
+            Observed indices in ztsim
+        xt_ind : ndarray(nt, 1, dtype=int)
+            Prediction indices in ztsim
+        lambda_t : ndarray(ni, nt)
+            Kriging weights
 
         Returns
         -------
         ztsimc : ndarray(nt, nb_paths)
-            conditioned sample paths
+            Conditional sample paths
 
         """
 
-        # dealing with noisy observations?
-        noisy = False if noisesim is None else True
-
-        if noisy:
-            d = zi.reshape((-1, 1)) - ztsim[xi_ind, :] - noisesim
-        else:
-            d = zi.reshape((-1, 1)) - ztsim[xi_ind, :]
-
-        ztsimc = ztsim + jnp.einsum('ij,ik->jk', lambda_t, d)
+        d = zi.reshape((-1, 1)) - ztsim[xi_ind, :]
+        
+        ztsimc = ztsim[xt_ind, :] + jnp.einsum('ij,ik->jk', lambda_t, d)
 
         return ztsimc
