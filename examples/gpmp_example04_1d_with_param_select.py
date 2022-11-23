@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import gpmp as gp
 
-# -- dataset
+## -- dataset
 
 
 def generate_data():
@@ -28,14 +28,13 @@ def generate_data():
     ni = 5
     xi = gp.misc.designs.ldrandunif(dim, ni, box)
     zi = gp.misc.testfunctions.twobumps(xi)
-
-    
+   
     return xt, zt, xi, zi
 
 
 xt, zt, xi, zi = generate_data()
 
-# -- model specification
+## -- model specification
 
 
 def constant_mean(x, param):
@@ -52,7 +51,7 @@ covparam0 = None
 
 model = gp.core.Model(constant_mean, kernel, meanparam, covparam0)
 
-# -- automatic selection of parameters using REML
+## -- automatic selection of parameters using REML
 
 covparam0 = gp.kernel.anisotropic_parameters_initial_guess(model, xi, zi)
 
@@ -65,7 +64,7 @@ model.covparam = covparam_reml
 gp.kernel.print_sigma_rho(covparam_reml)
 
 
-# -- plot likelihood profile
+## -- plot likelihood profile
 
 n = 200
 sigma = np.logspace(-0.9, 1.0, n)
@@ -96,14 +95,14 @@ plt.title('log10 of the negative log restricted likelihood')
 plt.colorbar()
 plt.show()
 
-# -- prediction
+## -- prediction
 
 (zpm, zpv) = model.predict(xi, zi, xt)
 
 zpv = np.maximum(zpv, 0)  # zeroes negative variances
 
 fig = gp.misc.plotutils.Figure(isinteractive=True)
-fig.plot(xt, zt, 'k', linewidth=0.5)
+fig.plot(xt, zt, 'k', linewidth=1, linestyle=(0, (5, 5)))
 fig.plotdata(xi, zi)
 fig.plotgp(xt, zpm, zpv, colorscheme='simple')
 fig.xlabel('$x$')

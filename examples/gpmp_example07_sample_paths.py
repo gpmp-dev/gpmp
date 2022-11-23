@@ -9,7 +9,7 @@ import numpy as np
 import jax.numpy as jnp
 import gpmp as gp
 
-# dataset
+## -- dataset
 
 
 def generate_data():
@@ -26,7 +26,7 @@ def generate_data():
 
 xt, zt, xi, zi, xi_ind = generate_data()
 
-# model specification
+## -- model specification
 
 
 def kernel(x, y, covparamm, pairwise=False):
@@ -45,21 +45,29 @@ covparam = jnp.array([math.log(0.5**2), math.log(1 / .7)])
 
 model = gp.core.Model(mean, kernel, meanparam, covparam)
 
-# generate sample paths
+
+## -- generate sample paths
+
 n_samplepaths = 6
 zsim = model.sample_paths(xt, n_samplepaths)
 fig = gp.misc.plotutils.Figure(isinteractive=True)
 fig.plot(xt, zsim)
 
-# prediction
+
+## -- prediction
+
 zpm, zpv, lambda_t = model.predict(xi, zi, xt, return_lambdas=True)
 
 zpv = np.maximum(zpv, 0)  # zeroes negative variances
 
-# conditional sample paths
+
+## -- conditional sample paths
+
 zpsim = model.conditional_sample_paths(zsim, lambda_t, zi, xi_ind)
 
-# visualization
+
+## -- visualization
+
 fig = gp.misc.plotutils.Figure(isinteractive=True)
 fig.plot(xt, zt, 'C2', linewidth=0.5)
 fig.plot(xt, zpsim, 'C0', linewidth=0.5)

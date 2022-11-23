@@ -11,23 +11,27 @@ from scipy.optimize import minimize
 from scipy.special import gammaln
 from math import exp, sqrt
 
-# -- distance
+## -- distance
 
 
 def scale(x, invrho):
-    """...
+    """Scale input points
 
     Parameters
     ----------
-    x : float
-        ...
-    invrho : float
-        ...
+    x : ndarray(n, d)
+        Observation points
+    invrho : ndarray(d), or scalar
+        Inverse of scaling factors
 
     Returns
     -------
-    float
-        ...
+    xs : ndarray(n, d)
+        [ x_{1,1} * invrho_1 ... x_{1,d} * invrho_d 
+          ...
+          x_{n,1} * invrho_1 ... x_{n,d} * invrho_d ]
+
+    Note : If invrho is a scalar the scaling is isotropic
     """
     return invrho * x
 
@@ -103,7 +107,7 @@ def distance_pairwise(x, y, alpha=1e-8):
     return d
 
 
-# -- kernels
+## -- kernels
 
 
 def exponential_kernel(h):
@@ -146,50 +150,119 @@ def matern32_kernel(h):
 def maternp_kernel(p, h):
     """Matérn kernel with half-integer regularity nu = p + 1/2
 
+    See Stein, M. E., 1999, pp. 50, and Abramowitz and Stegun 1965,
+    pp. 374-379, 443-444, Rasmussen and Williams 2006, pp. 85
+
     Parameters
     ----------
     p : int
-        _description_
-    h : numpy.array
-        _description_
+        order
+    h : ndarray(n)
+        distance
 
     Returns
     -------
-    numpy.array
-        _description_
+    k : ndarray(n)
+        Values of the Matérn kernel at h
+
     """
-    ''' Matérn kernel with half-integer regularity nu = p + 1/2'''
     c = 2 * jnp.sqrt(p + 1 / 2)
     polynomial = 0
     for i in range(p + 1):
         polynomial = polynomial + (2 * c * h) ** (p - i) \
-            * exp(gammaln(p + 1) - gammaln(2 * p + 1)
+            * exp(gammaln(p + 1) - gammaln(2 * p + 1) \
                   + gammaln(p + i + 1) - gammaln(i + 1) - gammaln(p - i + 1))
     return jnp.exp(-c * h) * polynomial
 
+
+def maternp_covariance_ii(x, p, param, pairwise=False):
+    """Covariance of the observations at points given by x
+
+       Parameters
+       ----------
+       x : ndarray(nx, d)
+           observation points
+       p : int
+           half-integer regularity nu = p + 1/2
+       param : ndarray(1 + d)
+           sigma2 and range parameters
+       pairwise : boolean
+           whether to return a covariance matrix k(x_i, x_j),
+           for i and j = 1 ... nx, if pairwise is False, or a covariance
+           vector k(x_i, x_i) if pairwise is True
+    """
+    sigma2 = jnp.exp(param[0])
+    invrho = jnp.exp(param[1:])
+    nugget = 10 * jnp.finfo(jnp.float64).eps
+
+    if pairwise:
+        K = sigma2 * jnp.ones((x.shape[0], ))  # nx x 0
+    else:
+        xs = scale(x, invrho)
+        K = distance(xs, xs)  # nx x nx
+        K = sigma2 * maternp_kernel(p, K) + nugget * jnp.eye(K.shape[0])
+
+    return K
+
+def maternp_covariance_it(x, y, p, param, pairwise=False):
+    """Covariance between observations and prediction points
+
+       Parameters
+       ----------
+       x : ndarray(nx, d)
+           observation points
+       y : ndarray(ny, d)
+           observation points
+       p : int
+           half-integer regularity nu = p + 1/2
+       param : ndarray(1 + d)
+           log(sigma2) and log(1/range) parameters
+       pairwise : boolean
+           whether to return a covariance matrix k(x_i, y_j),
+           for i in 1 ... nx and j in 1 ... ny, if pairwise is False,
+           or a covariance vector k(x_i, y_i) if pairwise is True
+    """
+    sigma2 = jnp.exp(param[0])
+    invrho = jnp.exp(param[1:])
+
+    xs = scale(x, invrho)
+    ys = scale(y, invrho)
+    if pairwise:
+        K = distance_pairwise(xs, ys)  # nx x 0
+    else:
+        K = distance(xs, ys)  # nx x ny
+
+    K = sigma2 * maternp_kernel(p, K)
+
+    return K
+    
 
 def maternp_covariance(x, y, p, param, pairwise=False):
     """Matérn covariance function with half-integer regularity nu = p + 1/2
 
     Parameters
     ----------
-    x : ndarray nx x dim
-        _description_
-    y : ndarray ny x dim
-        _description_
-    p : int
-        _description_
-    param : float
-        [log(sigma2) log(1/rho_1) log(1/rho_2) ...]
+       x : ndarray(nx, d)
+           Observation points
+       y : ndarray(ny, d) or None
+           Observation points. If None, it is assumed that y is x
+       p : int
+           Half-integer regularity nu = p + 1/2
+       param : ndarray(1 + d)
+           Covariance parameters
+           [log(sigma2) log(1/rho_1) log(1/rho_2) ...]
+       pairwise : boolean
+           Whether to return a covariance matrix k(x_i, y_j),
+           for i in 1 ... nx and j in 1 ... ny, if pairwise is False,
+           or a covariance vector k(x_i, y_i) if pairwise is True
 
     Returns
     -------
-    float
-        covariance matrix (nx , ny)
+        covariance matrix (nx , ny) or covariance vector if pairwise is True
     
     Notes
     -----
-    an isotropic covariance is obtained if param = [log(sigma2) log(1/rho)]
+    An isotropic covariance is obtained if param = [log(sigma2) log(1/rho)]
     (only one length scale parameter)
     """
     sigma2 = jnp.exp(param[0])
@@ -197,26 +270,12 @@ def maternp_covariance(x, y, p, param, pairwise=False):
     nugget = 10 * jnp.finfo(jnp.float64).eps
 
     if y is x or y is None:
-        if pairwise:
-            K = sigma2 * jnp.ones((x.shape[0], ))  # nx x 0
-        else:
-            xs = scale(x, invrho)
-            K = distance(xs, xs)  # nx x nx
-            K = sigma2 * maternp_kernel(p, K) + nugget * jnp.eye(K.shape[0])
+        return maternp_covariance_ii(x, p, param, pairwise)
     else:
-        xs = scale(x, invrho)
-        ys = scale(y, invrho)
-        if pairwise:
-            K = distance_pairwise(xs, ys)  # nx x 0
-        else:
-            K = distance(xs, ys)  # nx x ny
-
-        K = sigma2 * maternp_kernel(p, K)
-
-    return K
+        return maternp_covariance_it(x, y, p, param, pairwise)
 
 
-# -- parameters
+## -- parameters
 
 
 def anisotropic_parameters_initial_guess_with_zero_mean(model, xi, zi):

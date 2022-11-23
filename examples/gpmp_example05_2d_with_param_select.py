@@ -31,7 +31,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import gpmp as gp
 
-# -- choose test case
+## -- choose test case
 
 casenum = 2
 if casenum == 1:
@@ -46,7 +46,7 @@ elif casenum == 2:
     box = [[-1, -1], [1, 1]]
     ni = 40
 
-# -- compute the function on a 80 x 80 regular grid
+## -- compute the function on a 80 x 80 regular grid
 
 nt = [80, 80]  # Size of the regular grid
 xt = gp.misc.designs.regulargrid(dim, nt, box)
@@ -56,7 +56,7 @@ xi = gp.misc.designs.maximinldlhs(dim, ni, box)
 xi = gp.misc.designs.ldrandunif(dim, ni, box)
 zi = f(xi)
 
-# -- model specification
+## -- model specification
 
 
 def constant_mean(x, param):
@@ -73,7 +73,7 @@ covparam = None
 
 model = gp.core.Model(constant_mean, kernel, meanparam, covparam)
 
-# -- parameter selection
+## -- parameter selection
 
 covparam0 = gp.kernel.anisotropic_parameters_initial_guess(model, xi, zi)
 
@@ -84,13 +84,13 @@ model.covparam = covparam_reml
 
 gp.kernel.print_sigma_rho(covparam_reml)
 
-# -- prediction
+## -- prediction
 
 (zpm, zpv) = model.predict(xi, zi, xt)
 
 zpv = np.maximum(zpv, 0)  # zeroes negative variances
 
-# -- visualization
+## -- visualization
 
 # contour plot
 cmap = plt.get_cmap('PiYG')

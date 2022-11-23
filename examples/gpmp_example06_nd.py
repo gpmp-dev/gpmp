@@ -21,9 +21,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import gpmp as gp
 
-# -- choose test case
-testcase = 2
-if testcase == 1:
+## -- choose test case
+problem = 1
+if problem == 1:
+    problem_name = 'Hartmann4'
     f = gp.misc.testfunctions.hartmann4
     dim = 4
     box = [[0] * 4, [1.0] * 4]
@@ -32,7 +33,8 @@ if testcase == 1:
     nt = 1000
     xt = gp.misc.designs.ldrandunif(dim, nt, box)
 
-if testcase == 2:
+if problem == 2:
+    problem_name = 'Hartmann6'
     f = gp.misc.testfunctions.hartmann6
     dim = 6
     box = [[0] * 6, [1.0] * 6]
@@ -41,7 +43,8 @@ if testcase == 2:
     nt = 1000
     xt = gp.misc.designs.ldrandunif(dim, nt, box)
 
-elif testcase == 3:
+elif problem == 3:
+    problem_name = 'Borehole'
     f = gp.misc.testfunctions.borehole
     dim = 8
     box = [[0.05, 100,   63070,  990,  63.1, 700, 1120, 9855],
@@ -51,7 +54,8 @@ elif testcase == 3:
     nt = 1000
     xt = gp.misc.designs.ldrandunif(dim, nt, box)
 
-elif testcase == 4:
+elif problem == 4:
+    problem_name = 'detpep8d'
     f = gp.misc.testfunctions.detpep8d
     dim = 8
     box = [[0] * 8, [1.0] * 8]
@@ -60,12 +64,12 @@ elif testcase == 4:
     nt = 1000
     xt = gp.misc.designs.ldrandunif(dim, nt, box)
 
-# -- compute the function
+## -- compute the function
 
 zi = f(xi)
 zt = f(xt)
 
-# -- model specification
+## -- model specification
 
 
 def constant_mean(x, param):
@@ -79,7 +83,7 @@ def kernel(x, y, covparam, pairwise=False):
 
 model = gp.core.Model(constant_mean, kernel)
 
-# -- parameter selection
+## -- parameter selection
 
 covparam0 = gp.kernel.anisotropic_parameters_initial_guess(model, xi, zi)
 
@@ -90,12 +94,12 @@ model.covparam = covparam_reml
 
 gp.kernel.print_sigma_rho(covparam_reml)
 
-# -- prediction
+## -- prediction
 
 (zpm, zpv) = model.predict(xi, zi, xt)
 zpv = np.maximum(zpv, 0)
 
-# -- visualization
+## -- visualization
 
 # predictions vs truth
 plt.plot(zt, zpm, 'ko')
@@ -103,6 +107,7 @@ plt.plot(zt, zpm, 'ko')
 xmin = min(xmin, ymin)
 xmax = max(xmax, ymax)
 plt.plot([xmin, xmax], [xmin, xmax], '--')
+plt.title(problem_name)
 plt.show()
 
 # LOO predictions
