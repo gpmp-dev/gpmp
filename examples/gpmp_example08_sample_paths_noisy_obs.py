@@ -65,7 +65,7 @@ def kernel_ii_or_tt(x, param, pairwise=False):
 
     if pairwise:
         # return a vector of covariances between pretictands
-        K = sigma2 * jnp.ones((x.shape[0], )) + x[:, -1]. # nx x 0
+        K = sigma2 * jnp.ones((x.shape[0], )) + x[:, -1]  # nx x 0
     else:
         # return a covariance matrix between observations
         xs = gp.kernel.scale(x[:, :-1], invrho)
@@ -99,7 +99,7 @@ def kernel_it(x, y, param, pairwise=False):
 def kernel(x, y, param, pairwise=False):
 
     if y is x or y is None:
-        return kernel_ii(x, param, pairwise)
+        return kernel_ii_or_tt(x, param, pairwise)
     else:
         return kernel_it(x, y, param, pairwise)
 
@@ -141,7 +141,7 @@ xixt = np.vstack((xi, xt))
 xi_ind = np.arange(ni)
 xt_ind = np.arange(nt) + ni
 
-n_samplepaths = 6
+n_samplepaths = 3
 zsim = model.sample_paths(xixt, n_samplepaths)
 
 fig = gp.misc.plotutils.Figure(isinteractive=True)

@@ -25,7 +25,7 @@ def generate_data():
     xt = gp.misc.designs.regulargrid(dim, nt, box)
     zt = gp.misc.testfunctions.twobumps(xt)
 
-    ni = 5
+    ni = 6
     xi = gp.misc.designs.ldrandunif(dim, ni, box)
     zi = gp.misc.testfunctions.twobumps(xi)
    
@@ -55,7 +55,7 @@ model = gp.core.Model(constant_mean, kernel, meanparam, covparam0)
 
 covparam0 = gp.kernel.anisotropic_parameters_initial_guess(model, xi, zi)
 
-nlrl, dnlrl = model.make_reml_criterion(xi, zi)
+nlrl, dnlrl = gp.kernel.make_reml_criterion(model, xi, zi)
 
 covparam_reml = gp.kernel.autoselect_parameters(covparam0, nlrl, dnlrl)
 

@@ -123,14 +123,14 @@ class Model:
                                                 self.covparam,
                                                 pairwise=True)
             zt_posterior_variance = zt_prior_variance - jnp.einsum(
-                'i..., i...', lambda_t, Kit)
+                'i..., i...', lambdamu_t, RHS)
         elif return_type == 1:
             zt_prior_variance = self.covariance(xt,
                                                 None,
                                                 self.covparam,
                                                 pairwise=False)
             zt_posterior_variance = zt_prior_variance - jnp.matmul(
-                lambda_t.T, RHS)
+                lambdamu_t.T, RHS)
 
         return lambda_t, zt_posterior_variance
 
@@ -306,51 +306,6 @@ class Model:
         L = 1 / 2 * ((n - q) * jnp.log(2 * jnp.pi) + ldetWKW + norm2)
 
         return L.reshape(())
-
-    def make_ml_criterion(self, xi, zi):
-        """maximum likelihood criterion
-
-        Parameters
-        ----------
-        xi : ndarray(ni, d)
-            points
-        zi : ndarray(ni, 1)
-            values
-
-        Returns
-        -------
-        _type_
-            maximum likelihood criterion
-        _type_
-            maximum likelihood criterion's gradient
-        """
-        nll = jax.jit(
-            lambda covparam: self.negative_log_likelihood(xi, zi, covparam))
-        dnll = jax.grad(nll)
-        return nll, dnll
-
-    def make_reml_criterion(self, xi, zi):
-        """restricted maximum likelihood criterion
-
-        Parameters
-        ----------
-        xi : ndarray(ni, d)
-            points
-        zi : ndarray(ni, 1)
-            values
-
-        Returns
-        -------
-        _type_
-            restricted maximum likelihood criterion
-        _type_
-            restricted maximum likelihood criterion's gradient
-        """
-        nlrel = jax.jit(lambda covparam: self.
-                        negative_log_restricted_likelihood(xi, zi, covparam))
-        dnlrel = jax.grad(nlrel)
-
-        return nlrel, dnlrel
 
     def norm_k_sqrd_with_zero_mean(self, xi, zi, covparam):
         """

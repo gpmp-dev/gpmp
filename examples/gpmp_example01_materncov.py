@@ -7,7 +7,7 @@ License: GPLv3 (see LICENSE)
 import numpy as np
 import gpmp as gp
 
-h = np.linspace(-2.0, 2.0, 400)
+h = np.linspace(-2.0, 2.0, 500)
 
 fig = gp.misc.plotutils.Figure()
 

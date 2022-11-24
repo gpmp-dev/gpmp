@@ -86,8 +86,7 @@ model = gp.core.Model(constant_mean, kernel)
 ## -- parameter selection
 
 covparam0 = gp.kernel.anisotropic_parameters_initial_guess(model, xi, zi)
-
-nlrl, dnlrl = model.make_reml_criterion(xi, zi)
+nlrl, dnlrl = gp.kernel.make_reml_criterion(model, xi, zi)
 covparam_reml = gp.kernel.autoselect_parameters(covparam0, nlrl, dnlrl)
 
 model.covparam = covparam_reml

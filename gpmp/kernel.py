@@ -340,6 +340,53 @@ def anisotropic_parameters_initial_guess(model, xi, zi):
     return jnp.concatenate((jnp.array([jnp.log(sigma2_GLS)]), -jnp.log(rho)))
 
 
+def make_ml_criterion(model, xi, zi):
+    """maximum likelihood criterion
+
+    Parameters
+    ----------
+    xi : ndarray(ni, d)
+        points
+    zi : ndarray(ni, 1)
+        values
+
+    Returns
+    -------
+    _type_
+        maximum likelihood criterion
+    _type_
+        maximum likelihood criterion's gradient
+    """
+    nll = jax.jit(
+        lambda covparam: model.negative_log_likelihood(xi, zi, covparam))
+    dnll = jax.grad(nll)
+    return nll, dnll
+
+
+def make_reml_criterion(model, xi, zi):
+    """restricted maximum likelihood criterion
+
+    Parameters
+    ----------
+    xi : ndarray(ni, d)
+        points
+    zi : ndarray(ni, 1)
+        values
+
+    Returns
+    -------
+    _type_
+        restricted maximum likelihood criterion
+    _type_
+        restricted maximum likelihood criterion's gradient
+    """
+    nlrel = jax.jit(lambda covparam: model.
+                    negative_log_restricted_likelihood(xi, zi, covparam))
+    dnlrel = jax.grad(nlrel)
+
+    return nlrel, dnlrel
+
+
 def autoselect_parameters(p0, criterion, gradient):
     """Automatic parameters selection
 
