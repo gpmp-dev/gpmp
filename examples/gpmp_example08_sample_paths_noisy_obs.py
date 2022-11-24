@@ -46,12 +46,13 @@ xt, zt, xi, zi = generate_data()
 ## -- model specification
 
 
-def kernel_ii(x, param, pairwise=False):
+def kernel_ii_or_tt(x, param, pairwise=False):
     """Covariance of the observations at points given by x
     Parameters
     ----------
     x : ndarray(n, d + 1)
-        Data points in dimension d. The last column is the noise variance at the location.
+        Data points in dimension d. The last column is the noise
+        variance at the location.
     param : ndarray(1 + d)
         sigma2 and range parameters
 
@@ -63,10 +64,10 @@ def kernel_ii(x, param, pairwise=False):
     noise_variance = jnp.exp(param[2])
 
     if pairwise:
-        # return a vector of covariances
-        K = sigma2 * jnp.ones((x.shape[0], ))  # nx x 0
+        # return a vector of covariances between pretictands
+        K = sigma2 * jnp.ones((x.shape[0], )) + x[:, -1]. # nx x 0
     else:
-        # return a covariance matrix
+        # return a covariance matrix between observations
         xs = gp.kernel.scale(x[:, :-1], invrho)
         K = gp.kernel.distance(xs, xs)  # nx x nx
         K = sigma2 * gp.kernel.maternp_kernel(p, K) \

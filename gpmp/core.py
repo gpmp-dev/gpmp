@@ -3,6 +3,7 @@
 # Copyright (c) 2022, CentraleSupelec
 # License: GPLv3 (see LICENSE)
 # --------------------------------------------------------------
+import warnings
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as linalg
@@ -38,25 +39,61 @@ class Model:
         output = str("<gpmp.core.Model object>")
         return output
 
-    def kriging_predictor_with_zero_mean(self, xi, xt):
+    def kriging_predictor_with_zero_mean(self, xi, xt, return_type=0):
+        """Compute the kriging predictor with zero mean
+        """
         Kii = self.covariance(xi, xi, self.covparam)
         Kit = self.covariance(xi, xt, self.covparam)
+
         lambda_t = linalg.solve(Kii,
                                 Kit,
                                 sym_pos=True,
                                 overwrite_a=True,
                                 overwrite_b=True)
 
-        zt_prior_variance = self.covariance(xt,
-                                            None,
-                                            self.covparam,
-                                            pairwise=True)
-        zt_posterior_variance = zt_prior_variance - jnp.einsum(
-            'i..., i...', lambda_t, Kit)
+        if return_type == -1:
+            zt_posterior_variance = None
+        elif return_type == 0:
+            zt_prior_variance = self.covariance(xt,
+                                                None,
+                                                self.covparam,
+                                                pairwise=True)
+            zt_posterior_variance = zt_prior_variance - jnp.einsum(
+                'i..., i...', lambda_t, Kit)
+        elif return_type == 1:
+            zt_prior_variance = self.covariance(xt,
+                                                None,
+                                                self.covparam,
+                                                pairwise=False)
+            zt_posterior_variance = zt_prior_variance - jnp.matmul(
+                lambda_t.T, Kit)
 
         return lambda_t, zt_posterior_variance
 
-    def kriging_predictor(self, xi, xt):
+    def kriging_predictor(self, xi, xt, return_type=0):
+        """Compute the kriging predictor with non-zero mean
+
+        Parameters
+        ----------
+        xi : ndarray(ni, d)
+            Observation points
+        xt : ndarray(nt, d)
+            Prediction points
+        return_type : -1, 0 or 1
+            If -1, returned posterior variance is None. If 0
+            (default), return the posterior variance at points xt. If
+            1, return the posterior covariance.
+
+        Notes
+        -----
+        If return_type==1, then the covariance function k must be
+        built so that k(xi, xi, covparam) returns the covariance
+        matrix of observations, and k(xt, xt, covparam) returns the
+        covariance matrix of the predictands. This means that the
+        information of which are the observation points and which are
+        the prediction points must be coded in xi / xt
+
+        """
         # LHS
         Kii = self.covariance(xi, xi, self.covparam)
         Pi = self.mean(xi, self.meanparam)
@@ -77,12 +114,23 @@ class Model:
 
         lambda_t = lambdamu_t[0:ni, :]
 
-        zt_prior_variance = self.covariance(xt,
-                                            None,
-                                            self.covparam,
-                                            pairwise=True)
-        zt_posterior_variance = zt_prior_variance - jnp.einsum(
-            'i..., i...', lambdamu_t, RHS)
+        # posterior variance
+        if return_type == -1:
+            zt_posterior_variance = None
+        elif return_type == 0:
+            zt_prior_variance = self.covariance(xt,
+                                                None,
+                                                self.covparam,
+                                                pairwise=True)
+            zt_posterior_variance = zt_prior_variance - jnp.einsum(
+                'i..., i...', lambda_t, Kit)
+        elif return_type == 1:
+            zt_prior_variance = self.covariance(xt,
+                                                None,
+                                                self.covparam,
+                                                pairwise=False)
+            zt_posterior_variance = zt_prior_variance - jnp.matmul(
+                lambda_t.T, RHS)
 
         return lambda_t, zt_posterior_variance
 
@@ -367,7 +415,7 @@ class Model:
 
         return norm_sqrd
 
-    def sample_paths(self, xt, nb_paths):
+    def sample_paths(self, xt, nb_paths, check_result=True):
         """Generates nb_paths sample paths on xt from the GP model GP(0, k),
         where k is the covariance specified by Model.covariance
 
@@ -387,8 +435,13 @@ class Model:
         K = self.covariance(xt, xt, self.covparam)
 
         # Cholesky factorization of the covariance matrix
+
         (C, lower) = linalg.cho_factor(K)
 
+        if check_result:
+            if jnp.isnan(C).any():
+                warnings.warn('Cholesky factorization failed. Consider using jitter.', RuntimeWarning)
+        
         # Generates samplepaths
         key = jax.random.PRNGKey(0)
         zsim = jnp.einsum('ki,kj->ij', C,
@@ -408,14 +461,12 @@ class Model:
 
         Conditioning is done with respect to ni observations, located
         at the indices given by xi_ind in ztsim, with corresponding
-        observed values zi.
-
-        In the case of noisy observations, user must also provide
-        noisesim, corresponding to simulated noise values.
+        observed values zi. xt_ind specifies indices in ztsim
+        corresponding to conditional simulation points.
 
         NOTE: the function implements "conditioning by kriging" (see,
         e.g., Chiles and Delfiner, Geostatistics: Modeling Spatial
-        Uncertainty, Wiley, 1999)
+        Uncertainty, Wiley, 1999).
 
         Parameters
         ----------
@@ -433,12 +484,12 @@ class Model:
         Returns
         -------
         ztsimc : ndarray(nt, nb_paths)
-            Conditional sample paths
+            Conditional sample paths at xt
 
         """
 
         d = zi.reshape((-1, 1)) - ztsim[xi_ind, :]
-        
+
         ztsimc = ztsim[xt_ind, :] + jnp.einsum('ij,ik->jk', lambda_t, d)
 
         return ztsimc

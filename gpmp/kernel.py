@@ -175,8 +175,8 @@ def maternp_kernel(p, h):
     return jnp.exp(-c * h) * polynomial
 
 
-def maternp_covariance_ii(x, p, param, pairwise=False):
-    """Covariance of the observations at points given by x
+def maternp_covariance_ii_or_tt(x, p, param, pairwise=False):
+    """Covariance between observations or predictands at x
 
        Parameters
        ----------
@@ -258,7 +258,7 @@ def maternp_covariance(x, y, p, param, pairwise=False):
 
     Returns
     -------
-        covariance matrix (nx , ny) or covariance vector if pairwise is True
+    Covariance matrix (nx , ny) or covariance vector if pairwise is True
     
     Notes
     -----
@@ -270,7 +270,7 @@ def maternp_covariance(x, y, p, param, pairwise=False):
     nugget = 10 * jnp.finfo(jnp.float64).eps
 
     if y is x or y is None:
-        return maternp_covariance_ii(x, p, param, pairwise)
+        return maternp_covariance_ii_or_tt(x, p, param, pairwise)
     else:
         return maternp_covariance_it(x, y, p, param, pairwise)
 

@@ -76,8 +76,8 @@ def constant_mean(x, param):
     return jnp.ones((x.shape[0], 1))
 
 
-def kernel_ii(x, param, pairwise=False):
-    """Covariance of the observations at points given by x
+def kernel_ii_or_tt(x, param, pairwise=False):
+    """Covariance between observations or predictands at x
     """
     # parameters
     p = 2
@@ -86,10 +86,10 @@ def kernel_ii(x, param, pairwise=False):
     nugget = 100 * gp.eps
 
     if pairwise:
-        # return a vector of covariances
+        # return a vector of covariances between pretictands
         K = sigma2 * jnp.ones((x.shape[0], ))  # nx x 0
     else:
-        # return a covariance matrix
+        # return a covariance matrix between observations
         xs = gp.kernel.scale(x, invrho)
         K = gp.kernel.distance(xs, xs)  # nx x nx
         K = sigma2 * gp.kernel.maternp_kernel(p, K) \
@@ -121,7 +121,7 @@ def kernel_it(x, y, param, pairwise=False):
 def kernel(x, y, param, pairwise=False):
 
     if y is x or y is None:
-        return kernel_ii(x, param, pairwise)
+        return kernel_ii_or_tt(x, param, pairwise)
     else:
         return kernel_it(x, y, param, pairwise)
 
