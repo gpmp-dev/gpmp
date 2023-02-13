@@ -134,7 +134,7 @@ class Model:
 
         return lambda_t, zt_posterior_variance
 
-    def predict(self, xi, zi, xt, return_lambdas=False):
+    def predict(self, xi, zi, xt, return_lambdas=False, zero_neg_variances=True):
         """Performs a prediction at target points xt given the data (xi, zi).
 
         Parameters
@@ -147,6 +147,8 @@ class Model:
             prediction points
         return_lambdas : bool, optional
             Set return_lambdas=True if lambdas should be returned, by default False
+        zero_neg_variances : bool, optional
+            Whether to zero negative posterior variances (due to numerical errors), default=True
 
         Returns
         -------
@@ -167,6 +169,11 @@ class Model:
                 self.kriging_predictor_with_zero_mean(xi, xt)
         else:
             lambda_t, zt_posterior_variance = self.kriging_predictor(xi, xt)
+
+        if jnp.any(zt_posterior_variance < 0):
+            warnings.warn('Negative variances detected. Consider using jitter.', RuntimeWarning)
+        if zero_neg_variances:
+            zt_posterior_variance = jnp.maximum(zt_posterior_variance, 0)
 
         # posterior mean
         zt_posterior_mean = jnp.einsum('i..., i...', lambda_t, zi)

@@ -3,6 +3,7 @@
 # Copyright (c) 2022, CentraleSupelec
 # License: GPLv3 (see LICENSE)
 ## --------------------------------------------------------------
+import time
 from functools import partial
 import numpy as np
 import jax
@@ -387,7 +388,7 @@ def make_reml_criterion(model, xi, zi):
     return nlrel, dnlrel
 
 
-def autoselect_parameters(p0, criterion, gradient):
+def autoselect_parameters(p0, criterion, gradient, silent=True, return_info=False):
     """Automatic parameters selection
 
     Parameters
@@ -398,6 +399,8 @@ def autoselect_parameters(p0, criterion, gradient):
         _description_
     gradient : _type_
         _description_
+    silent : Boolean
+    return_info : Boolean
 
     Returns
     -------
@@ -409,6 +412,21 @@ def autoselect_parameters(p0, criterion, gradient):
         p0 = jnp.asarray(p0)
     gradient_asnumpy = lambda p: np.array(jnp.asarray(gradient(p)))
 
+    options = {
+        'disp': False,
+        'maxcor': 20,
+        'ftol': 1e-06,
+        'gtol': 1e-05,
+        'eps': 1e-08,
+        'maxfun': 15000,
+        'maxiter': 15000,
+        'iprint': -1,
+        'maxls': 40,
+        'finite_diff_rel_step': None
+    }
+    if silent is False:
+        options['disp'] = True
+    
     r = minimize(criterion,
                  p0,
                  args=(),
@@ -417,28 +435,85 @@ def autoselect_parameters(p0, criterion, gradient):
                  bounds=None,
                  tol=None,
                  callback=None,
-                 options={
-                     'disp': True,
-                     'maxcor': 20,
-                     'ftol': 1e-06,
-                     'gtol': 1e-05,
-                     'eps': 1e-08,
-                     'maxfun': 15000,
-                     'maxiter': 15000,
-                     'iprint': -1,
-                     'maxls': 40,
-                     'finite_diff_rel_step': None
-                 })
+                 options=options)
 
     best = r.x
 
-    return best
+    if return_info:
+        return best, r
+    else:
+        return best
+
+def select_parameters_with_reml(model, xi, zi, return_info=False):
+    """Parameters selection with REML
+
+    Parameters
+    ----------
+    model : _type_
+        _description_
+    xi : _type_
+        _description_
+    zi : _type_
+        _description_
+
+    Returns
+    -------
+    _type_
+        _description_
+    """
+    tic = time.time()
+    
+    covparam0 = anisotropic_parameters_initial_guess(model, xi, zi)
+
+    nlrl, dnlrl = make_reml_criterion(model, xi, zi)
+
+    covparam_reml, info = autoselect_parameters(covparam0, nlrl, dnlrl, silent=True, return_info=True)
+    # NB: info is essentially a dict with attribute accessors
+    
+    model.covparam = covparam_reml
+
+    if return_info:
+        info['covparam0'] = covparam0
+        info['covparam'] = covparam_reml
+        info['selection_criterion'] = nlrl
+        info['time'] = time.time() - tic
+        return model, info
+    else:
+        return model
 
 
-def print_sigma_rho(covparam):
-    print("sigma      : {}".format(jnp.exp(0.5 * covparam[0])))
-    rho_str = "rho [ {:2d} ] : {}".format(0, jnp.exp(-covparam[1]))
-    for i in range(covparam.size - 2):
-        rho_str += "\n    [ {:2d} ] : {}".format(i + 1,
-                                                 jnp.exp(-covparam[i + 2]))
-    print(rho_str)
+def update_parameters_with_reml(model, xi, zi, return_info=False):
+    """Parameters selection with REML
+
+    Parameters
+    ----------
+    model : _type_
+        _description_
+    xi : _type_
+        _description_
+    zi : _type_
+        _description_
+
+    Returns
+    -------
+    _type_
+        _description_
+    """
+    tic = time.time()
+    
+    covparam0 = model.covparam
+
+    nlrl, dnlrl = make_reml_criterion(model, xi, zi)
+
+    covparam_reml, info = autoselect_parameters(covparam0, nlrl, dnlrl, silent=True, return_info=True)
+
+    model.covparam = covparam_reml
+
+    if return_info:
+        info['covparam0'] = covparam0
+        info['covparam'] = covparam_reml
+        info['selection_criterion'] = nlrl
+        info['time'] = time.time() - tic
+        return model, info
+    else:
+        return model
