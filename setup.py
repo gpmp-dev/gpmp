@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(name='gpmp',
-      version='0.9.4',
+      version='0.9.5',
       author='Emmanuel Vazquez',
       author_email='emmanuel.vazquez@centralesupelec.fr',
       description='GPmp: the Gaussian process micro package',
