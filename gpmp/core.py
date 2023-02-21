@@ -40,33 +40,24 @@ class Model:
         return output
 
     def kriging_predictor_with_zero_mean(self, xi, xt, return_type=0):
-        """Compute the kriging predictor with zero mean
-        """
+        """Compute the kriging predictor with zero mean"""
         Kii = self.covariance(xi, xi, self.covparam)
         Kit = self.covariance(xi, xt, self.covparam)
 
-        lambda_t = linalg.solve(Kii,
-                                Kit,
-                                sym_pos=True,
-                                overwrite_a=True,
-                                overwrite_b=True)
+        lambda_t = linalg.solve(
+            Kii, Kit, sym_pos=True, overwrite_a=True, overwrite_b=True
+        )
 
         if return_type == -1:
             zt_posterior_variance = None
         elif return_type == 0:
-            zt_prior_variance = self.covariance(xt,
-                                                None,
-                                                self.covparam,
-                                                pairwise=True)
+            zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=True)
             zt_posterior_variance = zt_prior_variance - jnp.einsum(
-                'i..., i...', lambda_t, Kit)
+                "i..., i...", lambda_t, Kit
+            )
         elif return_type == 1:
-            zt_prior_variance = self.covariance(xt,
-                                                None,
-                                                self.covparam,
-                                                pairwise=False)
-            zt_posterior_variance = zt_prior_variance - jnp.matmul(
-                lambda_t.T, Kit)
+            zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=False)
+            zt_posterior_variance = zt_prior_variance - jnp.matmul(lambda_t.T, Kit)
 
         return lambda_t, zt_posterior_variance
 
@@ -99,10 +90,9 @@ class Model:
         Pi = self.mean(xi, self.meanparam)
         (ni, q) = Pi.shape
         # build [ [K P] ; [P' 0] ]
-        LHS = jnp.vstack((
-            jnp.hstack((Kii, Pi)),
-            jnp.hstack((Pi.transpose(), jnp.zeros((q, q))))
-        ))
+        LHS = jnp.vstack(
+            (jnp.hstack((Kii, Pi)), jnp.hstack((Pi.transpose(), jnp.zeros((q, q)))))
+        )
 
         # RHS
         Kit = self.covariance(xi, xt, self.covparam)
@@ -118,19 +108,13 @@ class Model:
         if return_type == -1:
             zt_posterior_variance = None
         elif return_type == 0:
-            zt_prior_variance = self.covariance(xt,
-                                                None,
-                                                self.covparam,
-                                                pairwise=True)
+            zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=True)
             zt_posterior_variance = zt_prior_variance - jnp.einsum(
-                'i..., i...', lambdamu_t, RHS)
+                "i..., i...", lambdamu_t, RHS
+            )
         elif return_type == 1:
-            zt_prior_variance = self.covariance(xt,
-                                                None,
-                                                self.covparam,
-                                                pairwise=False)
-            zt_posterior_variance = zt_prior_variance - jnp.matmul(
-                lambdamu_t.T, RHS)
+            zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=False)
+            zt_posterior_variance = zt_prior_variance - jnp.matmul(lambdamu_t.T, RHS)
 
         return lambda_t, zt_posterior_variance
 
@@ -165,18 +149,21 @@ class Model:
         """
 
         if self.mean is None:
-            lambda_t, zt_posterior_variance = \
-                self.kriging_predictor_with_zero_mean(xi, xt)
+            lambda_t, zt_posterior_variance = self.kriging_predictor_with_zero_mean(
+                xi, xt
+            )
         else:
             lambda_t, zt_posterior_variance = self.kriging_predictor(xi, xt)
 
         if jnp.any(zt_posterior_variance < 0):
-            warnings.warn('Negative variances detected. Consider using jitter.', RuntimeWarning)
+            warnings.warn(
+                "In predict: negative variances detected. Consider using jitter.", RuntimeWarning
+            )
         if zero_neg_variances:
             zt_posterior_variance = jnp.maximum(zt_posterior_variance, 0)
 
         # posterior mean
-        zt_posterior_mean = jnp.einsum('i..., i...', lambda_t, zi)
+        zt_posterior_mean = jnp.einsum("i..., i...", lambda_t, zi)
 
         # outputs
         if not return_lambdas:
@@ -218,7 +205,7 @@ class Model:
         Kinv = linalg.cho_solve((C, lower), jnp.eye(n))
         KinvP = linalg.cho_solve((C, lower), P)
 
-        PtKinvP = jnp.einsum('ki, kj->ij', P, KinvP)
+        PtKinvP = jnp.einsum("ki, kj->ij", P, KinvP)
 
         R = linalg.solve(PtKinvP, KinvP.transpose())
         Qinv = Kinv - jnp.matmul(KinvP, R)
@@ -262,7 +249,7 @@ class Model:
 
         ldetK = 2 * jnp.sum(jnp.log(jnp.diag(C)))
         Kinv_zi = linalg.cho_solve((C, lower), zi)
-        norm2 = jnp.einsum('i..., i...', zi, Kinv_zi)
+        norm2 = jnp.einsum("i..., i...", zi, Kinv_zi)
 
         L = 1 / 2 * (n * jnp.log(2 * jnp.pi) + ldetK + norm2)
 
@@ -291,7 +278,7 @@ class Model:
         n, q = Pshape
 
         # Compute a matrix of contrasts
-        [Q, R] = jnp.linalg.qr(P, 'complete')
+        [Q, R] = jnp.linalg.qr(P, "complete")
         W = Q[:, q:n]
 
         # Contrasts (n-q) x 1
@@ -308,7 +295,7 @@ class Model:
 
         # Compute norm2 = (W' zi)' * G^(-1) * (W' zi)
         WKWinv_Wzi = linalg.cho_solve((C, lower), Wzi)
-        norm2 = jnp.einsum('i..., i...', Wzi, WKWinv_Wzi)
+        norm2 = jnp.einsum("i..., i...", Wzi, WKWinv_Wzi)
 
         L = 1 / 2 * ((n - q) * jnp.log(2 * jnp.pi) + ldetWKW + norm2)
 
@@ -334,7 +321,7 @@ class Model:
         K = self.covariance(xi, xi, covparam)
         C, lower = linalg.cho_factor(K)
         Kinv_zi = linalg.cho_solve((C, lower), zi)
-        norm_sqrd = jnp.einsum('i..., i...', zi, Kinv_zi)
+        norm_sqrd = jnp.einsum("i..., i...", zi, Kinv_zi)
         return norm_sqrd
 
     def norm_k_sqrd(self, xi, zi, covparam):
@@ -359,7 +346,7 @@ class Model:
         n, q = P.shape
 
         # Compute a matrix of contrasts
-        [Q, R] = jnp.linalg.qr(P, 'complete')
+        [Q, R] = jnp.linalg.qr(P, "complete")
         W = Q[:, q:n]
 
         # Contrasts (n-q) x 1
@@ -373,11 +360,11 @@ class Model:
 
         # Compute norm_2 = (W' zi)' * G^(-1) * (W' zi)
         WKWinv_Wzi = linalg.cho_solve((C, lower), Wzi)
-        norm_sqrd = jnp.einsum('i..., i...', Wzi, WKWinv_Wzi)
+        norm_sqrd = jnp.einsum("i..., i...", Wzi, WKWinv_Wzi)
 
         return norm_sqrd
 
-    def sample_paths(self, xt, nb_paths, check_result=True):
+    def sample_paths(self, xt, nb_paths, check_result=True, method="chol"):
         """Generates nb_paths sample paths on xt from the GP model GP(0, k),
         where k is the covariance specified by Model.covariance
 
@@ -396,27 +383,27 @@ class Model:
         """
         K = self.covariance(xt, xt, self.covparam)
 
-        # Cholesky factorization of the covariance matrix
+        # Factorization of the covariance matrix
+        if method == "chol":
+            (C, lower) = linalg.cho_factor(K)
+            if check_result:
+                if jnp.isnan(C).any():
+                    raise AssertionError(
+                        "In sample_paths: Cholesky factorization failed. Consider using jitter or the sdv switch."
+                    )
+        elif method == "svd":
+            u, s, vt = jnp.linalg.svd(K, full_matrices=True, hermitian=True)
+            C = jnp.matmul(u * jnp.sqrt(s), vt)
 
-        (C, lower) = linalg.cho_factor(K)
-
-        if check_result:
-            if jnp.isnan(C).any():
-                warnings.warn('Cholesky factorization failed. Consider using jitter.', RuntimeWarning)
-        
         # Generates samplepaths
         key = jax.random.PRNGKey(0)
-        zsim = jnp.einsum('ki,kj->ij', C,
-                          jax.random.normal(key, shape=(K.shape[0], nb_paths)))
+        zsim = jnp.einsum(
+            "ki,kj->ij", C, jax.random.normal(key, shape=(K.shape[0], nb_paths))
+        )
 
         return zsim
 
-    def conditional_sample_paths(self,
-                                 ztsim,
-                                 xi_ind,
-                                 zi,
-                                 xt_ind,
-                                 lambda_t):
+    def conditional_sample_paths(self, ztsim, xi_ind, zi, xt_ind, lambda_t):
         """Generates conditionnal sample paths on xt from unconditional
         sample paths ztsim, using the matrix of kriging weights
         lambda_t, which is provided by kriging_predictor() or predict().
@@ -452,6 +439,6 @@ class Model:
 
         d = zi.reshape((-1, 1)) - ztsim[xi_ind, :]
 
-        ztsimc = ztsim[xt_ind, :] + jnp.einsum('ij,ik->jk', lambda_t, d)
+        ztsimc = ztsim[xt_ind, :] + jnp.einsum("ij,ik->jk", lambda_t, d)
 
         return ztsimc

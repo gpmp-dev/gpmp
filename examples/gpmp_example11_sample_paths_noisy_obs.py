@@ -142,7 +142,7 @@ xi_ind = np.arange(ni)
 xt_ind = np.arange(nt) + ni
 
 n_samplepaths = 3
-zsim = model.sample_paths(xixt, n_samplepaths)
+zsim = model.sample_paths(xixt, n_samplepaths, method='svd')
 
 fig = gp.misc.plotutils.Figure(isinteractive=True)
 fig.plot(xixt[xt_ind, 0], zsim[xt_ind])
