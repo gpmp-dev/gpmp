@@ -1,4 +1,4 @@
-'''Prediction of some classical test functions in dimension > 2
+"""Prediction of some classical test functions in dimension > 2
 
 An anisotropic Matern covariance function is used for the Gaussian
 Process (GP) prior. The parameters of this covariance function
@@ -13,67 +13,63 @@ the data is assumed to be noiseless.
 
 ----
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022, CentraleSupelec
+Copyright (c) 2022-2023, CentraleSupelec
 License: GPLv3 (see LICENSE)
-'''
-
-import numpy as np
-import matplotlib.pyplot as plt
+"""
+import gpmp.num as gnp
 import gpmp as gp
+import matplotlib.pyplot as plt
 
-## -- choose test case
-problem = 1
-if problem == 1:
-    problem_name = 'Hartmann4'
-    f = gp.misc.testfunctions.hartmann4
-    dim = 4
-    box = [[0] * 4, [1.0] * 4]
-    ni = 40
-    xi = gp.misc.designs.ldrandunif(dim, ni, box)
-    nt = 1000
-    xt = gp.misc.designs.ldrandunif(dim, nt, box)
 
-if problem == 2:
-    problem_name = 'Hartmann6'
-    f = gp.misc.testfunctions.hartmann6
-    dim = 6
-    box = [[0] * 6, [1.0] * 6]
-    ni = 500
-    xi = gp.misc.designs.ldrandunif(dim, ni, box)
-    nt = 1000
-    xt = gp.misc.designs.ldrandunif(dim, nt, box)
+def choose_test_case(problem):
+    if problem == 1:
+        problem_name = "Hartmann4"
+        f = gp.misc.testfunctions.hartmann4
+        dim = 4
+        box = [[0.0] * 4, [1.0] * 4]
+        ni = 40
+        xi = gp.misc.designs.ldrandunif(dim, ni, box)
+        nt = 1000
+        xt = gp.misc.designs.ldrandunif(dim, nt, box)
 
-elif problem == 3:
-    problem_name = 'Borehole'
-    f = gp.misc.testfunctions.borehole
-    dim = 8
-    box = [[0.05, 100,   63070,  990,  63.1, 700, 1120, 9855],
-           [0.15, 50000, 115600, 1110, 116,  820, 1680, 12045]]
-    ni = 30
-    xi = gp.misc.designs.maximinldlhs(dim, ni, box)
-    nt = 1000
-    xt = gp.misc.designs.ldrandunif(dim, nt, box)
+    elif problem == 2:
+        problem_name = "Hartmann6"
+        f = gp.misc.testfunctions.hartmann6
+        dim = 6
+        box = [[0.0] * 6, [1.0] * 6]
+        ni = 500
+        xi = gp.misc.designs.ldrandunif(dim, ni, box)
+        nt = 1000
+        xt = gp.misc.designs.ldrandunif(dim, nt, box)
 
-elif problem == 4:
-    problem_name = 'detpep8d'
-    f = gp.misc.testfunctions.detpep8d
-    dim = 8
-    box = [[0] * 8, [1.0] * 8]
-    ni = 60
-    xi = gp.misc.designs.maximinldlhs(dim, ni, box)
-    nt = 1000
-    xt = gp.misc.designs.ldrandunif(dim, nt, box)
+    elif problem == 3:
+        problem_name = "Borehole"
+        f = gp.misc.testfunctions.borehole
+        dim = 8
+        box = [
+            [0.05, 100., 63070., 990., 63.1, 700., 1120., 9855.],
+            [0.15, 50000., 115600., 1110., 116., 820., 1680., 12045.],
+        ]
+        ni = 30
+        xi = gp.misc.designs.maximinldlhs(dim, ni, box)
+        nt = 1000
+        xt = gp.misc.designs.ldrandunif(dim, nt, box)
 
-## -- compute the function
+    elif problem == 4:
+        problem_name = "detpep8d"
+        f = gp.misc.testfunctions.detpep8d
+        dim = 8
+        box = [[0.0] * 8, [1.0] * 8]
+        ni = 60
+        xi = gp.misc.designs.maximinldlhs(dim, ni, box)
+        nt = 1000
+        xt = gp.misc.designs.ldrandunif(dim, nt, box)
 
-zi = f(xi)
-zt = f(xt)
-
-## -- model specification
+    return problem_name, f, dim, box, ni, xi, nt, xt
 
 
 def constant_mean(x, param):
-    return np.ones((x.shape[0], 1))
+    return gnp.ones((x.shape[0], 1))
 
 
 def kernel(x, y, covparam, pairwise=False):
@@ -81,37 +77,38 @@ def kernel(x, y, covparam, pairwise=False):
     return gp.kernel.maternp_covariance(x, y, p, covparam, pairwise)
 
 
-model = gp.core.Model(constant_mean, kernel)
+def visualize_predictions(problem_name, zt, zpm):
+    plt.figure()
+    plt.plot(zt, zpm, "ko")
+    (xmin, xmax), (ymin, ymax) = plt.xlim(), plt.ylim()
+    xmin = min(xmin, ymin)
+    xmax = max(xmax, ymax)
+    plt.plot([xmin, xmax], [xmin, xmax], "--")
+    plt.title(problem_name)
+    plt.show()
 
-## -- parameter selection
 
-covparam0 = gp.kernel.anisotropic_parameters_initial_guess(model, xi, zi)
-nlrl, dnlrl = gp.kernel.make_reml_criterion(model, xi, zi)
-covparam_reml = gp.kernel.autoselect_parameters(covparam0, nlrl, dnlrl)
+def main():
+    problem = 1
+    problem_name, f, dim, box, ni, xi, nt, xt = choose_test_case(problem)
 
-model.covparam = covparam_reml
+    zi = f(xi)
+    zt = f(xt)
 
-gp.kernel.print_sigma_rho(covparam_reml)
+    model = gp.core.Model(constant_mean, kernel)
 
-## -- prediction
+    model, info = gp.kernel.select_parameters_with_reml(model, xi, zi, info=True)
+    gp.misc.modeldiagnosis.diag(model, info, xi, zi)
 
-(zpm, zpv) = model.predict(xi, zi, xt)
-zpv = np.maximum(zpv, 0)
+    (zpm, zpv) = model.predict(xi, zi, xt)
 
-## -- visualization
+    visualize_predictions(problem_name, zt, zpm)
 
-# predictions vs truth
-plt.plot(zt, zpm, 'ko')
-(xmin, xmax), (ymin, ymax) = plt.xlim(), plt.ylim()
-xmin = min(xmin, ymin)
-xmax = max(xmax, ymax)
-plt.plot([xmin, xmax], [xmin, xmax], '--')
-plt.title(problem_name)
-plt.show()
+    zloom, zloov, eloo = model.loo(xi, zi)
+    gp.misc.plotutils.plot_loo(zi, zloom, zloov)
 
-# LOO predictions
-zloom, zloov, eloo = model.loo(xi, zi)
-gp.misc.plotutils.plot_loo(zi, zloom, zloov)
+    gp.misc.plotutils.crosssections(model, xi, zi, box, [0, 1], list(range(dim)))
 
-# cross sections
-gp.misc.plotutils.crosssections(model, xi, zi, box, [0, 1], np.arange(dim))
+
+if __name__ == "__main__":
+    main()

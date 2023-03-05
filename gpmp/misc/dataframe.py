@@ -6,6 +6,20 @@
 
 import numpy as np
 
+def ftos(x, fp=3):
+    abs_x = abs(x)
+    if x == 0:
+        return "0.0"
+    elif abs_x >= 0.1 and abs_x < 1000:
+        return f"{x:.{fp}f}"
+    elif abs_x >= 0.01 and abs_x < 0.1:
+        return f"{x:.{fp+1}f}"
+    else:
+        exponent = int(np.floor(np.log10(abs_x)))
+        coeff = x / 10**exponent
+        return f"{coeff:.{fp}f}e{exponent}"
+
+
 class DataFrame:
     def __init__(self, data, colnames, rownames):
         self.data = np.array(data)
@@ -54,24 +68,11 @@ class DataFrame:
         else:
             raise TypeError("Invalid key type. Must be a tuple or a string.")
 
-    def ftos(self, x):
-        abs_x = abs(x)
-        if x == 0:
-            return "0.0"
-        elif abs_x >= 0.1 and abs_x < 1000:
-            return f"{x:.3f}"
-        elif abs_x >= 0.01 and abs_x < 0.1:
-            return f"{x:.4f}"
-        else:
-            exponent = int(np.floor(np.log10(abs_x)))
-            coeff = x / 10**exponent
-            return f"{coeff:.3f}e{exponent}"
-
     def __repr__(self):
         header = [[''] + self.colnames] 
         rows = header + \
             [[self.rownames[i]+':'] + \
-             [self.ftos(self.data[i, j]) for j in range(self.data.shape[1])] \
+             [ftos(self.data[i, j]) for j in range(self.data.shape[1])] \
              for i in range(self.data.shape[0])]
 
         min_width = 8

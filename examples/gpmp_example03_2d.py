@@ -1,4 +1,5 @@
-'''Gaussian processes in 2D
+"""
+Gaussian processes in 2D
 
 An anisotropic Matern covariance function is used for the Gaussian
 Process (GP) prior. The parameters of this covariance function
@@ -13,7 +14,7 @@ the data is assumed to be noiseless.
 
 ----
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022, CentraleSupelec
+Copyright (c) 2022-2023, CentraleSupelec
 License: GPLv3 (see LICENSE)
 ----
 This example is based on the file stk_example_kb03.m from the STK at
@@ -25,112 +26,118 @@ Original copyright notice:
    Copyright (c) 2015, 2016, 2018 CentraleSupelec
    Copyright (c) 2011-2014 SUPELEC
 ----
-'''
+"""
 
 import numpy as np
-import matplotlib.pyplot as plt
+import gpmp.num as gnp
 import gpmp as gp
-
-## -- choose test case
-
-casenum = 2
-if casenum == 1:
-    f = gp.misc.testfunctions.braninhoo
-    dim = 2
-    box = [[-5, 0], [10, 15]]
-    ni = 20
-
-elif casenum == 2:
-    f = gp.misc.testfunctions.wave
-    dim = 2
-    box = [[-1, -1], [1, 1]]
-    ni = 40
-
-## -- compute the function on a 80 x 80 regular grid
-
-nt = [80, 80]  # Size of the regular grid
-xt = gp.misc.designs.regulargrid(dim, nt, box)
-zt = f(xt)
-
-xi = gp.misc.designs.maximinldlhs(dim, ni, box)
-xi = gp.misc.designs.ldrandunif(dim, ni, box)
-zi = f(xi)
-
-## -- model specification
+import matplotlib.pyplot as plt
 
 
-def constant_mean(x, param):
-    return np.ones((x.shape[0], 1))
+# Test function selection
+def select_test_function(case_num):
+    if case_num == 1:
+        f = gp.misc.testfunctions.braninhoo
+        dim = 2
+        box = [[-5, 0], [10, 15]]
+        ni = 20
+    elif case_num == 2:
+        f = gp.misc.testfunctions.wave
+        dim = 2
+        box = [[-1, -1], [1, 1]]
+        ni = 40
+    return f, dim, box, ni
 
 
-def kernel(x, y, covparam, pairwise=False):
-    p = 6
-    return gp.kernel.maternp_covariance(x, y, p, covparam, pairwise)
+def create_model():
+    def constant_mean(x, param):
+        return gnp.ones((x.shape[0], 1))
+
+    def kernel(x, y, covparam, pairwise=False):
+        p = 6
+        return gp.kernel.maternp_covariance(x, y, p, covparam, pairwise)
+
+    meanparam = None
+    covparam = None
+
+    return gp.core.Model(constant_mean, kernel, meanparam, covparam)
 
 
-meanparam = None
-covparam = None
+def main():
+    case_num = 2
+    f, dim, box, ni = select_test_function(case_num)
 
-model = gp.core.Model(constant_mean, kernel, meanparam, covparam)
+    # Compute the function on a 80 x 80 regular grid
+    nt = [80, 80]
+    xt = gp.misc.designs.regulargrid(dim, nt, box)
+    zt = f(xt)
 
-## -- parameter selection
+    design_type = 'ld'
+    if design_type == 'lhs':
+        xi = gp.misc.designs.maximinlhs(dim, ni, box)
+    elif design_type == 'ld':
+        xi = gp.misc.designs.ldrandunif(dim, ni, box)
+    zi = f(xi)
 
-covparam0 = gp.kernel.anisotropic_parameters_initial_guess(model, xi, zi)
+    model = create_model()
 
-nlrl, dnlrl = gp.kernel.make_reml_criterion(model, xi, zi)
-covparam_reml = gp.kernel.autoselect_parameters(covparam0, nlrl, dnlrl)
+    # Parameter selection
+    covparam0 = gp.kernel.anisotropic_parameters_initial_guess(model, xi, zi)
+    nlrl, dnlrl = gp.kernel.make_selection_criterion_with_gradient(
+        model.negative_log_restricted_likelihood,
+        xi,
+        zi)
+    covparam_reml, info = gp.kernel.autoselect_parameters(covparam0, nlrl, dnlrl, info=True)
+    model.covparam = gnp.asarray(covparam_reml)
+    gp.misc.modeldiagnosis.diag(model, info, xi, zi)
 
-model.covparam = covparam_reml
+    # Prediction
+    (zpm, zpv) = model.predict(xi, zi, xt)
 
-gp.kernel.print_sigma_rho(covparam_reml)
+    # Visualization
+    cmap = plt.get_cmap('PiYG')
+    contour_lines = 30
 
-## -- prediction
+    fig, axes = plt.subplots(nrows=2, ncols=2)
+    data = [zt, zpm, np.abs(zpm - zt), np.sqrt(zpv)]
+    titles = [
+        'function to be approximated',
+        f'approximation from {ni} points',
+        'true approx error',
+        'posterior std'
+    ]
 
-(zpm, zpv) = model.predict(xi, zi, xt)
+    for ax, z, title in zip(axes.flat, data, titles):
+        cs = ax.contourf(xt[:, 0].reshape(nt),
+                         xt[:, 1].reshape(nt),
+                         z.reshape(nt),
+                         levels=contour_lines,
+                         cmap=cmap)
+        ax.plot(xi[:, 0], xi[:, 1], 'ro', label='data')
+        ax.set_title(title)
+        ax.set_xlabel('$x_1$')
+        ax.set_ylabel('$x_2$')
+        ax.legend()
+        fig.colorbar(cs, ax=ax, shrink=0.9)
 
-zpv = np.maximum(zpv, 0)  # zeroes negative variances
+    plt.show()
 
-## -- visualization
+    # Predictions vs truth
+    plt.figure()
+    plt.plot(zt, zpm, 'ko')
+    (xmin, xmax), (ymin, ymax) = plt.xlim(), plt.ylim()
+    xmin = min(xmin, ymin)
+    xmax = max(xmax, ymax)
+    plt.plot([xmin, xmax], [xmin, xmax], '--')
+    plt.xlabel('true values')
+    plt.ylabel('predictions')
+    plt.show()
 
-# contour plot
-cmap = plt.get_cmap('PiYG')
-contour_lines = 30
+    # LOO predictions
+    zloom, zloov, eloo = model.loo(xi, zi)
+    gp.misc.plotutils.plot_loo(zi, zloom, zloov)
 
-fig, axes = plt.subplots(nrows=2, ncols=2)
+    gp.misc.plotutils.crosssections(model, xi, zi, box, [0, 20], [0, 1])
 
-data = [zt, zpm, np.abs(zpm - zt), np.sqrt(zpv)]
-titles = [
-    'function to be approximated', 'approximation from {} points'.format(ni),
-    'true approx error', 'posterior std'
-]
-
-for ax, z, title in zip(axes.flat, data, titles):
-    cs = ax.contourf(xt[:, 0].reshape(nt),
-                     xt[:, 1].reshape(nt),
-                     z.reshape(nt),
-                     levels=contour_lines,
-                     cmap=cmap)
-    ax.plot(xi[:, 0], xi[:, 1], 'ro', label='data')
-    ax.set_title(title)
-    ax.set_xlabel('$x_1$')
-    ax.set_ylabel('$x_2$')
-    ax.legend()
-    fig.colorbar(cs, ax=ax, shrink=0.9)
-
-plt.show()
-
-# predictions vs truth
-plt.plot(zt, zpm, 'ko')
-(xmin, xmax), (ymin, ymax) = plt.xlim(), plt.ylim()
-xmin = min(xmin, ymin)
-xmax = max(xmax, ymax)
-plt.plot([xmin, xmax], [xmin, xmax], '--')
-plt.xlabel('true values')
-plt.ylabel('predictions')
-plt.show()
-
-# LOO predictions
-zloom, zloov, eloo = model.loo(xi, zi)
-gp.misc.plotutils.plot_loo(zi, zloom, zloov)
-
-gp.misc.plotutils.crosssections(model, xi, zi, box, [0, 20], [0, 1])
+if __name__ == '__main__':
+    main()

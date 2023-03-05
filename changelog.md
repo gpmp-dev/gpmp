@@ -1,0 +1,2 @@
+- 0.9.10 add documentation, unit tests, torch 
+- 0.9.0 -> 0.9.5 alpha versions based on JAX

@@ -75,6 +75,7 @@ class Figure:
                mean,
                variance,
                colorscheme='default',
+               rgb_hue=None,
                ax=None,
                fignum=None,
                **kwargs):
@@ -86,7 +87,15 @@ class Figure:
            norminv (1 - 0.01/2)  = 2.575829
            norminv (1 - 0.001/2) = 3.290527
         '''
-        
+        if colorscheme == 'hue':
+            hex_code = '#' + ''.join([format(i, '02x') for i in rgb_hue])
+            mcol = hex_code
+            mwidth = 2.0
+            delta0 = [ 1.959964 ]
+            fillcol = [ hex_code ]
+            alpha = 0.5
+            kwargs['linewidth'] = 0.5
+            drawulb=False
         if colorscheme == 'bw':
             mcol = '#000000'
             mwidth = 2.0
@@ -103,7 +112,7 @@ class Figure:
             alpha = 0.8
             kwargs['linewidth'] = 0.5
             drawulb=False
-        else:
+        if colorscheme == 'default':
             mcol = '#F2404C'
             mwidth = 2.0
             delta0 = [ 3.290527, 2.575829, 1.959964 ]

@@ -1,24 +1,26 @@
-'''Plot and optimize the restricted negative log-likelihood
+"""
+Plot and optimize the restricted negative log-likelihood
 
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022, CentraleSupelec
+Copyright (c) 2022-2023, CentraleSupelec
 License: GPLv3 (see LICENSE)
+"""
 
-'''
-import numpy as np
-import matplotlib.pyplot as plt
+import gpmp.num as gnp
 import gpmp as gp
-
-
-## -- dataset
+import matplotlib.pyplot as plt
 
 
 def generate_data():
-    '''
-    Data generation
-    (xt, zt): target
-    (xi, zi): input dataset
-    '''
+    """
+    Data generation.
+    
+    Returns
+    -------
+    tuple
+        (xt, zt): target data
+        (xi, zi): input dataset
+    """
     dim = 1
     nt = 200
     box = [[-1], [1]]
@@ -32,13 +34,8 @@ def generate_data():
     return xt, zt, xi, zi
 
 
-xt, zt, xi, zi = generate_data()
-
-## -- model specification
-
-
 def constant_mean(x, param):
-    return np.ones((x.shape[0], 1))
+    return gnp.ones((x.shape[0], 1))
 
 
 def kernel(x, y, covparam, pairwise=False):
@@ -46,29 +43,58 @@ def kernel(x, y, covparam, pairwise=False):
     return gp.kernel.maternp_covariance(x, y, p, covparam, pairwise)
 
 
-meanparam = None
-covparam0 = None
-model = gp.core.Model(constant_mean, kernel, meanparam, covparam0)
+def visualize_results(xt, zt, xi, zi, zpm, zpv):
+    """
+    Visualize the results using gp.misc.plotutils (a matplotlib wrapper).
+    
+    Parameters
+    ----------
+    xt : numpy.ndarray
+        Target x values
+    zt : numpy.ndarray
+        Target z values
+    xi : numpy.ndarray
+        Input x values
+    zi : numpy.ndarray
+        Input z values
+    zpm : numpy.ndarray
+        Posterior mean
+    zpv : numpy.ndarray
+        Posterior variance
+    """
+    fig = gp.misc.plotutils.Figure(isinteractive=True)
+    fig.plot(xt, zt, 'k', linewidth=1, linestyle=(0, (5, 5)))
+    fig.plotdata(xi, zi)
+    fig.plotgp(xt, zpm, zpv, colorscheme='simple')
+    fig.xlabel('$x$')
+    fig.ylabel('$z$')
+    fig.title('Posterior GP with parameters selected by ReML')
+    fig.show()
 
-## -- automatic selection of parameters using REML
 
-model, info = gp.kernel.select_parameters_with_reml(model, xi, zi, return_info=True)
+def main():
+    xt, zt, xi, zi = generate_data()
 
-gp.misc.modeldiagnosis.diag(model, info, xi, zi)
+    meanparam = None
+    covparam0 = None
+    model = gp.core.Model(constant_mean, kernel, meanparam, covparam0)
 
-plot_likelihood = True
-if plot_likelihood:
-    gp.misc.modeldiagnosis.plot_likelihood_sigma_rho(model, info)
+    # Automatic selection of parameters using REML
+    model, info = gp.kernel.select_parameters_with_reml(model, xi, zi, info=True)
+    gp.misc.modeldiagnosis.diag(model, info, xi, zi)
 
-## -- prediction
+    # Prediction
+    zpm, zpv = model.predict(xi, zi, xt)
 
-(zpm, zpv) = model.predict(xi, zi, xt)
+    # Visualization
+    print('\nVisualization')
+    print('-------------')
+    plot_likelihood = True
+    if plot_likelihood:
+        gp.misc.modeldiagnosis.plot_likelihood_sigma_rho(model, info)
+        
+    visualize_results(xt, zt, xi, zi, zpm, zpv)
 
-fig = gp.misc.plotutils.Figure(isinteractive=True)
-fig.plot(xt, zt, 'k', linewidth=1, linestyle=(0, (5, 5)))
-fig.plotdata(xi, zi)
-fig.plotgp(xt, zpm, zpv, colorscheme='simple')
-fig.xlabel('$x$')
-fig.ylabel('$z$')
-fig.title('Posterior GP with parameters selected by ReML')
-fig.show()
+
+if __name__ == '__main__':
+    main()

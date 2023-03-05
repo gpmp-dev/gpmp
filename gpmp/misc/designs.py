@@ -1,37 +1,88 @@
 ## --------------------------------------------------------------
 # Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-# Copyright (c) 2022, CentraleSupelec
+# Copyright (c) 2022-2023, CentraleSupelec
 # License: GPLv3 (see LICENSE)
 ## --------------------------------------------------------------
 import numpy as np
 from scipy.stats import qmc
-from ..kernel import distance
+from scipy.spatial.distance import cdist, pdist
 
 
 def maxdist(sample):
-    '''maximum distance / diameter'''
-    D = distance(sample, sample)
+    """
+    Calculate the maximum distance (diameter) between any pair of points in the sample.
+
+    Parameters
+    ----------
+    sample : numpy.ndarray
+        Array of points in the sample.
+
+    Returns
+    -------
+    float
+        Maximum distance between any pair of points in the sample.
+    """
+    D = pdist(sample)
     maxdist = np.max(D)
     return maxdist
 
 
 def mindist(sample):
-    '''minimum / separation distance'''
-    D = distance(sample, sample)
+    """
+    Calculate the minimum distance (separation) between any pair of points in the sample.
+
+    Parameters
+    ----------
+    sample : numpy.ndarray
+        Array of points in the sample.
+
+    Returns
+    -------
+    float
+        Minimum distance between any pair of points in the sample.
+    """
+    D = pdist(sample)
     mindist = np.min(D)
     return mindist
 
 
 def discrepancy(sample):
-    '''discrepancy'''
+    """
+    Calculate the discrepancy of the sample.
+
+    Parameters
+    ----------
+    sample : numpy.ndarray
+        Array of points in the sample.
+
+    Returns
+    -------
+    float
+        Discrepancy value of the sample.
+    """
     return qmc.discrepancy(sample)
 
 
 def filldist_approx(sample, box, n=int(1e6), x=None):
-    '''fill distance approximated using a random uniform discretization
-    of box
+    """
+    Approximate the fill distance using a random uniform discretization of the box.
 
-    '''
+    Parameters
+    ----------
+    sample : numpy.ndarray
+        Array of points in the sample.
+    box : list of lists
+        List of lists containing the lower and upper bounds of the box.
+    n : int, optional
+        Number of points in the random uniform discretization, default is 1e6.
+    x : numpy.ndarray, optional
+        Points in the random uniform discretization, default is None.
+
+    Returns
+    -------
+    float
+        Approximated fill distance.
+    """
     dim = sample.shape[1]
     if x is None:
         x = randunif(dim, n, box)
@@ -39,7 +90,7 @@ def filldist_approx(sample, box, n=int(1e6), x=None):
         n = x.shape[0]
     filldist = 0
     for i in range(n):
-        D = distance(sample, x)
+        D = cdist(sample, x)
         d = np.min(D)
         if d > filldist:
             filldist = d
@@ -47,22 +98,34 @@ def filldist_approx(sample, box, n=int(1e6), x=None):
 
 
 def scale(sample_standard, box):
-    '''map a standard sample in [0,1]^dim to box'''
+    """
+    Map a standard sample in [0, 1]^dim to the given box.
+
+    Parameters
+    ----------
+    sample_standard : numpy.ndarray
+        Array of points in the standard sample.
+    box : list of lists
+        List of lists containing the lower and upper bounds of the box.
+
+    Returns
+    -------
+    numpy.ndarray
+        Sample points mapped to the given box.
+    """
     l_bounds, u_bounds = box[0], box[1]
     sample_box = qmc.scale(sample_standard, l_bounds, u_bounds)
     return sample_box
 
 
 def regulargrid(dim, n, box):
-    """Builds a regular grid
-
-    Builds a regular grid in the DIM-dimensional hyperrectangle 
-    \Prod [xmin_i; xmax_i]. 
+    """
+    Build a regular grid in the dim-dimensional hyperrectangle.
 
     If n is an integer, a grid of size n^dim is built;
 
     If n is a list of length dim, a grid of size prod(n) is built,
-     with n_i points on coordinate i.
+    with n_i points on coordinate i.
 
     The dim-dimensional hyperrectangle is specified by the argument
     box, which is a 2 x dim array where box_(1, i) and box_(2, i) are
@@ -70,17 +133,17 @@ def regulargrid(dim, n, box):
 
     Parameters
     ----------
-    dim : _type_
-        _description_
-    n : _type_
-        _description_
-    box : _type_
-        _description_
+    dim : int
+        Number of dimensions.
+    n : int or list
+        Number of points per dimension or a list with the number of points per dimension.
+    box : list of lists
+        List of lists containing the lower and upper bounds of the box.
 
     Returns
     -------
-    x : _type_
-        regulargrid (dim, n, box)
+    x : numpy.ndarray
+        Regular grid in the dim-dimensional hyperrectangle.
     """
 
     # Read argument 'n'
@@ -94,46 +157,67 @@ def regulargrid(dim, n, box):
     levels = [np.linspace(xmin[i], xmax[i], n[i]) for i in range(dim)]
 
     # Construct a full factorial design x
-    Xv = np.meshgrid(*levels, copy=True, sparse=False, indexing='ij')
+    Xv = np.meshgrid(*levels, copy=True, sparse=False, indexing="ij")
     Xv = np.array(Xv)
 
     N = np.prod(n)
     x = np.zeros((N, dim))
     for i in range(dim):
-        x[:, i] = Xv[i].reshape(N, )
+        x[:, i] = Xv[i].reshape(
+            N,
+        )
 
     return x
 
 
 def randunif(dim, n, box):
-    '''random uniform sample in box'''
-    sample = np.random.rand(n, dim)
-    sample = scale(sample, box)
-    
-    return sample
-
-def ldrandunif(dim, n, box):
-    """low discrepancy random uniform sample in box
+    """
+    Generate a random uniform sample in the specified box.
 
     Parameters
     ----------
     dim : int
-        _description_
+        Number of dimensions.
     n : int
-        _description_
-    box : _type_
-        _description_
+        Number of points in the sample.
+    box : list of lists
+        List of lists containing the lower and upper bounds of the box.
 
     Returns
     -------
-    _type_
-        _description_
-    
+    numpy.ndarray
+        Random uniform sample in the specified box.
+    """
+    sample = np.random.rand(n, dim)
+    sample = scale(sample, box)
+
+    return sample
+
+
+def ldrandunif(dim, n, box, max_iter=50):
+    """
+    Generate a low discrepancy random uniform sample in the specified box.
+
+    Parameters
+    ----------
+    dim : int
+        Number of dimensions.
+    n : int
+        Number of points in the sample.
+    box : list of lists
+        List of lists containing the lower and upper bounds of the box.
+    max_iter : int, optional
+        Maximum number of iterations for optimization, default is 50.
+
+    Returns
+    -------
+    numpy.ndarray
+        Low discrepancy random uniform sample in the specified box.
+
     Notes
     -----
     FIXME: optimization method
     """
-    max_iter = 100
     mindiscrepany = 1e6  # large number
     for i in range(max_iter):
         sample = np.random.rand(n, dim)
@@ -146,11 +230,29 @@ def ldrandunif(dim, n, box):
 
     return sample_ld
 
-def maximinlhs(dim, n, box):
-    ''' maximin low-discrepancy Latin hypercube sampling '''
+
+def maximinlhs(dim, n, box, max_iter=1000):
+    """
+    Generate a maximin Latin Hypercube Sample (LHS) within the specified box.
+
+    Parameters
+    ----------
+    dim : int
+        Number of dimensions.
+    n : int
+        Number of points in the sample.
+    box : list of lists
+        List of lists containing the lower and upper bounds of the box.
+    max_iter : int, optional
+        Maximum number of iterations for finding the sample with the maximum minimum distance, default is 1000.
+
+    Returns
+    -------
+    numpy.ndarray
+        Maximin Latin Hypercube Sample within the specified box.
+    """
     sampler = qmc.LatinHypercube(d=dim, optimization=None)
 
-    max_iter = 20
     maximindist = 0
     for i in range(max_iter):
         sample = sampler.random(n)
@@ -163,11 +265,28 @@ def maximinlhs(dim, n, box):
 
     return sample_maximin
 
-def maximinldlhs(dim, n, box):
-    ''' maximin low-discrepancy Latin hypercube sampling '''
-    sampler = qmc.LatinHypercube(d=dim, optimization='random-cd')
 
-    max_iter = 20
+def maximinldlhs(dim, n, box):
+    """
+    Generate a maximin low-discrepancy Latin Hypercube Sample (LHS) within the specified box.
+
+    Parameters
+    ----------
+    dim : int
+        Number of dimensions.
+    n : int
+        Number of points in the sample.
+    box : list of lists
+        List of lists containing the lower and upper bounds of the box.
+
+    Returns
+    -------
+    numpy.ndarray
+        Maximin low-discrepancy Latin Hypercube Sample within the specified box.
+    """
+    sampler = qmc.LatinHypercube(d=dim, optimization="random-cd")
+
+    max_iter = 10
     maximindist = 0
     for i in range(max_iter):
         sample = sampler.random(n)

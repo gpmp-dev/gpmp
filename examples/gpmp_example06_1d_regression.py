@@ -20,18 +20,19 @@ Original copyright notice:
 '''
 import math
 import numpy as np
-import jax.numpy as jnp
+import gpmp.num as gnp
 import gpmp as gp
 
-## -- dataset
-
-
 def generate_data(noise_std):
-    '''
-    Data generation
-    (xt, zt): target
-    (xi, zi): input dataset
-    '''
+    """
+    Generates a noisy dataset
+
+    Args:
+        noise_std (float): Standard deviation of noise.
+
+    Returns:
+        tuple: (xt, zt, xi, zi) - target and input datasets.
+    """
     dim = 1
     nt = 200
     box = [[-1], [1]]
@@ -45,92 +46,75 @@ def generate_data(noise_std):
     return xt, zt, xi, zi
 
 
-noise_std = 1e-1
-xt, zt, xi, zi = generate_data(noise_std)
-
-## -- model specification
-
-
-def zero_mean(x, param):
-    return None
-
-
-def constant_mean(x, param):
-    return jnp.ones((x.shape[0], 1))
+def constant_mean(x, _):
+    return gnp.ones((x.shape[0], 1))
 
 
 def kernel_ii_or_tt(x, param, pairwise=False):
-    """Covariance between observations or predictands at x
-    """
-    # parameters
     p = 2
-    sigma2 = jnp.exp(param[0])
-    invrho = jnp.exp(param[1])
-    noise_variance = jnp.exp(param[2])
+    sigma2 = gnp.exp(param[0])
+    loginvrho = param[1]
+    noise_variance = gnp.exp(param[2])
 
     if pairwise:
-        # return a vector of covariances between pretictands
-        K = sigma2 * jnp.ones((x.shape[0], ))  # nx x 0
+        K = sigma2 * gnp.ones((x.shape[0], ))
     else:
-        # return a covariance matrix between observations
-        xs = gp.kernel.scale(x, invrho)
-        K = gp.kernel.distance(xs, xs)  # nx x nx
-        K = sigma2 * gp.kernel.maternp_kernel(p, K) \
-            + noise_variance * jnp.eye(K.shape[0])
+        K = gnp.scaled_distance(loginvrho, x, x)
+        K = sigma2 * gp.kernel.maternp_kernel(p, K) + noise_variance * gnp.eye(K.shape[0])
 
     return K
 
 
 def kernel_it(x, y, param, pairwise=False):
-    """Covariance between observations and prediction points
-    """
     p = 2
-    sigma2 = jnp.exp(param[0])
-    invrho = jnp.exp(param[1])
+    sigma2 = gnp.exp(param[0])
+    loginvrho = param[1]
 
-    xs = gp.kernel.scale(x, invrho)
-    ys = gp.kernel.scale(y, invrho)
     if pairwise:
-        # return a vector of covariances
-        K = gp.kernel.distance_pairwise(xs, ys) # nx x 0
+        K = gnp.scaled_distance_elementwise(loginvrho, x, y)
     else:
-        # return a covariance matrix
-        K = gp.kernel.distance(xs, ys)  # nx x ny
+        K = gnp.scaled_distance(loginvrho, x, y)
 
     K = sigma2 * gp.kernel.maternp_kernel(p, K)
     return K
 
 
 def kernel(x, y, param, pairwise=False):
-
     if y is x or y is None:
         return kernel_ii_or_tt(x, param, pairwise)
     else:
         return kernel_it(x, y, param, pairwise)
 
 
-mean = constant_mean
-meanparam = None
+def main():
+    noise_std = 1e-1
+    xt, zt, xi, zi = generate_data(noise_std)
 
-covparam = jnp.array([
-    math.log(0.5**2),  # log(sigma2)
-    math.log(1 / .7),  # log(1/rho)
-    2 * math.log(noise_std)])  # log(noise_variance)
+    mean = constant_mean
+    meanparam = None
 
-model = gp.core.Model(mean, kernel, meanparam, covparam)
+    covparam = gnp.array([
+        math.log(0.5**2),
+        math.log(1 / .7),
+        2 * math.log(noise_std)])
 
-## -- prediction
+    model = gp.core.Model(mean, kernel, meanparam, covparam)
 
-(zpm, zpv) = model.predict(xi, zi, xt)
+    (zpm, zpv) = model.predict(xi, zi, xt)
 
-zpv = np.maximum(zpv, 0)  # zeroes negative variances
+    return xt, zt, xi, zi, zpm, zpv
 
-## -- visualization
 
-fig = gp.misc.plotutils.Figure(isinteractive=True)
-fig.plot(xt, zt, 'C0', linestyle=(0, (5, 5)), linewidth=1)
-fig.plot(xi, zi, 'rs')
-fig.plotgp(xt, zpm, zpv)
-fig.xlabel('x')
-fig.ylabel('z')
-fig.show()
+def visualize(xt, zt, xi, zi, zpm, zpv):
+    fig = gp.misc.plotutils.Figure(isinteractive=True)
+    fig.plot(xt, zt, 'C0', linestyle=(0, (5, 5)), linewidth=1)
+    fig.plot(xi, zi, 'rs')
+    fig.plotgp(xt, zpm, zpv)
+    fig.xlabel('x')
+    fig.ylabel('z')
+    fig.show()
+
+
+if __name__ == "__main__":
+    xt, zt, xi, zi, zpm, zpv = main()
+    visualize(xt, zt, xi, zi, zpm, zpv)

@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(name='gpmp',
-      version='0.9.5',
+      version='0.9.10',
       author='Emmanuel Vazquez',
       author_email='emmanuel.vazquez@centralesupelec.fr',
       description='GPmp: the Gaussian process micro package',
@@ -17,13 +17,11 @@ setup(name='gpmp',
           "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
           "Operating System :: OS Independent",
       ],
-      packages=['gpmp','gpmp/misc', 'test'],
+      packages=['gpmp','gpmp/misc', 'examples', 'tests'],
       license='LICENSE.txt',
       install_requires=[
              "numpy",
              "scipy>=1.8.0",
-             "jaxlib",
-             "jax",
              "matplotlib"
          ],
       python_requires=">=3.6",
