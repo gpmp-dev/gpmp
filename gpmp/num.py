@@ -287,12 +287,8 @@ elif _gpmp_backend_ == 'torch':
                 x = x.detach().clone().requires_grad_(True)
 
             y = f(x)
-            gradients = torch.autograd.grad(y, x)[0]
-
-            if isinstance(x, torch.Tensor):
-                return gradients
-            else:
-                return gradients.numpy()
+            gradients = torch.autograd.grad(y, x, allow_unused=True)[0]
+            return gradients
 
         return f_grad
 

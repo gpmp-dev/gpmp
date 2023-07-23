@@ -7,6 +7,10 @@
 import numpy as np
 
 def ftos(x, fp=3):
+    if x == float('inf'):
+        return "+Inf"
+    elif x == float('-inf'):
+        return "-Inf"
     abs_x = abs(x)
     if x == 0:
         return "0.0"

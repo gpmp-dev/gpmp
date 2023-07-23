@@ -377,8 +377,15 @@ def autoselect_parameters(p0,
         crit_asnumpy = criterion
         gradient_asnumpy = lambda p: gnp.to_np(gradient(p))
     elif gnp._gpmp_backend_ == 'torch':
-        crit_asnumpy = lambda p: criterion(gnp.asarray(p))
-        gradient_asnumpy = lambda p: gradient(gnp.asarray(p))
+        def crit_asnumpy(p):
+            v = criterion(gnp.asarray(p))
+            return v.detach().item()
+        def gradient_asnumpy(p):
+            g = gradient(gnp.asarray(p))
+            if g is None:
+                return gnp.zeros(p.shape)
+            else:
+                return g
     elif gnp._gpmp_backend_ == 'numpy':
         def crit_asnumpy(p):
             try:
