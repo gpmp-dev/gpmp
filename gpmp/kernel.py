@@ -93,11 +93,12 @@ def maternp_kernel(p: int, h):
     half-integer simplification.
 
     """
+    gnp.inftofmax(h)
     c = 2.0 * sqrt(p + 0.5)
     twoch = 2.0 * c * h
     polynomial = gnp.ones(h.shape)
     a = gnp.gammaln(p + 1) - gnp.gammaln(2 * p + 1)
-    for i in np.arange(p):
+    for i in gnp.arange(p):
         log_combination = (
             a
             + gnp.gammaln(p + i + 1)

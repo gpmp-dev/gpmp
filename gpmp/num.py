@@ -27,6 +27,8 @@ if _gpmp_backend_ is None:
 
 print(f"Using backend: {_gpmp_backend_}")
 
+
+# -------------------- NUMPY --------------------
 if _gpmp_backend_ == 'numpy':
     from numpy import array, empty
 
@@ -36,6 +38,7 @@ if _gpmp_backend_ == 'numpy':
         any,
         isscalar,
         isnan,
+        isinf,
         isfinite,
         unique,
         hstack,
@@ -123,7 +126,7 @@ if _gpmp_backend_ == 'numpy':
             d = sqrt(sum(invrho * (xs - ys) ** 2, axis=1))
         return d
 
-
+# -------------------- TORCH --------------------
 elif _gpmp_backend_ == 'torch':
     _gpmp_backend_ = "torch"
     import torch
@@ -137,6 +140,7 @@ elif _gpmp_backend_ == 'torch':
         where,
         any,
         isnan,
+        isinf,
         isfinite,
         unique,
         hstack,
@@ -171,6 +175,7 @@ elif _gpmp_backend_ == 'torch':
     from scipy.special import gammaln
     
     eps = finfo(float64).eps
+    fmax = finfo(float64).max
 
     from torch import cholesky_solve
 
@@ -257,6 +262,10 @@ elif _gpmp_backend_ == 'torch':
         xsorted = torch.sort(x, dim=axis)
         return xsorted.values
 
+    def inftofmax(a):
+        a = torch.where(torch.isinf(a), torch.full_like(a, fmax), a)
+        return a
+
     class normal:
         @staticmethod
         def cdf(x, loc=0.0, scale=1.0):
@@ -311,6 +320,7 @@ elif _gpmp_backend_ == 'torch':
             d = sqrt(sum(invrho * (xs - ys) ** 2, axis=1))
         return d
 
+# -------------------- JAX --------------------
 elif _gpmp_backend_ == 'jax':
     import jax
 
@@ -329,6 +339,7 @@ elif _gpmp_backend_ == 'jax':
         any,
         isscalar,
         isnan,
+        isinf,
         isfinite,
         unique,
         hstack,
