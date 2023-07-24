@@ -49,6 +49,7 @@ if _gpmp_backend_ == 'numpy':
         zeros,
         ones,
         full,
+        full_like,
         eye,
         diag,
         arange,
@@ -88,6 +89,7 @@ if _gpmp_backend_ == 'numpy':
     from scipy.stats import multivariate_normal
 
     eps = finfo(float64).eps
+    fmax = np.finfo(np.float64).max
 
     def asarray(x):
         if isinstance(x, (int, float)):
@@ -103,7 +105,11 @@ if _gpmp_backend_ == 'numpy':
 
     def isarray(x):
         return isinstance(x, numpy.ndarray)
-    
+
+    def inftobigf(a, bigf=fmax/1000.):
+        a = where(np.isinf(a), np.full_like(a, bigf), a)
+        return a
+
     def grad(f):
         return None
 
@@ -262,8 +268,8 @@ elif _gpmp_backend_ == 'torch':
         xsorted = torch.sort(x, dim=axis)
         return xsorted.values
 
-    def inftofmax(a):
-        a = torch.where(torch.isinf(a), torch.full_like(a, fmax), a)
+    def inftobigf(a, bigf=fmax/1000.):
+        a = torch.where(torch.isinf(a), torch.full_like(a, bigf), a)
         return a
 
     class normal:
@@ -350,6 +356,7 @@ elif _gpmp_backend_ == 'jax':
         zeros,
         ones,
         full,
+        full_like,
         eye,
         diag,
         arange,
@@ -388,6 +395,7 @@ elif _gpmp_backend_ == 'jax':
     from scipy.stats import multivariate_normal
     
     eps = finfo(float64).eps
+    fmax = finfo(float64).max
 
     def asarray(x):
         if isinstance(x, (int, float)):
@@ -404,6 +412,10 @@ elif _gpmp_backend_ == 'jax':
     def isarray(x):
         return isinstance(x, jax.numpy.ndarray)
 
+    def inftobigf(a, bigf=fmax/1000.):
+        a = where(isinf(a), full_like(a, bigf), a)
+        return a
+    
     def seed(s):
         return jax.random.PRNGKey(s)
 
@@ -411,7 +423,7 @@ elif _gpmp_backend_ == 'jax':
 
     def randn(*args):
         return jax.random.normal(key, shape=args)
-
+    
     from jax import grad
 
     def cdist(x, y):

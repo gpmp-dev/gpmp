@@ -93,7 +93,7 @@ def maternp_kernel(p: int, h):
     half-integer simplification.
 
     """
-    gnp.inftofmax(h)
+    h = gnp.inftobigf(h)
     c = 2.0 * sqrt(p + 0.5)
     twoch = 2.0 * c * h
     polynomial = gnp.ones(h.shape)
