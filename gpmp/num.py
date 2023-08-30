@@ -1,8 +1,21 @@
-# --------------------------------------------------------------
-# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-# Copyright (c) 2022-2023, CentraleSupelec
-# License: GPLv3 (see LICENSE)
-# --------------------------------------------------------------
+"""
+Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+Copyright (c) 2022-2023, CentraleSupelec
+License: GPLv3 (see LICENSE)
+--------------------------------------------------------------
+
+Description:
+    This module sets and prints the backend to be used by the GPMP (Generic
+    Python Matrix Processing) framework.
+
+    The backend is set by checking for the existence of certain libraries in
+    the system and, if available, sets an environment variable "GPMP_BACKEND" 
+    to the corresponding library's name.
+
+    The priority order for backends is: torch -> jax -> numpy. If neither 
+    torch nor jax are found in the system, numpy is set as the default backend.
+
+"""
 import os
 import importlib
 import numpy
@@ -16,7 +29,7 @@ def set_backend_env_var(backend):
     os.environ["GPMP_BACKEND"] = backend
     _gpmp_backend_ = backend
 
-# autoset backend
+# Automatically set the backend if not already set in the environment.
 if _gpmp_backend_ is None:
     if importlib.util.find_spec("torch") is not None:
         set_backend_env_var("torch")
@@ -134,7 +147,6 @@ if _gpmp_backend_ == 'numpy':
 
 # -------------------- TORCH --------------------
 elif _gpmp_backend_ == 'torch':
-    _gpmp_backend_ = "torch"
     import torch
 
     torch.set_default_tensor_type(torch.DoubleTensor)
