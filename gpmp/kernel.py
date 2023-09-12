@@ -68,6 +68,15 @@ def matern32_kernel(h):
     return (1.0 + t) * gnp.exp(-t)
 
 
+def compute_gammaln(up_to_p):
+    """Compute gammaln values
+    """
+    return [gnp.asarray(gnp.gammaln(i)) for i in range(2 * up_to_p + 2)]
+
+gln = []
+pmax = -1
+
+
 def maternp_kernel(p: int, h):
     """Matérn kernel with half-integer regularity nu = p + 1/2.
 
@@ -93,19 +102,27 @@ def maternp_kernel(p: int, h):
     half-integer simplification.
 
     """
+    global gln, pmax
+
+    # Check if p exceeds pmax and compute gammaln cache if needed
+    if p > pmax:
+        gln = compute_gammaln(p)
+        pmax = p
+
     h = gnp.inftobigf(h)
     c = 2.0 * sqrt(p + 0.5)
     twoch = 2.0 * c * h
     polynomial = gnp.ones(h.shape)
-    a = gnp.gammaln(p + 1) - gnp.gammaln(2 * p + 1)
-    for i in gnp.arange(p):
-        log_combination = (
-            a
-            + gnp.gammaln(p + i + 1)
-            - gnp.gammaln(i + 1)
-            - gnp.gammaln(p - i + 1)
+
+    for i in range(p):
+        exp_log_combination = gnp.exp(
+            gln[p + 1] - gln[2 * p + 1]
+            + gln[p + i + 1]
+            - gln[i + 1]
+            - gln[p - i + 1]
         )
-        polynomial += gnp.exp(log_combination) * twoch**(p-i)
+        twoch_pow = twoch**(p - i)
+        polynomial += exp_log_combination * twoch_pow
 
     return gnp.exp(-c * h) * polynomial
 
