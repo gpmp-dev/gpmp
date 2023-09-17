@@ -6,6 +6,9 @@
 import os
 import sys
 import datetime
+from sphinx.ext import autodoc
+
+sys.path.insert(0, os.path.abspath('..'))
 
 try:
     import importlib.metadata as metadata
@@ -31,10 +34,23 @@ language = "en"
 
 extensions = [
     "sphinx.ext.autodoc",
+    "sphinx.ext.autosummary",
+    'sphinx.ext.intersphinx',
     "sphinx.ext.napoleon",
     "numpydoc",
-    "jupyter_sphinx"
+    'sphinx.ext.viewcode',
+    "jupyter_sphinx",
+    "sphinx.ext.mathjax"
 ]
+
+USE_IMGMATH = False
+if USE_IMGMATH:
+    try:
+        import sphinx.ext.imgmath  # noqa
+    except ImportError:
+        extensions.append('sphinx.ext.pngmath')
+    else:
+        extensions.append('sphinx.ext.imgmath')
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -52,6 +68,14 @@ exclude_patterns = ["images"]
 # https://stylishthemes.github.io/Syntax-Themes/pygments/
 # https://github.com/theacodes/witchhazel
 pygments_style = "witchhazel.WitchHazelStyle"
+
+
+# -- Extensions -------------------------------------------------------------
+
+autosummary_generate = True
+numpydoc_class_members_toctree = False
+imgmath_latex_preamble = r'\usepackage[utf8]{inputenc}'
+
 
 # -- Options for HTML output -------------------------------------------------
 

@@ -47,7 +47,7 @@ def matern32_kernel(h):
 
     .. math::
 
-        K(h) = (1 + 2\sqrt{3/2}h) \exp(-2\sqrt{3/2}h)
+        K(h) = (1 + 2\\sqrt{3/2}h) \\exp(-2\\sqrt{3/2}h)
 
     where `h` represents the distances between points.
 
@@ -61,46 +61,47 @@ def matern32_kernel(h):
     gnp.array, shape (n,)
         An array of the Matérn 3/2 kernel values corresponding to the input distances.
     """
-    nu = 3. / 2.
-    c = 2. * sqrt(nu)
+    nu = 3.0 / 2.0
+    c = 2.0 * sqrt(nu)
     t = c * h
 
     return (1.0 + t) * gnp.exp(-t)
 
 
 def compute_gammaln(up_to_p):
-    """Compute gammaln values
-    """
+    """Compute gammaln values"""
     return [gnp.asarray(gnp.gammaln(i)) for i in range(2 * up_to_p + 2)]
+
 
 gln = []
 pmax = -1
 
 
 def maternp_kernel(p: int, h):
-    """Matérn kernel with half-integer regularity nu = p + 1/2.
+    """
+    Matérn kernel with half-integer regularity nu = p + 1/2.
 
     The Matérn kernel is defined as in Stein 1999, page 50:
 
     .. math::
-        K(h) = \frac{1}{\Gamma(\nu) 2^{\nu - 1}} (\sqrt{2 \nu} h)^\nu K_\nu(\sqrt{2 \nu} h)
+    
+        K(h) = \\frac{1}{\\Gamma(\\nu) 2^{\\nu - 1}} (\\sqrt{2 \\nu} h)^\\nu K_\\nu(\\sqrt{2 \\nu} h)
 
-    where `h` represents the distances between points, `nu` is the
-    regularity of the kernel, `K_nu` is the modified Bessel function
-    of the second kind of order `nu`.
+    Where:
+    - :math:`h` represents the distances between points.
+    - :math:`\\nu` is the regularity of the kernel.
+    - :math:`K_\\nu` is the modified Bessel function of the second kind of order :math:`\\nu`.
 
-    In the particular case of half-integer regularity (nu = p + 1/2),
-    the Matérn kernel simplifies to a product of an exponential term
-    and a polynomial term (Watson 1922, A treatise on the theory of
-    Bessel functions, pp. 80, Abramowitz and Stegun 1965, pp. 374-379,
-    443-444):
+    The implementation provided in this function uses this half-integer simplification.
+
+    In the particular case of half-integer regularity (nu = p + 1/2), the Matérn kernel
+    simplifies to a product of an exponential term and a polynomial term (Watson 1922,
+    A treatise on the theory of Bessel functions, pp. 80, Abramowitz and Stegun 1965, pp. 374-379, 443-444):
 
     .. math::
-        K(h) = \exp(-2\sqrt{\nu}h) \frac{\Gamma(p+1)}{\Gamma(2p+1)}\sum_{i=0}^{p} \frac{(p+i)!}{i!(p-i)!} (4\sqrt{\nu}h)^{p-i}
-
-    The implementation provided in this function uses this
-    half-integer simplification.
-
+    
+        K(h) = \\exp(-2\\sqrt{\\nu}h) \\frac{\\Gamma(p+1)}{\\Gamma(2p+1)} \\sum_{i=0}^{p} \\frac{(p+i)!}{i!(p-i)!} (4\\sqrt{\\nu}h)^{p-i}
+    
     """
     global gln, pmax
 
@@ -116,12 +117,9 @@ def maternp_kernel(p: int, h):
 
     for i in range(p):
         exp_log_combination = gnp.exp(
-            gln[p + 1] - gln[2 * p + 1]
-            + gln[p + i + 1]
-            - gln[i + 1]
-            - gln[p - i + 1]
+            gln[p + 1] - gln[2 * p + 1] + gln[p + i + 1] - gln[i + 1] - gln[p - i + 1]
         )
-        twoch_pow = twoch**(p - i)
+        twoch_pow = twoch ** (p - i)
         polynomial += exp_log_combination * twoch_pow
 
     return gnp.exp(-c * h) * polynomial
@@ -135,7 +133,7 @@ def maternp_covariance_ii_or_tt(x, p, param, pairwise=False):
 
     .. math::
 
-        K_{ij} = \sigma^2  K(h_{ij}) + \epsilon \delta_{ij}
+        K_{ij} = \\sigma^2  K(h_{ij}) + \\epsilon \\delta_{ij}
 
     where `K(h_{ij})` is the Matérn kernel value for the distance `h_{ij}` between points `x_i` and `x_j`,
     `sigma^2` is the variance, `delta_{ij}` is the Kronecker delta, and `epsilon` is a small positive constant.
@@ -222,7 +220,7 @@ def maternp_covariance(x, y, p, param, pairwise=False):
     influence distant points have on each other. The kernel has two
     hyperparameters: the length scale and a smoothness parameter,
     which is typically an integer or half-integer value.
-    
+
     Parameters
     ----------
     x : ndarray, shape (nx, d)
@@ -259,7 +257,7 @@ def maternp_covariance(x, y, p, param, pairwise=False):
 ## -- parameters
 
 
-def anisotropic_parameters_initial_guess_with_zero_mean(model, xi, zi):
+def anisotropic_parameters_initial_guess_zero_mean(model, xi, zi):
     """anisotropic initialization strategy with zero mean
 
     See anisotropic_parameters_initial_guess
@@ -269,7 +267,7 @@ def anisotropic_parameters_initial_guess_with_zero_mean(model, xi, zi):
 
     delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
     d = xi_.shape[1]
-    rho = (gnp.exp(gnp.gammaln(d/2+1))/gnp.pi**(d/2))**(1/d) * delta
+    rho = (gnp.exp(gnp.gammaln(d / 2 + 1)) / gnp.pi ** (d / 2)) ** (1 / d) * delta
 
     covparam = gnp.concatenate((gnp.array([log(1.0)]), -gnp.log(rho)))
     n = xi_.shape[0]
@@ -282,7 +280,11 @@ def anisotropic_parameters_initial_guess_with_zero_mean(model, xi, zi):
 
 def anisotropic_parameters_initial_guess(model, xi, zi):
     """
-    Anisotropic initialization strategy.
+    Anisotropic initialization strategy for parameters of a Gaussian process model.
+
+    Given the observed data points and their values, this function computes an
+    initial guess for the anisotropic parameters. The guess for :math:`\\sigma^2` is
+    initialized using the Generalized Least Squares (GLS) estimate as described below.
 
     Parameters
     ----------
@@ -296,13 +298,36 @@ def anisotropic_parameters_initial_guess(model, xi, zi):
     Returns
     -------
     initial_params : ndarray
-        Initial guess for anisotropic parameters.
+        Initial guess for the anisotropic parameters, comprising the estimate for
+        :math:`\\sigma^2_{GLS}` followed by the estimates for the anisotropic lengthscales.
 
-    References
-    ----------
+    Notes
+    -----
+    The GLS estimate for :math:`\\sigma^2` is given by:
+    
+    .. math::
+
+        \\sigma^2_{GLS} = \\frac{1}{n} \\mathbf{z}^T \\mathbf{K}^{-1} \\mathbf{z}
+    
+    Where:
+    
+    * :math:`n` is the number of data points.
+    * :math:`\\mathbf{z}` is the vector of observed data.
+    * :math:`\\mathbf{K}` is the covariance matrix associated with the data locations.
+    
+    Additionally, the function uses a relation (not from the reference) between :math:`\\rho`
+    and the volume of a ball in dimension :math:`d` for initialization:
+    
+    .. math::
+    
+        V_d(R) = \\frac{\\pi^{d/2} R^d}{\\Gamma(d/2+1)}
+    
+    Where :math:`R` is defined as :math:`\\rho / 2`.
+
     .. [1] Basak, S., Petit, S., Bect, J., & Vazquez, E. (2021).
        Numerical issues in maximum likelihood parameter estimation for
        Gaussian process interpolation. arXiv:2101.09747.
+
     """
 
     xi_ = gnp.asarray(xi)
@@ -310,10 +335,8 @@ def anisotropic_parameters_initial_guess(model, xi, zi):
 
     delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
     d = xi_.shape[1]
-    # the volume of a ball in dim d is V_d(R) = \frac{\pi^{d/2} R^d}{\Gamma(d/2+1)}
-    # taking R = rho / 2, compute rho such that V_d(R) = 2 * delta
-    rho = (gnp.exp(gnp.gammaln(d/2+1))/gnp.pi**(d/2))**(1/d) * delta
-    
+    rho = (gnp.exp(gnp.gammaln(d / 2 + 1)) / gnp.pi ** (d / 2)) ** (1 / d) * delta
+
     covparam = gnp.concatenate((gnp.array([log(1.0)]), -gnp.log(rho)))
     n = xi_.shape[0]
     sigma2_GLS = 1.0 / n * model.norm_k_sqrd(xi_, zi_.reshape((-1,)), covparam)
@@ -356,64 +379,85 @@ def make_selection_criterion_with_gradient(selection_criterion, xi, zi):
     return crit_jit, dcrit
 
 
-def autoselect_parameters(p0,
-                          criterion,
-                          gradient,
-                          bounds=None,
-                          silent=True,
-                          info=False,
-                          method='SLSQP'):
+def autoselect_parameters(
+    p0, criterion, gradient, bounds=None, silent=True, info=False, method="SLSQP"
+):
     """
-    Automatic parameters selection.
+    Optimize parameters using a provided criterion and gradient function.
+
+    This function automatically optimizes the parameters of a given model based on
+    a specified criterion function and its gradient. Different optimization methods
+    can be used based on the `method` argument.
 
     Parameters
     ----------
     p0 : ndarray
         Initial guess of the parameters.
     criterion : function
-        Selection criterion function.
+        Function that computes the selection criterion for a given parameter set.
+        It should take an ndarray of parameters and return a scalar value.
     gradient : function
-        Gradient of the selection criterion function.
-    bounds : sequence, optional
-        Sequence of (min, max) pairs for each parameter. 
-        None is used to specify no bound.
+        Function that computes the gradient of the selection criterion with respect
+        to the parameters. It should take an ndarray of parameters and return an ndarray
+        of the same shape.
+    bounds : sequence of tuple, optional
+        A sequence of (min, max) pairs specifying bounds for each parameter.
+        Use None to indicate no bounds. Default is None.
     silent : bool, optional
-        If True, suppresses output messages. Default is True.
+        If True, suppresses optimization output messages. Default is True.
     info : bool, optional
-        If True, returns additional information. Default is False.
+        If True, returns additional information about the optimization process.
+        Default is False.
+    method : str, optional
+        Optimization method to use. Supported methods are 'L-BFGS-B' and 'SLSQP'.
+        Default is 'SLSQP'.
 
     Returns
     -------
     best : ndarray
-        Best parameters found by the optimization.
-    r : object, optional
-        Additional information about the optimization (if info=True).
+        Array of optimized parameters.
+    r : OptimizeResult, optional
+        A dictionary of optimization information (only if `info=True`). This includes
+        details like the initial parameters, final parameters, selection criterion function,
+        and total time taken for optimization.
+
+    Notes
+    -----
+    The function uses the `minimize` method from `scipy.optimize` for optimization.
+    Depending on the backend (`gnp._gpmp_backend_`), different preparations are made
+    for the criterion and gradient functions to ensure compatibility.
+
     """
     tic = time.time()
-    if gnp._gpmp_backend_ == 'jax':
+    if gnp._gpmp_backend_ == "jax":
         # scipy.optimize.minimize cannot use jax arrays
         crit_asnumpy = criterion
         gradient_asnumpy = lambda p: gnp.to_np(gradient(p))
-    elif gnp._gpmp_backend_ == 'torch':
+    elif gnp._gpmp_backend_ == "torch":
+
         def crit_asnumpy(p):
             v = criterion(gnp.asarray(p))
             return v.detach().item()
+
         def gradient_asnumpy(p):
             g = gradient(gnp.asarray(p))
             if g is None:
                 return gnp.zeros(p.shape)
             else:
                 return g
-    elif gnp._gpmp_backend_ == 'numpy':
+
+    elif gnp._gpmp_backend_ == "numpy":
+
         def crit_asnumpy(p):
             try:
                 J = criterion(p)
             except:
                 J = np.Inf
             return J
+
         gradient_asnumpy = None
 
-    if method == 'L-BFGS-B':
+    if method == "L-BFGS-B":
         options = {
             "disp": False,
             "maxcor": 20,
@@ -426,7 +470,7 @@ def autoselect_parameters(p0,
             "maxls": 40,
             "finite_diff_rel_step": None,
         }
-    elif method == 'SLSQP':
+    elif method == "SLSQP":
         options = {
             "disp": False,
             "ftol": 1e-06,
@@ -435,8 +479,8 @@ def autoselect_parameters(p0,
             "finite_diff_rel_step": None,
         }
     else:
-        raise ValueError('Optmization method not implemented.')
-    
+        raise ValueError("Optmization method not implemented.")
+
     if silent is False:
         options["disp"] = True
 
@@ -451,7 +495,7 @@ def autoselect_parameters(p0,
         callback=None,
         options=options,
     )
-    
+
     best = r.x
     if silent is False:
         print("Gradient")
@@ -459,7 +503,7 @@ def autoselect_parameters(p0,
         if gradient_asnumpy is not None:
             print(gradient_asnumpy(best))
         else:
-            print('gradient not available')    
+            print("gradient not available")
         print(".")
     r.covparam0 = p0
     r.covparam = best
@@ -473,31 +517,51 @@ def autoselect_parameters(p0,
 
 
 def select_parameters_with_reml(model, xi, zi, covparam0=None, info=False, verbosity=0):
-    """Parameters selection with Restricted Maximum Likelihood (REML).
+    """
+    Optimize Gaussian process model parameters using Restricted Maximum Likelihood (REML).
+
+    This function performs parameter optimization for a Gaussian process model using the
+    REML criterion. The function can use a provided initial guess for the covariance
+    parameters or employ a default initialization strategy. Additional information
+    about the optimization can be obtained by setting the `info` parameter to True.
 
     Parameters
     ----------
     model : object
-        Gaussian process model object.
+        Instance of a Gaussian process model that needs parameter optimization.
     xi : ndarray, shape (n, d)
-        Locations of the observed data points.
+        Locations of the observed data points in the input space.
     zi : ndarray, shape (n,)
-        Observed values at the data points.
+        Observed values corresponding to the data points `xi`.
     covparam0 : ndarray, shape (covparam_dim,), optional
-        Initial guess for the covariance parameters. If None,
-        anisotropic_parameters_initial_guess is used. Default is None.
+        Initial guess for the covariance parameters. If not provided, the function
+        defaults to the `anisotropic_parameters_initial_guess` method for initialization.
+        Default is None.
     info : bool, optional
-        If True, returns additional information. Default is False.
-    verbosity : 0, 1, 2, optional
-        If 0, suppresses output messages. Default is 0.
+        Controls the return of additional optimization information. If set to True, the
+        function returns an info dictionary with details about the optimization process.
+        Default is False.
+    verbosity : int, optional, values in {0, 1, 2}
+        Sets the verbosity level for the function.
+        - 0: No output messages (default).
+        - 1: Minimal output messages.
+        - 2: Detailed output messages.
 
     Returns
     -------
     model : object
-        Updated Gaussian process model object with optimized parameters.
+        The input Gaussian process model object, updated with the optimized parameters.
     info_ret : dict, optional
-        Additional information about the optimization (if info=True).
+        A dictionary with additional details about the optimization process. It contains
+        fields like initial parameters (`covparam0`), final optimized parameters
+        (`covparam`), selection criterion used, and the total time taken for optimization.
+        This dictionary is only returned if `info` is set to True.
 
+    Notes
+    -----
+    The optimization process relies on the `autoselect_parameters` function, which in turn
+    uses the scipy's `minimize` function for optimization. Depending on the verbosity
+    level set, this function provides different levels of output during its execution.
     """
     tic = time.time()
 
@@ -510,16 +574,16 @@ def select_parameters_with_reml(model, xi, zi, covparam0=None, info=False, verbo
 
     silent = True
     if verbosity == 1:
-        print('Parameter selection...')
+        print("Parameter selection...")
     elif verbosity == 2:
         silent = False
 
     covparam_reml, info_ret = autoselect_parameters(
         covparam0, nlrl, dnlrl, silent=silent, info=True
     )
-    
+
     if verbosity == 1:
-        print('done.')
+        print("done.")
 
     # NB: info is essentially a dict with attribute accessors
 

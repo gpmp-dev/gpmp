@@ -39,7 +39,7 @@ class Model:
     covparam : array_like, optional
         The parameters for the covariance function, specified as a
         one-dimensional array of values.
-
+    
     Example
     =======
             FIXME

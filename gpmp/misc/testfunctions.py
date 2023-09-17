@@ -74,17 +74,17 @@ def braninhoo(x):
     numpy.array
         A 1D array of shape (n,) containing the Branin-Hoo function values evaluated at the input points.
 
-    References
-    ----------
-    [1] Branin, F. H. and Hoo, S. K. (1972), A Method for Finding Multiple
+    Notes
+    -----
+    .. [1] Branin, F. H. and Hoo, S. K. (1972), A Method for Finding Multiple
         Extrema of a Function of n Variables, in Numerical methods of
         Nonlinear Optimization (F. A. Lootsma, editor, Academic Press,
         London), 231-237.
 
-    [2] Dixon L.C.W., Szego G.P., Towards Global Optimization 2, North-
+    .. [2] Dixon L.C.W., Szego G.P., Towards Global Optimization 2, North-
         Holland, Amsterdam, The Netherlands (1978)
 
-    [3] Surjanovic, S. and Bingham D. (2013), Branin Function,
+    .. [3] Surjanovic, S. and Bingham D. (2013), Branin Function,
         https://www.sfu.ca/~ssurjano/Code/braninm.html
     """
     a = 5.1 / (4 * math.pi**2)
@@ -100,7 +100,7 @@ def hartmann4(x):
     """Hartmann 4-dimensional function [1, 2]
 
     The 4-dimensional Hartmann function is a multimodal function defined
-    on the unit hypercube (i.e., xi in (0, 1), for all i = 1, , 4). It is
+    on the unit hypercube (i.e., xi in (0, 1), for all i = 1, ..., 4). It is
     commonly used as a test problem in global optimization.
 
     Parameters
@@ -114,27 +114,23 @@ def hartmann4(x):
         An array of shape (n_samples,) containing the function values at
         the input points.
 
-    References
-    ----------
-    [1] Dixon, L. C. W., & Szego, G. P. (1978). The global optimization
-        problem: an introduction. Towards global optimization, 2, 1-15.
-
-    [2] Picheny, V., Wagner, T., & Ginsbourger, D. (2012). A benchmark
-        of kriging-based infill criteria for noisy optimization.
-        Based on https://www.sfu.ca/~ssurjano/hart6.html
-
     Notes
     -----
-    Authors: Sonja Surjanovic and Derek Bingham, Simon Fraser University
-
-    Original copyright notice:
-
-    Copyright 2013. Derek Bingham, Simon Fraser University.
-
     The Hartmann 4-dimensional function has 6 local minima and one
     global minimum. The global minimum is located at x* = [0.20169,
     0.15001, 0.47687, 0.27533] and has a function value of f(x*) = -3.86278.
     The function is generally considered to be difficult to optimize.
+
+    .. [1] Dixon, L. C. W., & Szego, G. P. (1978). The global optimization
+        problem: an introduction. Towards global optimization, 2, 1-15.
+
+    .. [2] Picheny, V., Wagner, T., & Ginsbourger, D. (2012). A benchmark
+        of kriging-based infill criteria for noisy optimization.
+        Based on https://www.sfu.ca/\~ssurjano/hart6.html
+
+    Authors: Sonja Surjanovic and Derek Bingham, Simon Fraser University
+
+    Original copyright notice: Copyright 2013. Derek Bingham, Simon Fraser University.
     """
     alpha = np.array([1.0, 1.2, 3.0, 3.2])
     A = np.array(
@@ -178,9 +174,9 @@ def hartmann6(x):
 
     .. math::
 
-        f(x) = -\sum_{i=1}^4 \alpha_i \exp\left(-\sum_{j=1}^6 A_{ij}(x_j - P_{ij})^2\right)
+        f(x) = - \\sum_{i=1}^4 \\alpha_i \\exp \\bigl(-\\sum_{j=1}^6 A_{ij}(x_j - P_{ij})^2 \\bigr) 
 
-    where :math:`x_i \\in (0, 1)` for all :math:`i = 1, \\ldots, 6`.
+    where :math:`x_i \in (0, 1)` for all :math:`i = 1, \ldots, 6`.
 
     Parameters
     ----------
@@ -192,23 +188,20 @@ def hartmann6(x):
     numpy.ndarray
         An array of shape (n,) containing the function values.
 
-    References
-    ----------
-    [1] Dixon, L. C. W., & Szego, G. P. (1978). The global
+    Notes
+    -----
+    
+    .. [1] Dixon, L. C. W., & Szego, G. P. (1978). The global
         optimization problem: an introduction. Towards global
         optimization, 2, 1-15.
 
-    [2] Picheny, V., Wagner, T., & Ginsbourger, D. (2012). A benchmark
+    .. [2] Picheny, V., Wagner, T., & Ginsbourger, D. (2012). A benchmark
         of kriging-based infill criteria for noisy optimization.
         Based on https://www.sfu.ca/~ssurjano/hart6.html
 
-    Notes
-    -----
     Authors: Sonja Surjanovic and Derek Bingham, Simon Fraser University
 
-    Original copyright notice:
-
-    Copyright 2013. Derek Bingham, Simon Fraser University.
+    Original copyright notice: Copyright 2013. Derek Bingham, Simon Fraser University.
     """
     alpha = np.array([1.0, 1.2, 3.0, 3.2])
     A = np.array(
@@ -255,50 +248,46 @@ def borehole(x):
     ----------
     x : numpy.ndarray of shape (n_samples, 8)
         The input variables and their usual input ranges:
-        - rw : radius of borehole in meters, range [0.05, 0.15]
-        - r : radius of influence in meters, range [100, 50000]
-        - Tu : transmissivity of upper aquifer in m^2/yr, range [63070, 115600]
-        - Hu : potentiometric head of upper aquifer in meters, range [990, 1110]
-        - Tl : transmissivity of lower aquifer in m^2/yr, range [63.1, 116]
-        - Hl : potentiometric head of lower aquifer in meters, range [700, 820]
-        - L : length of borehole in meters, range [1120, 1680]
-        - Kw : hydraulic conductivity of borehole in m/yr, range [9855, 12045]
+    
+        * rw : radius of borehole in meters, range [0.05, 0.15]
+        * r : radius of influence in meters, range [100, 50000]
+        * Tu : transmissivity of upper aquifer in m^2/yr, range [63070, 115600]
+        * Hu : potentiometric head of upper aquifer in meters, range [990, 1110]
+        * Tl : transmissivity of lower aquifer in m^2/yr, range [63.1, 116]
+        * Hl : potentiometric head of lower aquifer in meters, range [700, 820]
+        * L : length of borehole in meters, range [1120, 1680]
+        * Kw : hydraulic conductivity of borehole in m/yr, range [9855, 12045]
 
     Returns
     -------
     numpy.ndarray of shape (n_samples,)
         The water flow rate in m^3/yr.
 
-    References
-    ----------
-    [1] Harper, W. V., & Gupta, S. K. (1983). Sensitivity/uncertainty analysis of
+    Notes
+    -----
+    .. [1] Harper, W. V., & Gupta, S. K. (1983). Sensitivity/uncertainty analysis of
         a borehole scenario comparing Latin Hypercube Sampling and deterministic
         sensitivity approaches (No. BMI/ONWI-516). Battelle Memorial Inst., Columbus,
         OH (USA). Office of Nuclear Waste Isolation.
 
-    Notes
-    -----
     The distributions of the input random variables are:
-    - rw ~ N(0.10, 0.0161812)
-    - r ~ Lognormal(7.71, 1.0056)
-    - Tu ~ Uniform[63070, 115600]
-    - Hu ~ Uniform[990, 1110]
-    - Tl ~ Uniform[63.1, 116]
-    - Hl ~ Uniform[700, 820]
-    - L ~ Uniform[1120, 1680]
-    - Kw ~ Uniform[9855, 12045]
+    
+    * rw ~ N(0.10, 0.0161812)
+    * r ~ Lognormal(7.71, 1.0056)
+    * Tu ~ Uniform[63070, 115600]
+    * Hu ~ Uniform[990, 1110]
+    * Tl ~ Uniform[63.1, 116]
+    * Hl ~ Uniform[700, 820]
+    * L ~ Uniform[1120, 1680]
+    * Kw ~ Uniform[9855, 12045]
 
     Above, N(µ, s^2) is the Normal distribution with mean µ and variance s^2.
     Lognormal(µ, s) is the Lognormal distribution of a variable, such that the natural
     logarithm of the variable has a N(µ, s^2) distribution.
 
-    Authors
-    -------
-    Sonja Surjanovic and Derek Bingham, Simon Fraser University
+    Authors: Sonja Surjanovic and Derek Bingham, Simon Fraser University
 
-    Copyright
-    ---------
-    Copyright 2013. Derek Bingham, Simon Fraser University.
+    Original copyright notice: Copyright 2013. Derek Bingham, Simon Fraser University.
     """
     rw = x[:, 0]
     r = x[:, 1]
@@ -322,7 +311,6 @@ def borehole(x):
 
 def detpep8d(x):
     """Dette & Pepelyshev (2010) 8-Dimensional Function
-    Dimensions: 8
 
     This function is used for the comparison of computer experiment
     designs. It is highly curved in some variables and less in others
@@ -330,7 +318,7 @@ def detpep8d(x):
 
     Input Domain:
 
-    The function is evaluated on the hypercube xi ? [0, 1], for all i = 1, ?, 8.
+    The function is evaluated on the hypercube :math:`x_i \in [0, 1], i = 1, \ldots, 8`.
 
     Parameters
     ----------
@@ -342,21 +330,17 @@ def detpep8d(x):
     numpy.ndarray
         1D array of shape (n,) containing the function values for each input sample
 
-    References
-    ----------
-    [1] Dette, H., & Pepelyshev, A. (2010). Generalized Latin
+    Notes
+    -----
+    .. [1] Dette, H., & Pepelyshev, A. (2010). Generalized Latin
         hypercube design for computer experiments. Technometrics,
         52(4).
 
     Based on https://www.sfu.ca/~ssurjano/detpep108d.html
 
-    Notes
-    -----
     Authors: Sonja Surjanovic and Derek Bingham, Simon Fraser University
 
-    Original copyright notice:
-
-    Copyright 2013. Derek Bingham, Simon Fraser University.
+    Original copyright notice: Copyright 2013. Derek Bingham, Simon Fraser University.
     """
     x1 = x[:, 0]
     x2 = x[:, 1]

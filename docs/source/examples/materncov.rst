@@ -1,5 +1,5 @@
 Plotting Matérn covariances
-========================
+===========================
 .. jupyter-execute::
    :hide-code:
 

@@ -1,7 +1,5 @@
-.. currentmodule:: jax
-
-Public API: GPmp package
-========
+API documentation
+=================
 Subpackages
 -----------
 

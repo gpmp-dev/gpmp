@@ -118,7 +118,17 @@ dt {
     color: #027bab;
 }
 
+dl.function:not(:last-child) {
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 80px;
+    margin-bottom: 10px;
+}
 
+dl.method:not(:last-child) {
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 80px;
+    margin-bottom: 10px;
+}
 
 div.footer::before {
     display: block;

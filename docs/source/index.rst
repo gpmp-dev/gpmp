@@ -3,7 +3,7 @@ GPmp documentation
 
 .. toctree::
    :hidden:
-   :maxdepth: 1
+   :maxdepth: 3
 
    tutorial
    examples/index
@@ -14,7 +14,7 @@ GPmp documentation
 Welcome to the GPmp: the Gaussian process micro package.
 
 What is GPmp?
-------------
+-------------
 
 ``GPmp`` provides *simple building blocks for GP-based algorithms*.  It is
 meant to be fast and easily customizable.
@@ -55,7 +55,7 @@ the validity of arguments. This is left to the responsibility of the
 user / calling code.
 
 Installation
----------
+------------
 
 Clone the `git repository`_::
 
@@ -114,7 +114,7 @@ Please refer to the Tutorial section and the examples that illustrate the differ
 
 ..
    Documentation
-   --------------
+   -------------
 
    The documentation is created using
    [Sphinx](https://www.sphinx-doc.org/en/master/) and following the python

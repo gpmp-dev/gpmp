@@ -31,13 +31,13 @@ To install PyTorch using pip:
 
 .. code-block:: rst
 
-$ pip install torch
+   $ pip install torch
 
 To install JAX using pip:
 
 .. code-block:: rst
 
-$ pip install jax
+   $ pip install jax
 
 These commands can be run in your terminal or command prompt to install
 PyTorch or JAX respectively.
@@ -58,6 +58,7 @@ function :math:`k:(x,y)\in\mathcal{X}^2\mapsto
 Consider the model :math:`\xi` defined by:
 
 .. math::
+
    \left\{
    \begin{array}{l}
    \xi \sim \mathrm{GP}(m,k), \\
