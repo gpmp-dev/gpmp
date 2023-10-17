@@ -163,30 +163,36 @@ class Model:
 
         return lambda_t, zt_posterior_variance
 
+
     def predict(self, xi, zi, xt, return_lambdas=False, zero_neg_variances=True, convert_in=True, convert_out=True):
-        """Performs a prediction at target points xt given the data (xi, zi).
+        """
+        Performs a prediction at target points xt given the data (xi, zi).
 
         Parameters
         ----------
-        xi : ndarray(ni,dim)
-            observation points
-        zi : ndarray(ni,1)
-            observed values
-        xt : ndarray(nt,dim)
-            prediction points
+        xi : ndarray or gnp.array(ni, dim)
+            Observation points.
+        zi : ndarray or gnp.array(ni, 1)
+            Observed values.
+        xt : ndarray or gnp.array(nt, dim)
+            Prediction points.
         return_lambdas : bool, optional
-            Set return_lambdas=True if lambdas should be returned, by default False
+            Set return_lambdas=True if lambdas should be returned, by default False.
         zero_neg_variances : bool, optional
-            Whether to zero negative posterior variances (due to numerical errors), default=True
-        convert : bool, optional
-            Whether to return numpy arrays or keep _gpmp_backend_ types
+            Whether to zero negative posterior variances (due to numerical errors), default=True.
+        convert_in : bool, optional
+            Whether to convert input arrays to _gpmp_backend_ type or keep as-is.
+        convert_out : bool, optional
+            Whether to return numpy arrays or keep _gpmp_backend_ types.
 
         Returns
         -------
-        z_posterior_mean : ndarray
-            2d array of shape nt x 1
-        z_posterior variance : ndarray
-            2d array of shape nt x 1
+        z_posterior_mean : gnp.array or ndarray
+            2D array of shape nt x 1 representing the posterior mean.
+        z_posterior_variance : gnp.array or ndarray
+            2D array of shape nt x 1 representing the posterior variance.
+        lambda_t : gnp.array, optional
+            Only returned if return_lambdas=True.
 
         Notes
         -----
@@ -194,19 +200,32 @@ class Model:
         the posterior mean and variance of the Gaussian process given
         the data (xi, zi).
 
+        Treatment of the mean:
+        1. If the model does not have a mean function (self.mean is None), the function uses 
+           the kriging predictor with zero mean.
+        2. If a mean function is provided (self.mean is not None) but its parameters are 
+           not given (self.meanparam is None), the general / intrinsic kriging predictor is used.
+        3. If both a mean function and its parameters are provided (self.mean and self.meanparam 
+           are not None), the zero-mean kriging predictor is used after centering zi around the known mean. 
+           The mean is then added back to the posterior mean prediction.
+
         """
         if convert_in:
             xi_ = gnp.asarray(xi)
             zi_ = gnp.asarray(zi)
             xt_ = gnp.asarray(xt)
 
-        # posterior variance
+        # Decide which kriging predictor to use and if we need to adjust for mean
+        mean_adjustment = 0.0
         if self.mean is None:
-            lambda_t, zt_posterior_variance_ = self.kriging_predictor_with_zero_mean(
-                xi_, xt_
-            )
-        else:
+            lambda_t, zt_posterior_variance_ = self.kriging_predictor_with_zero_mean(xi_, xt_)
+        elif self.mean is not None and self.meanparam is None:
             lambda_t, zt_posterior_variance_ = self.kriging_predictor(xi_, xt_)
+        else:  # self.mean is not None and self.meanparam is not None
+            mean_values = self.mean(xi_, self.meanparam)
+            zi_ = zi_ - mean_values
+            lambda_t, zt_posterior_variance_ = self.kriging_predictor_with_zero_mean(xi_, xt_)
+            mean_adjustment = self.mean(xt_, self.meanparam).reshape(-1)
 
         if gnp.any(zt_posterior_variance_ < 0.):
             warnings.warn(
@@ -216,7 +235,7 @@ class Model:
             zt_posterior_variance_ = gnp.maximum(zt_posterior_variance_, 0.)
 
         # posterior mean
-        zt_posterior_mean_ = gnp.einsum("i..., i...", lambda_t, zi_)
+        zt_posterior_mean_ = gnp.einsum("i..., i...", lambda_t, zi_) + mean_adjustment
 
         # outputs
         if convert_out:
