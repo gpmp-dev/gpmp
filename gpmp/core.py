@@ -416,7 +416,8 @@ class Model:
         return L.reshape(())
 
     def negative_log_likelihood(self, meanparam, covparam, xi, zi):
-        """Computes the negative log-likelihood of the Gaussian process model with a given mean.
+        """
+        Computes the negative log-likelihood of the Gaussian process model with a given mean.
 
         This function computes the negative log-likelihood based on the provided mean function, 
         covariance function, and their parameters.
@@ -439,29 +440,12 @@ class Model:
         -------
         nll : scalar
             Negative log-likelihood of the observed data given the model, mean, and covariance parameters.
-
         """
         mean = self.mean(xi, meanparam)
         centered_zi = zi - mean
 
-        K = self.covariance(xi, xi, covparam)
-        n = K.shape[0]
-
-        if gnp._gpmp_backend_ == 'jax' or gnp._gpmp_backend_ == 'numpy':
-            C, lower = gnp.cho_factor(K)
-            Kinv_centered_zi = gnp.cho_solve((C, lower), centered_zi)
-        elif gnp._gpmp_backend_ == 'torch':
-            C = gnp.cholesky(K)
-            Kinv_centered_zi = gnp.cholesky_solve(centered_zi.reshape(-1, 1), C, upper=False)
-
-        norm2 = gnp.einsum("i..., i...", centered_zi, Kinv_centered_zi)
-
-        ldetK = 2. * gnp.sum(gnp.log(gnp.diag(C)))
-
-        L = 0.5 * (n * gnp.log(2. * gnp.pi) + ldetK + norm2)
-
-        return L.reshape(())
-
+        # Call the zero mean version with the centered observations
+        return self.negative_log_likelihood_zero_mean(covparam, xi, centered_zi)
     
     def negative_log_restricted_likelihood(self, covparam, xi, zi):
         """
