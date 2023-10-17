@@ -355,22 +355,28 @@ class Model:
 
         return zloo, sigma2loo, eloo
 
-    def negative_log_likelihood(self, covparam, xi, zi):
-        """Computes the negative log-likelihood of the model
+    def negative_log_likelihood_zero_mean(self, covparam, xi, zi):
+        """Computes the negative log-likelihood of the Gaussian process model with zero mean.
+
+        This function is specific to the zero-mean case, and the negative log-likelihood 
+        is computed based on the provided covariance function and parameters.
 
         Parameters
         ----------
+        covparam : gnp.array
+            Parameters for the covariance function. This array contains the hyperparameters 
+            required by the chosen covariance function.
         xi : ndarray(ni,d)
-            points
+            Locations of the data points in the input space, where ni is the number of data points
+            and d is the dimensionality of the input space.
         zi : ndarray(ni,1)
-            values
-        covparam : _type_
-            _description_
+            Observed values corresponding to each data point in xi.
 
         Returns
         -------
         nll : scalar
-            negative log likelihood
+            Negative log-likelihood of the observed data given the model and covariance parameters.
+
         """
         K = self.covariance(xi, xi, covparam)
         n = K.shape[0]
@@ -381,15 +387,63 @@ class Model:
         elif gnp._gpmp_backend_ == 'torch':
             C = gnp.cholesky(K)
             Kinv_zi = gnp.cholesky_solve(zi.reshape(-1, 1), C, upper=False)
-        
+
         norm2 = gnp.einsum("i..., i...", zi, Kinv_zi)
-    
+
         ldetK = 2. * gnp.sum(gnp.log(gnp.diag(C)))
 
         L = 0.5 * (n * gnp.log(2. * gnp.pi) + ldetK + norm2)
 
         return L.reshape(())
 
+    def negative_log_likelihood(self, meanparam, covparam, xi, zi):
+        """Computes the negative log-likelihood of the Gaussian process model with a given mean.
+
+        This function computes the negative log-likelihood based on the provided mean function, 
+        covariance function, and their parameters.
+
+        Parameters
+        ----------
+        meanparam : gnp.array
+            Parameters for the mean function. This array contains the hyperparameters 
+            required by the chosen mean function.
+        covparam : gnp.array
+            Parameters for the covariance function. This array contains the hyperparameters 
+            required by the chosen covariance function.
+        xi : ndarray(ni,d)
+            Locations of the data points in the input space, where ni is the number of data points
+            and d is the dimensionality of the input space.
+        zi : ndarray(ni,1)
+            Observed values corresponding to each data point in xi.
+
+        Returns
+        -------
+        nll : scalar
+            Negative log-likelihood of the observed data given the model, mean, and covariance parameters.
+
+        """
+        mean = self.mean(xi, meanparam)
+        centered_zi = zi - mean
+
+        K = self.covariance(xi, xi, covparam)
+        n = K.shape[0]
+
+        if gnp._gpmp_backend_ == 'jax' or gnp._gpmp_backend_ == 'numpy':
+            C, lower = gnp.cho_factor(K)
+            Kinv_centered_zi = gnp.cho_solve((C, lower), centered_zi)
+        elif gnp._gpmp_backend_ == 'torch':
+            C = gnp.cholesky(K)
+            Kinv_centered_zi = gnp.cholesky_solve(centered_zi.reshape(-1, 1), C, upper=False)
+
+        norm2 = gnp.einsum("i..., i...", centered_zi, Kinv_centered_zi)
+
+        ldetK = 2. * gnp.sum(gnp.log(gnp.diag(C)))
+
+        L = 0.5 * (n * gnp.log(2. * gnp.pi) + ldetK + norm2)
+
+        return L.reshape(())
+
+    
     def negative_log_restricted_likelihood(self, covparam, xi, zi):
         """
         Compute the negative log-restricted likelihood of the GP model.
@@ -399,7 +453,7 @@ class Model:
 
         Parameters
         ----------
-        covparam : array_like
+        covparam : gnp.array
             Covariance parameters for the Gaussian Process.
         xi : array_like, shape (n, d)
             Input data points used for fitting the GP model, where n is the number of points and d is the dimensionality.
