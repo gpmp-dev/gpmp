@@ -278,6 +278,56 @@ def anisotropic_parameters_initial_guess_zero_mean(model, xi, zi):
     return gnp.concatenate((gnp.array([gnp.log(sigma2_GLS)]), -gnp.log(rho)))
 
 
+def anisotropic_parameters_initial_guess_constant_mean(model, xi, zi):
+    """
+    Anisotropic initialization strategy with a constant mean.
+
+    This function provides initial parameter guesses for an anisotropic Gaussian process with a constant mean.
+
+    Parameters
+    ----------
+    model : object
+        The Gaussian process model object.
+    xi : array_like, shape (n, d)
+        Input data points used for fitting the GP model, where `n` is the number of points and `d` is the dimensionality.
+    zi : array_like, shape (n, )
+        Output (response) values corresponding to the input data points xi.
+
+    Returns
+    -------
+    mean_GLS : float
+        The generalized least squares (GLS) estimator of the mean. Computed as:
+
+        .. math::
+
+            m_{GLS} = \frac{\mathbf{1}^T K^{-1} \mathbf{z}}{\mathbf{1}^T K^{-1} \mathbf{1}}
+
+    concatenated parameters : array_like
+        An array containing the initialized :math:`\sigma^2_{GLS}` and :math:`\rho` values. 
+        The estimator :math:`\sigma^2_{GLS}` is given by:
+
+        .. math::
+
+            \sigma^2_{GLS} = \frac{1}{n} \mathbf{z}^T K^{-1} \mathbf{z}
+
+    """
+    xi_ = gnp.asarray(xi)
+    zi_ = gnp.asarray(zi).reshape((-1, 1))  # Ensure zi_ is a column vector
+
+    delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
+    d = xi_.shape[1]
+    rho = (gnp.exp(gnp.gammaln(d / 2 + 1)) / gnp.pi ** (d / 2)) ** (1 / d) * delta
+
+    covparam = gnp.concatenate((gnp.array([gnp.log(1.0)]), -gnp.log(rho)))
+    n = xi_.shape[0]
+    zTKinvz, Kinv1, Kinvz = model.k_inverses(xi_, zi_, covparam)
+    
+    mean_GLS = gnp.sum(Kinv1 * zi_) / gnp.sum(Kinv1)
+    sigma2_GLS = (1.0 / n) * zTKinvz
+    
+    return mean_GLS, gnp.concatenate((gnp.array([gnp.log(sigma2_GLS)]), -gnp.log(rho)))
+
+
 def anisotropic_parameters_initial_guess(model, xi, zi):
     """
     Anisotropic initialization strategy for parameters of a Gaussian process model.

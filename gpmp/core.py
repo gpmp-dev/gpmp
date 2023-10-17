@@ -576,6 +576,57 @@ class Model:
         
         return norm_sqrd
 
+    def k_inverses(self, xi, zi, covparam):
+        """
+        Compute various quantities involving the inverse of K.
+
+        Specifically, this method calculates:
+        - z^T K^-1 z
+        - K^-1 1
+        - K^-1 z
+
+        Parameters
+        ----------
+        xi : array_like, shape (n, d)
+            Input data points used for fitting the GP model.
+        zi : array_like, shape (n, 1)
+            Output (response) values corresponding to the input data points xi.
+        covparam : array_like
+            Covariance parameters for the Gaussian process.
+
+        Returns
+        -------
+        zTKinvz : float
+            z^T K^-1 z
+        Kinv1 : array_like, shape (n, 1)
+            K^-1 1
+        Kinvz : array_like, shape (n, 1)
+            K^-1 z
+
+        Examples
+        --------
+        >>> xi = np.array([[1, 2], [3, 4], [5, 6]])
+        >>> zi = np.array([[1.2], [2.5], [4.2]])
+        >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
+        >>> covparam = np.array([1.0, 0.1])
+        >>> zTKinvz, Kinv1, Kinvz = model.compute_k_inverses(xi, zi, covparam)
+        """
+        K = self.covariance(xi, xi, covparam)
+        ones_vector = gnp.ones(zi.shape)
+
+        if gnp._gpmp_backend_ == 'jax' or gnp._gpmp_backend_ == 'numpy':
+            C, lower = gnp.cho_factor(K)
+            Kinv_zi = gnp.cho_solve((C, lower), zi)
+            Kinv_1 = gnp.cho_solve((C, lower), ones_vector)
+        elif gnp._gpmp_backend_ == 'torch':
+            C = gnp.cholesky(K)
+            Kinv_zi = gnp.cholesky_solve(zi, C, upper=False)
+            Kinv_1 = gnp.cholesky_solve(ones_vector, C, upper=False)
+
+        zTKinvz = gnp.einsum("ij, ij", zi, Kinv_zi)
+
+        return zTKinvz, Kinv_1, Kinv_zi
+    
     def norm_k_sqrd(self, xi, zi, covparam):
         """
         Compute the squared norm of the residual vector after applying the contrast matrix W.
