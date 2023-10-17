@@ -307,6 +307,46 @@ class Model:
 
         return zloo, sigma2loo, eloo
 
+    def loo_with_known_mean(self, xi, zi):
+        """
+        Compute the leave-one-out (LOO) prediction error assuming a known mean.
+
+        This method computes the LOO prediction error for a GP with a known mean, 
+        by leveraging the "virtual cross-validation" formula for a zero mean GP and 
+        then adjusting the predictions.
+
+        Parameters
+        ----------
+        xi : array_like, shape (n, d)
+            Input data points used for fitting the GP model, where n is the number of points and d is the dimensionality.
+        zi : array_like, shape (n, )
+            Output (response) values corresponding to the input data points xi.
+
+        Returns
+        -------
+        zloo : array_like, shape (n, )
+            Leave-one-out predictions for each data point in xi.
+        sigma2loo : array_like, shape (n, )
+            Variance of the leave-one-out predictions.
+        eloo : array_like, shape (n, )
+            Leave-one-out prediction errors for each data point in xi.
+
+        Examples
+        --------
+        >>> xi = np.array([[1, 2], [3, 4], [5, 6]])
+        >>> zi = np.array([1.2, 2.5, 4.2])
+        >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
+        >>> zloo, sigma2loo, eloo = model.loo_with_known_mean(xi, zi)
+        """
+        mean = self.mean(xi, self.meanparam)
+        centered_zi = zi - mean
+        
+        zloo_centered, sigma2loo, eloo_centered = self.loo_with_zero_mean(xi, centered_zi)
+
+        zloo = zloo_centered + mean
+
+        return zloo, sigma2loo, eloo_centered
+    
     def loo(self, xi, zi):
         """
         Compute the leave-one-out (LOO) prediction error.
