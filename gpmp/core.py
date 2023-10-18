@@ -210,6 +210,7 @@ class Model:
            The mean is then added back to the posterior mean prediction.
 
         """
+        Model.check_dimensions(xi=xi, zi=zi, xt=xt)
         if convert_in:
             xi_ = gnp.asarray(xi)
             zi_ = gnp.asarray(zi)
@@ -280,6 +281,7 @@ class Model:
         >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
         >>> zloo, sigma2loo, eloo = model.loo_with_zero_mean(xi, zi)
         """
+        Model.check_dimensions(xi=xi, zi=zi)
         xi_ = gnp.asarray(xi)
         zi_ = gnp.asarray(zi)
 
@@ -338,6 +340,7 @@ class Model:
         >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
         >>> zloo, sigma2loo, eloo = model.loo_with_known_mean(xi, zi)
         """
+        Model.check_dimensions(xi=xi, zi=zi)
         mean = self.mean(xi, self.meanparam)
         centered_zi = zi - mean
         
@@ -377,7 +380,7 @@ class Model:
         >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
         >>> zloo, sigma2loo, eloo = model.loo(xi, zi)
         """
-
+        Model.check_dimensions(xi=xi, zi=zi)
         xi_ = gnp.asarray(xi)
         zi_ = gnp.asarray(zi)
 
@@ -799,3 +802,40 @@ class Model:
         ztsimc = ztsim_[xt_ind, :] + gnp.einsum("ij,ik->jk", lambda_t, d)
 
         return ztsimc
+
+    @staticmethod
+    def check_dimensions(xi=None, zi=None, xt=None):
+        """
+        Check dimensions of provided arrays.
+
+        Parameters
+        ----------
+        xi : ndarray or gnp.array(ni, dim), optional
+            Observation points.
+        zi : ndarray or gnp.array(ni,), optional
+            Observed values.
+        xt : ndarray or gnp.array(nt, dim), optional
+            Prediction points.
+
+        Raises
+        ------
+        AssertionError
+            If provided arrays don't meet dimensionality requirements.
+        """
+
+        if xi is not None:
+            assert len(xi.shape) == 2, "xi should be a 2D array"
+
+        if zi is not None:
+            assert len(zi.shape) == 1, "zi should be a 1D array"
+
+        if xt is not None:
+            assert len(xt.shape) == 2, "xt should be a 2D array"
+
+        if xi is not None and zi is not None:
+            assert xi.shape[0] == zi.shape[0], "Number of rows in xi should be equal to the length of zi"
+
+        if xi is not None and xt is not None:
+            assert xi.shape[1] == xt.shape[1], "xi and xt should have the same number of columns"
+    
+
