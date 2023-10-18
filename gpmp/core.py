@@ -172,7 +172,7 @@ class Model:
         ----------
         xi : ndarray or gnp.array(ni, dim)
             Observation points.
-        zi : ndarray or gnp.array(ni, 1)
+        zi : ndarray or gnp.array(ni,)
             Observed values.
         xt : ndarray or gnp.array(nt, dim)
             Prediction points.
@@ -188,11 +188,11 @@ class Model:
         Returns
         -------
         z_posterior_mean : gnp.array or ndarray
-            2D array of shape nt x 1 representing the posterior mean.
+            1D array of shape nt representing the posterior mean.
         z_posterior_variance : gnp.array or ndarray
-            2D array of shape nt x 1 representing the posterior variance.
-        lambda_t : gnp.array, optional
-            Only returned if return_lambdas=True.
+            1D array of shape nt representing the posterior variance.
+        lambda_t : gnp.array(ni, nt), optional
+            2D array of kriging weights, only returned if return_lambdas=True.
 
         Notes
         -----
@@ -223,7 +223,7 @@ class Model:
             lambda_t, zt_posterior_variance_ = self.kriging_predictor(xi_, xt_)
         else:  # self.mean is not None and self.meanparam is not None
             mean_values = self.mean(xi_, self.meanparam)
-            zi_ = zi_ - mean_values
+            zi_ = zi_ - mean_values.reshape(-1)
             lambda_t, zt_posterior_variance_ = self.kriging_predictor_with_zero_mean(xi_, xt_)
             mean_adjustment = self.mean(xt_, self.meanparam).reshape(-1)
 
@@ -428,7 +428,7 @@ class Model:
         xi : ndarray(ni,d)
             Locations of the data points in the input space, where ni is the number of data points
             and d is the dimensionality of the input space.
-        zi : ndarray(ni,1)
+        zi : ndarray(ni, )
             Observed values corresponding to each data point in xi.
 
         Returns
@@ -473,7 +473,7 @@ class Model:
         xi : ndarray(ni,d)
             Locations of the data points in the input space, where ni is the number of data points
             and d is the dimensionality of the input space.
-        zi : ndarray(ni,1)
+        zi : ndarray(ni, )
             Observed values corresponding to each data point in xi.
 
         Returns
@@ -481,7 +481,7 @@ class Model:
         nll : scalar
             Negative log-likelihood of the observed data given the model, mean, and covariance parameters.
         """
-        mean = self.mean(xi, meanparam)
+        mean = self.mean(xi, meanparam).reshape(-1)
         centered_zi = zi - mean
 
         # Call the zero mean version with the centered observations
