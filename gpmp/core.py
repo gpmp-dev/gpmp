@@ -20,8 +20,8 @@ class Model:
         A function that returns the mean of the Gaussian Process
         (GP). The function is called as follows:
         P = self.mean(x, self.meanparam),
-        where x a (n x d) array of data points. It returns a (n x q) matrix,
-        where q is the number of basis functions.
+        where x a (n x d) array of data points. It returns a (n x q) matrix. 
+        q is the number of basis functions.
 
     covariance : callable
         A function that returns the covariance of the Gaussian
@@ -215,6 +215,10 @@ class Model:
             xi_ = gnp.asarray(xi)
             zi_ = gnp.asarray(zi)
             xt_ = gnp.asarray(xt)
+        else:
+            xi_ = xi
+            zi_ = zi
+            xt_ = xt
 
         # Decide which kriging predictor to use and if we need to adjust for mean
         mean_adjustment = 0.0
@@ -251,7 +255,7 @@ class Model:
         else:
             return (zt_posterior_mean, zt_posterior_variance, lambda_t)
 
-    def loo_with_zero_mean(self, xi, zi):
+    def loo_with_zero_mean(self, xi, zi, convert_in=True, convert_out=False):
         """
         Compute the leave-one-out (LOO) prediction error assuming a zero mean.
 
@@ -264,6 +268,10 @@ class Model:
             Input data points used for fitting the GP model, where n is the number of points and d is the dimensionality.
         zi : array_like, shape (n, )
             Output (response) values corresponding to the input data points xi.
+        convert_in : bool, optional
+            Whether to convert input arrays to _gpmp_backend_ type or keep as-is.
+        convert_out : bool, optional
+            Whether to return numpy arrays or keep _gpmp_backend_ types.
 
         Returns
         -------
@@ -282,8 +290,12 @@ class Model:
         >>> zloo, sigma2loo, eloo = model.loo_with_zero_mean(xi, zi)
         """
         Model.check_dimensions(xi=xi, zi=zi)
-        xi_ = gnp.asarray(xi)
-        zi_ = gnp.asarray(zi)
+        if convert_in:
+            xi_ = gnp.asarray(xi)
+            zi_ = gnp.asarray(zi)
+        else:
+            xi_ = xi
+            zi_ = zi
 
         n = xi_.shape[0]
         K = self.covariance(xi_, xi_, self.covparam)
@@ -309,7 +321,7 @@ class Model:
 
         return zloo, sigma2loo, eloo
 
-    def loo_with_known_mean(self, xi, zi):
+    def loo_with_known_mean(self, xi, zi, convert_in=True, convert_out=False):
         """
         Compute the leave-one-out (LOO) prediction error assuming a known mean.
 
@@ -323,6 +335,10 @@ class Model:
             Input data points used for fitting the GP model, where n is the number of points and d is the dimensionality.
         zi : array_like, shape (n, )
             Output (response) values corresponding to the input data points xi.
+        convert_in : bool, optional
+            Whether to convert input arrays to _gpmp_backend_ type or keep as-is.
+        convert_out : bool, optional
+            Whether to return numpy arrays or keep _gpmp_backend_ types.
 
         Returns
         -------
@@ -341,16 +357,22 @@ class Model:
         >>> zloo, sigma2loo, eloo = model.loo_with_known_mean(xi, zi)
         """
         Model.check_dimensions(xi=xi, zi=zi)
-        mean = self.mean(xi, self.meanparam)
-        centered_zi = zi - mean
+        if convert_in:
+            xi_ = gnp.asarray(xi)
+            zi_ = gnp.asarray(zi)
+        else:
+            xi_ = xi
+            zi_ = zi
+        mean = self.mean(xi_, self.meanparam)
+        centered_zi = zi_ - mean
         
-        zloo_centered, sigma2loo, eloo_centered = self.loo_with_zero_mean(xi, centered_zi)
+        zloo_centered, sigma2loo, eloo_centered = self.loo_with_zero_mean(xi_, centered_zi, convert_in=False, convert_out=False)
 
         zloo = zloo_centered + mean
 
         return zloo, sigma2loo, eloo_centered
     
-    def loo(self, xi, zi):
+    def loo(self, xi, zi, convert_in=True, convert_out=False):
         """
         Compute the leave-one-out (LOO) prediction error.
 
@@ -363,6 +385,10 @@ class Model:
             Input data points used for fitting the GP model, where n is the number of points and d is the dimensionality.
         zi : array_like, shape (n, )
             Output (response) values corresponding to the input data points xi.
+        convert_in : bool, optional
+            Whether to convert input arrays to _gpmp_backend_ type or keep as-is.
+        convert_out : bool, optional
+            Whether to return numpy arrays or keep _gpmp_backend_ types.
 
         Returns
         -------
@@ -381,8 +407,12 @@ class Model:
         >>> zloo, sigma2loo, eloo = model.loo(xi, zi)
         """
         Model.check_dimensions(xi=xi, zi=zi)
-        xi_ = gnp.asarray(xi)
-        zi_ = gnp.asarray(zi)
+        if convert_in:
+            xi_ = gnp.asarray(xi)
+            zi_ = gnp.asarray(zi)
+        else:
+            xi_ = xi
+            zi_ = zi
 
         n = xi_.shape[0]
         K = self.covariance(xi_, xi_, self.covparam)
