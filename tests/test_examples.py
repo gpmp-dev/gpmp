@@ -7,7 +7,9 @@ from examples import (
     gpmp_example05_1d_custom_kernel,
     gpmp_example06_1d_regression,
     gpmp_example10_sample_paths,
-    gpmp_example11_sample_paths_noisy_obs
+    gpmp_example11_sample_paths_noisy_obs,
+    gpmp_example20_1d_interpolation_variation,
+    gpmp_example21_1d_interpolation_variation
     )
     
 
@@ -35,6 +37,13 @@ class TestExamples(unittest.TestCase):
 
     def test_11(self):
         gpmp_example11_sample_paths_noisy_obs.main()
+
+    def test_20(self):
+        gpmp_example20_1d_interpolation_variation.main()
+        
+    def test_21(self):
+        gpmp_example21_1d_interpolation_variation.main()
+
 
 if __name__ == "__main__":
     unittest.main()

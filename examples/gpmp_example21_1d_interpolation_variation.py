@@ -21,15 +21,16 @@ def generate_data():
         (xt, zt): target data
         (xi, zi): input dataset
     """
+    c = 1.0
     dim = 1
     nt = 200
     box = [[-1], [1]]
     xt = gp.misc.designs.regulargrid(dim, nt, box)
-    zt = gp.misc.testfunctions.twobumps(xt)
+    zt = gp.misc.testfunctions.twobumps(xt) + c
 
-    ni = 6
+    ni = 7
     xi = gp.misc.designs.ldrandunif(dim, ni, box)
-    zi = gp.misc.testfunctions.twobumps(xi)
+    zi = gp.misc.testfunctions.twobumps(xi) + c
    
     return xt, zt, xi, zi
 
@@ -68,7 +69,7 @@ def visualize_results(xt, zt, xi, zi, zpm, zpv):
     fig.plotgp(xt, zpm, zpv, colorscheme='simple')
     fig.xlabel('$x$')
     fig.ylabel('$z$')
-    fig.title('Posterior GP with parameters selected by ReML')
+    fig.title('Posterior GP with parameters selected by ML')
     fig.show()
 
 
@@ -79,11 +80,11 @@ def main():
 
     meanparam = None
     covparam0 = None
-    model = gp.core.Model(constant_mean, kernel, meanparam, covparam0)
+    model = gp.core.Model(constant_mean, kernel, meanparam, covparam0, meantype='known')
 
     # Parameter initial guess
     meanparam0, covparam0 = gp.kernel.anisotropic_parameters_initial_guess_constant_mean(model, xi, zi)
-    param0 = gnp.cat((meanparam0.reshape(1), covparam0))
+    param0 = gnp.concatenate((meanparam0.reshape(1), covparam0))
     
     # selection criterion
     def crit_(param):
@@ -119,6 +120,11 @@ def main():
     print('-------------')        
     visualize_results(xt, zt, xi, zi, zpm, zpv)
 
+    zloom, zloov, eloo = model.loo_with_known_mean(xi, zi)
+    gp.misc.plotutils.plot_loo(zi, zloom, zloov)
+
+    return model
+
 
 if __name__ == '__main__':
-    main()
+    model = main()

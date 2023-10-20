@@ -58,7 +58,6 @@ if _gpmp_backend_ == 'numpy':
         vstack,
         stack,
         tile,
-        cat,
         concatenate,
         zeros,
         ones,
@@ -103,7 +102,7 @@ if _gpmp_backend_ == 'numpy':
     from scipy.stats import multivariate_normal
 
     eps = finfo(float64).eps
-    fmax = np.finfo(np.float64).max
+    fmax = numpy.finfo(numpy.float64).max
 
     def asarray(x):
         if isinstance(x, (int, float)):
@@ -115,13 +114,13 @@ if _gpmp_backend_ == 'numpy':
         return x
 
     def to_scalar(x):
-        return x
+        return x.item()
 
     def isarray(x):
         return isinstance(x, numpy.ndarray)
 
     def inftobigf(a, bigf=fmax/1000.):
-        a = where(np.isinf(a), np.full_like(a, bigf), a)
+        a = where(numpy.isinf(a), numpy.full_like(a, bigf), a)
         return a
 
     def grad(f):
@@ -166,7 +165,6 @@ elif _gpmp_backend_ == 'torch':
         vstack,
         stack,
         tile,
-        cat,
         concatenate,
         zeros,
         ones,
@@ -366,7 +364,6 @@ elif _gpmp_backend_ == 'jax':
         vstack,
         stack,
         tile,
-        cat,
         concatenate,
         zeros,
         ones,
@@ -422,7 +419,7 @@ elif _gpmp_backend_ == 'jax':
         return numpy.array(x)
 
     def to_scalar(x):
-        return x
+        return x.item()
 
     def isarray(x):
         return isinstance(x, jax.numpy.ndarray)

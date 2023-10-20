@@ -17,10 +17,10 @@ class Model:
     ==========
 
     mean : callable
-        A function that returns the mean of the Gaussian Process
-        (GP). The function is called as follows:
+        A function that returns the mean of the Gaussian Process (GP).
+        The function is called as follows:
         P = self.mean(x, self.meanparam),
-        where x a (n x d) array of data points. It returns a (n x q) matrix. 
+        where x a (n x d) array of data points. It returns a (n x q) matrix.
         q is the number of basis functions.
 
     covariance : callable
@@ -39,7 +39,7 @@ class Model:
     covparam : array_like, optional
         The parameters for the covariance function, specified as a
         one-dimensional array of values.
-    
+
     Example
     =======
             FIXME
@@ -49,7 +49,9 @@ class Model:
 
     """
 
-    def __init__(self, mean, covariance, meanparam=None, covparam=None):
+    def __init__(
+        self, mean, covariance, meanparam=None, covparam=None, meantype="unknown"
+    ):
         """
         Parameters
         ----------
@@ -61,6 +63,11 @@ class Model:
             The parameters for the mean function, specified as a one-dimensional array of values.
         covparam : array_like, optional
             The parameters for the covariance function, specified as a one-dimensional array of values.
+        mean_type : str, optional
+            Type of mean used in the model. It can be:
+            'zero' - Zero mean function.
+            'known' - Known mean function with known parameters.
+            'unknown' - Linearly parameterized mean function with unknown parameters.
 
         Examples
         --------
@@ -72,6 +79,8 @@ class Model:
 
         self.meanparam = meanparam
         self.covparam = covparam
+
+        self.meantype = meantype
 
     def __repr__(self):
         output = str("<gpmp.core.Model object> " + hex(id(self)))
@@ -86,11 +95,11 @@ class Model:
         Kii = self.covariance(xi, xi, self.covparam)
         Kit = self.covariance(xi, xt, self.covparam)
 
-        if gnp._gpmp_backend_ == 'jax' or gnp._gpmp_backend_ == 'numpy':
+        if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
             lambda_t = gnp.solve(
-                Kii, Kit, sym_pos=True, overwrite_a=True, overwrite_b=True
+                Kii, Kit, overwrite_a=True, overwrite_b=True, assume_a='pos'
             )
-        elif gnp._gpmp_backend_ == 'torch':
+        elif gnp._gpmp_backend_ == "torch":
             lambda_t = gnp.solve(Kii, Kit)
 
         if return_type == -1:
@@ -135,9 +144,7 @@ class Model:
         Pi = self.mean(xi, self.meanparam)
         (ni, q) = Pi.shape
         # build [ [K P] ; [P' 0] ]
-        LHS = gnp.vstack(
-            (gnp.hstack((Kii, Pi)), gnp.hstack((Pi.T, gnp.zeros((q, q)))))
-        )
+        LHS = gnp.vstack((gnp.hstack((Kii, Pi)), gnp.hstack((Pi.T, gnp.zeros((q, q))))))
 
         # RHS
         Kit = self.covariance(xi, xt, self.covparam)
@@ -163,18 +170,25 @@ class Model:
 
         return lambda_t, zt_posterior_variance
 
-
-    def predict(self, xi, zi, xt, return_lambdas=False, zero_neg_variances=True, convert_in=True, convert_out=True):
-        """
-        Performs a prediction at target points xt given the data (xi, zi).
+    def predict(
+        self,
+        xi,
+        zi,
+        xt,
+        return_lambdas=False,
+        zero_neg_variances=True,
+        convert_in=True,
+        convert_out=True,
+    ):
+        """Performs a prediction at target points xt given the data (xi, zi).
 
         Parameters
         ----------
-        xi : ndarray or gnp.array(ni, dim)
+        xi : ndarray or gnp.array of shape (ni, dim)
             Observation points.
-        zi : ndarray or gnp.array(ni,)
+        zi : ndarray or gnp.array of shape (ni,) or (ni, 1)
             Observed values.
-        xt : ndarray or gnp.array(nt, dim)
+        xt : ndarray or gnp.array of shape (nt, dim)
             Prediction points.
         return_lambdas : bool, optional
             Set return_lambdas=True if lambdas should be returned, by default False.
@@ -200,44 +214,52 @@ class Model:
         the posterior mean and variance of the Gaussian process given
         the data (xi, zi).
 
-        Treatment of the mean:
-        1. If the model does not have a mean function (self.mean is None), the function uses 
-           the kriging predictor with zero mean.
-        2. If a mean function is provided (self.mean is not None) but its parameters are 
-           not given (self.meanparam is None), the general / intrinsic kriging predictor is used.
-        3. If both a mean function and its parameters are provided (self.mean and self.meanparam 
-           are not None), the zero-mean kriging predictor is used after centering zi around the known mean. 
-           The mean is then added back to the posterior mean prediction.
+        Treatment of the mean based on 'meantype':
+        1. "zero": The function uses the kriging predictor with zero mean.
+        2. "unknown": Uses the general / intrinsic kriging predictor.
+        3. "known": The zero-mean kriging predictor is used after
+            centering zi around the known mean. The mean is then added
+            back to the posterior mean prediction. 'meanparam' should
+            be provided for this type.
+        
+        Ensure to set the appropriate 'meantype' for the desired
+        behavior. Supported types are 'zero', 'known', and 'unknown'.
 
         """
-        Model.check_dimensions(xi=xi, zi=zi, xt=xt)
-        if convert_in:
-            xi_ = gnp.asarray(xi)
-            zi_ = gnp.asarray(zi)
-            xt_ = gnp.asarray(xt)
-        else:
-            xi_ = xi
-            zi_ = zi
-            xt_ = xt
+        xi_, zi_, xt_ = Model.ensure_shapes_and_type(
+            xi=xi, zi=zi, xt=xt, convert=convert_in
+        )
 
         # Decide which kriging predictor to use and if we need to adjust for mean
         mean_adjustment = 0.0
-        if self.mean is None:
-            lambda_t, zt_posterior_variance_ = self.kriging_predictor_with_zero_mean(xi_, xt_)
-        elif self.mean is not None and self.meanparam is None:
+        if self.meantype == "zero":
+            lambda_t, zt_posterior_variance_ = self.kriging_predictor_with_zero_mean(
+                xi_, xt_
+            )
+        elif self.meantype == "unknown":
             lambda_t, zt_posterior_variance_ = self.kriging_predictor(xi_, xt_)
-        else:  # self.mean is not None and self.meanparam is not None
-            mean_values = self.mean(xi_, self.meanparam)
-            zi_ = zi_ - mean_values.reshape(-1)
-            lambda_t, zt_posterior_variance_ = self.kriging_predictor_with_zero_mean(xi_, xt_)
-            mean_adjustment = self.mean(xt_, self.meanparam).reshape(-1)
+        elif self.meantype == "known":
+            lambda_t, zt_posterior_variance_ = self.kriging_predictor_with_zero_mean(
+                xi_, xt_
+            )
 
-        if gnp.any(zt_posterior_variance_ < 0.):
+            if self.meanparam is None:
+                raise ValueError("For meantype 'known', meanparam should not be None.")
+            mean_values = self.mean(xi_, self.meanparam).reshape(-1)
+            zi_ = zi_ - mean_values
+            mean_adjustment = self.mean(xt_, self.meanparam).reshape(-1)
+        else:
+            raise ValueError(
+                f"Invalid mean_type {self.mean_type}. Supported types are 'zero', 'known', and 'unknown'."
+            )
+
+        if gnp.any(zt_posterior_variance_ < 0.0):
             warnings.warn(
-                "In predict: negative variances detected. Consider using jitter.", RuntimeWarning
+                "In predict: negative variances detected. Consider using jitter.",
+                RuntimeWarning,
             )
         if zero_neg_variances:
-            zt_posterior_variance_ = gnp.maximum(zt_posterior_variance_, 0.)
+            zt_posterior_variance_ = gnp.maximum(zt_posterior_variance_, 0.0)
 
         # posterior mean
         zt_posterior_mean_ = gnp.einsum("i..., i...", lambda_t, zi_) + mean_adjustment
@@ -266,7 +288,7 @@ class Model:
         ----------
         xi : array_like, shape (n, d)
             Input data points used for fitting the GP model, where n is the number of points and d is the dimensionality.
-        zi : array_like, shape (n, )
+        zi : array_like, shape (n, ) or (n, 1)
             Output (response) values corresponding to the input data points xi.
         convert_in : bool, optional
             Whether to convert input arrays to _gpmp_backend_ type or keep as-is.
@@ -289,35 +311,29 @@ class Model:
         >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
         >>> zloo, sigma2loo, eloo = model.loo_with_zero_mean(xi, zi)
         """
-        Model.check_dimensions(xi=xi, zi=zi)
-        if convert_in:
-            xi_ = gnp.asarray(xi)
-            zi_ = gnp.asarray(zi)
-        else:
-            xi_ = xi
-            zi_ = zi
+        xi_, zi_, _ = Model.ensure_shapes_and_type(xi=xi, zi=zi, convert=convert_in)
 
         n = xi_.shape[0]
         K = self.covariance(xi_, xi_, self.covparam)
 
         # Use the "virtual cross-validation" formula
-        if gnp._gpmp_backend_ == 'jax' or gnp._gpmp_backend_ == 'numpy':
+        if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
             C, lower = gnp.cho_factor(K)
             Kinv = gnp.cho_solve((C, lower), gnp.eye(n))
-        elif gnp._gpmp_backend_ == 'torch':
+        elif gnp._gpmp_backend_ == "torch":
             C = gnp.cholesky(K)
             Kinv = gnp.cholesky_solve(gnp.eye(n), C, upper=False)
 
         # e_loo,i  = 1 / Kinv_i,i ( Kinv  z )_i
-        Kinvzi = gnp.matmul(Kinv, zi_)
-        Kinvdiag = gnp.diag(Kinv)
-        eloo = Kinvzi / Kinvdiag
+        Kinvzi = gnp.matmul(Kinv, zi_)  # shape (n, )
+        Kinvdiag = gnp.diag(Kinv)  # shape (n, )
+        eloo = Kinvzi / Kinvdiag  # shape (n, )
 
         # sigma2_loo,i = 1 / Kinv_i,i
-        sigma2loo = 1. / Kinvdiag
+        sigma2loo = 1.0 / Kinvdiag  # shape (n, )
 
         # zloo_i = z_i - e_loo,i
-        zloo = zi_ - eloo
+        zloo = zi_ - eloo  # shape (n, )
 
         return zloo, sigma2loo, eloo
 
@@ -325,15 +341,15 @@ class Model:
         """
         Compute the leave-one-out (LOO) prediction error assuming a known mean.
 
-        This method computes the LOO prediction error for a GP with a known mean, 
-        by leveraging the "virtual cross-validation" formula for a zero mean GP and 
+        This method computes the LOO prediction error for a GP with a known mean,
+        by leveraging the "virtual cross-validation" formula for a zero mean GP and
         then adjusting the predictions.
 
         Parameters
         ----------
         xi : array_like, shape (n, d)
             Input data points used for fitting the GP model, where n is the number of points and d is the dimensionality.
-        zi : array_like, shape (n, )
+        zi : array_like, shape (n, ) or (n, 1)
             Output (response) values corresponding to the input data points xi.
         convert_in : bool, optional
             Whether to convert input arrays to _gpmp_backend_ type or keep as-is.
@@ -356,22 +372,18 @@ class Model:
         >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
         >>> zloo, sigma2loo, eloo = model.loo_with_known_mean(xi, zi)
         """
-        Model.check_dimensions(xi=xi, zi=zi)
-        if convert_in:
-            xi_ = gnp.asarray(xi)
-            zi_ = gnp.asarray(zi)
-        else:
-            xi_ = xi
-            zi_ = zi
-        mean = self.mean(xi_, self.meanparam)
+        xi_, zi_, _ = Model.ensure_shapes_and_type(xi=xi, zi=zi, convert=convert_in)
+        mean = self.mean(xi_, self.meanparam).reshape(-1)
         centered_zi = zi_ - mean
-        
-        zloo_centered, sigma2loo, eloo_centered = self.loo_with_zero_mean(xi_, centered_zi, convert_in=False, convert_out=False)
+
+        zloo_centered, sigma2loo, eloo_centered = self.loo_with_zero_mean(
+            xi_, centered_zi, convert_in=False, convert_out=False
+        )
 
         zloo = zloo_centered + mean
 
         return zloo, sigma2loo, eloo_centered
-    
+
     def loo(self, xi, zi, convert_in=True, convert_out=False):
         """
         Compute the leave-one-out (LOO) prediction error.
@@ -383,7 +395,7 @@ class Model:
         ----------
         xi : array_like, shape (n, d)
             Input data points used for fitting the GP model, where n is the number of points and d is the dimensionality.
-        zi : array_like, shape (n, )
+        zi : array_like, shape (n, ) or (n, 1)
             Output (response) values corresponding to the input data points xi.
         convert_in : bool, optional
             Whether to convert input arrays to _gpmp_backend_ type or keep as-is.
@@ -406,13 +418,7 @@ class Model:
         >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
         >>> zloo, sigma2loo, eloo = model.loo(xi, zi)
         """
-        Model.check_dimensions(xi=xi, zi=zi)
-        if convert_in:
-            xi_ = gnp.asarray(xi)
-            zi_ = gnp.asarray(zi)
-        else:
-            xi_ = xi
-            zi_ = zi
+        xi_, zi_, _ = Model.ensure_shapes_and_type(xi=xi, zi=zi, convert=convert_in)
 
         n = xi_.shape[0]
         K = self.covariance(xi_, xi_, self.covparam)
@@ -420,11 +426,11 @@ class Model:
 
         # Use the "virtual cross-validation" formula
         # Qinv = K^-1 - K^-1P (Pt K^-1 P)^-1 Pt K^-1
-        if gnp._gpmp_backend_ == 'jax' or gnp._gpmp_backend_ == 'numpy':
+        if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
             C, lower = gnp.cho_factor(K)
             Kinv = gnp.cho_solve((C, lower), gnp.eye(n))
             KinvP = gnp.cho_solve((C, lower), P)
-        elif gnp._gpmp_backend_ == 'torch':
+        elif gnp._gpmp_backend_ == "torch":
             C = gnp.cholesky(K)
             Kinv = gnp.cholesky_solve(gnp.eye(n), C, upper=False)
             KinvP = gnp.cholesky_solve(P, C, upper=False)
@@ -435,28 +441,28 @@ class Model:
         Qinv = Kinv - gnp.matmul(KinvP, R)
 
         # e_loo,i  = 1 / Q_i,i ( Qinv  z )_i
-        Qinvzi = gnp.matmul(Qinv, zi_)
-        Qinvdiag = gnp.diag(Qinv)
-        eloo = Qinvzi / Qinvdiag
+        Qinvzi = gnp.matmul(Qinv, zi_)  # shape (n, )
+        Qinvdiag = gnp.diag(Qinv)  # shape (n, )
+        eloo = Qinvzi / Qinvdiag  # shape (n, )
 
         # sigma2_loo,i = 1 / Qinv_i,i
-        sigma2loo = 1. / Qinvdiag
+        sigma2loo = 1.0 / Qinvdiag  # shape (n, )
 
         # z_loo
-        zloo = zi_ - eloo
+        zloo = zi_ - eloo  # shape (n, )
 
         return zloo, sigma2loo, eloo
 
     def negative_log_likelihood_zero_mean(self, covparam, xi, zi):
         """Computes the negative log-likelihood of the Gaussian process model with zero mean.
 
-        This function is specific to the zero-mean case, and the negative log-likelihood 
+        This function is specific to the zero-mean case, and the negative log-likelihood
         is computed based on the provided covariance function and parameters.
 
         Parameters
         ----------
         covparam : gnp.array
-            Parameters for the covariance function. This array contains the hyperparameters 
+            Parameters for the covariance function. This array contains the hyperparameters
             required by the chosen covariance function.
         xi : ndarray(ni,d)
             Locations of the data points in the input space, where ni is the number of data points
@@ -473,18 +479,18 @@ class Model:
         K = self.covariance(xi, xi, covparam)
         n = K.shape[0]
 
-        if gnp._gpmp_backend_ == 'jax' or gnp._gpmp_backend_ == 'numpy':
+        if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
             C, lower = gnp.cho_factor(K)
             Kinv_zi = gnp.cho_solve((C, lower), zi)
-        elif gnp._gpmp_backend_ == 'torch':
+        elif gnp._gpmp_backend_ == "torch":
             C = gnp.cholesky(K)
             Kinv_zi = gnp.cholesky_solve(zi.reshape(-1, 1), C, upper=False)
 
         norm2 = gnp.einsum("i..., i...", zi, Kinv_zi)
 
-        ldetK = 2. * gnp.sum(gnp.log(gnp.diag(C)))
+        ldetK = 2.0 * gnp.sum(gnp.log(gnp.diag(C)))
 
-        L = 0.5 * (n * gnp.log(2. * gnp.pi) + ldetK + norm2)
+        L = 0.5 * (n * gnp.log(2.0 * gnp.pi) + ldetK + norm2)
 
         return L.reshape(())
 
@@ -492,16 +498,16 @@ class Model:
         """
         Computes the negative log-likelihood of the Gaussian process model with a given mean.
 
-        This function computes the negative log-likelihood based on the provided mean function, 
+        This function computes the negative log-likelihood based on the provided mean function,
         covariance function, and their parameters.
 
         Parameters
         ----------
         meanparam : gnp.array
-            Parameters for the mean function. This array contains the hyperparameters 
+            Parameters for the mean function. This array contains the hyperparameters
             required by the chosen mean function.
         covparam : gnp.array
-            Parameters for the covariance function. This array contains the hyperparameters 
+            Parameters for the covariance function. This array contains the hyperparameters
             required by the chosen covariance function.
         xi : ndarray(ni,d)
             Locations of the data points in the input space, where ni is the number of data points
@@ -519,7 +525,7 @@ class Model:
 
         # Call the zero mean version with the centered observations
         return self.negative_log_likelihood_zero_mean(covparam, xi, centered_zi)
-    
+
     def negative_log_restricted_likelihood(self, covparam, xi, zi):
         """
         Compute the negative log-restricted likelihood of the GP model.
@@ -566,29 +572,31 @@ class Model:
 
         # Cholesky factorization: G = U' * U, with upper-triangular U
         # Compute G^(-1) * (W' zi)
-        if gnp._gpmp_backend_ == 'jax' or gnp._gpmp_backend_ == 'numpy':
+        if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
             C, lower = gnp.cho_factor(G)
             WKWinv_Wzi = gnp.cho_solve((C, lower), Wzi)
-        elif gnp._gpmp_backend_ == 'torch':
+        elif gnp._gpmp_backend_ == "torch":
             try:
                 C = gnp.cholesky(G)
-            except RuntimeError:  # Use LinAlgError instead of raising RuntimeError for linalg operations https://github.com/pytorch/pytorch/issues/64785
+            except (
+                RuntimeError
+            ):  # Use LinAlgError instead of raising RuntimeError for linalg operations https://github.com/pytorch/pytorch/issues/64785
                 # https://stackoverflow.com/questions/242485/starting-python-debugger-automatically-on-error
                 # extype, value, tb = __import__("sys").exc_info()
                 # __import__("traceback").print_exc()
                 # __import__("pdb").post_mortem(tb)
-                inf_tensor = gnp.tensor(float('inf'), requires_grad=True)
+                inf_tensor = gnp.tensor(float("inf"), requires_grad=True)
                 return inf_tensor  # returns inf with None gradient
 
             WKWinv_Wzi = gnp.cholesky_solve(Wzi.reshape(-1, 1), C, upper=False)
 
         # Compute norm2 = (W' zi)' * G^(-1) * (W' zi)
         norm2 = gnp.einsum("i..., i...", Wzi, WKWinv_Wzi)
-    
-        # Compute log(det(G)) using the Cholesky factorization
-        ldetWKW = 2. * gnp.sum(gnp.log(gnp.diag(C)))
 
-        L = 0.5 * ((n - q) * gnp.log(2. * gnp.pi) + ldetWKW + norm2)
+        # Compute log(det(G)) using the Cholesky factorization
+        ldetWKW = 2.0 * gnp.sum(gnp.log(gnp.diag(C)))
+
+        L = 0.5 * ((n - q) * gnp.log(2.0 * gnp.pi) + ldetWKW + norm2)
 
         return L.reshape(())
 
@@ -622,15 +630,15 @@ class Model:
         >>> norm_sqrd = model.norm_k_sqrd_with_zero_mean(xi, zi, covparam)
         """
         K = self.covariance(xi, xi, covparam)
-        if gnp._gpmp_backend_ == 'jax' or gnp._gpmp_backend_ == 'numpy':
+        if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
             C, lower = gnp.cho_factor(K)
             Kinv_zi = gnp.cho_solve((C, lower), zi)
-        elif gnp._gpmp_backend_ == 'torch':
+        elif gnp._gpmp_backend_ == "torch":
             C = gnp.cholesky(K)
             Kinv_zi = gnp.cholesky_solve(zi.reshape(-1, 1), C, upper=False)
-            
+
         norm_sqrd = gnp.einsum("i..., i...", zi, Kinv_zi)
-        
+
         return norm_sqrd
 
     def k_inverses(self, xi, zi, covparam):
@@ -671,11 +679,11 @@ class Model:
         K = self.covariance(xi, xi, covparam)
         ones_vector = gnp.ones(zi.shape)
 
-        if gnp._gpmp_backend_ == 'jax' or gnp._gpmp_backend_ == 'numpy':
+        if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
             C, lower = gnp.cho_factor(K)
             Kinv_zi = gnp.cho_solve((C, lower), zi)
             Kinv_1 = gnp.cho_solve((C, lower), ones_vector)
-        elif gnp._gpmp_backend_ == 'torch':
+        elif gnp._gpmp_backend_ == "torch":
             C = gnp.cholesky(K)
             Kinv_zi = gnp.cholesky_solve(zi, C, upper=False)
             Kinv_1 = gnp.cholesky_solve(ones_vector, C, upper=False)
@@ -683,7 +691,7 @@ class Model:
         zTKinvz = gnp.einsum("ij, ij", zi, Kinv_zi)
 
         return zTKinvz, Kinv_1, Kinv_zi
-    
+
     def norm_k_sqrd(self, xi, zi, covparam):
         """
         Compute the squared norm of the residual vector after applying the contrast matrix W.
@@ -695,7 +703,7 @@ class Model:
         ----------
         xi : ndarray, shape (ni, d)
             Input data points used for fitting the GP model, where ni is the number of points and d is the dimensionality.
-        zi : ndarray, shape (ni, 1)
+        zi : ndarray, shape (ni, 1) or (ni, )
             Output (response) values corresponding to the input data points xi.
         covparam : array_like
             Covariance parameters for the Gaussian Process.
@@ -721,19 +729,19 @@ class Model:
 
         # Cholesky factorization: G = U' * U, with upper-triangular U
         # Compute G^(-1) * (W' zi)
-        if gnp._gpmp_backend_ == 'jax' or gnp._gpmp_backend_ == 'numpy':
+        if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
             C, lower = gnp.cho_factor(G)
             WKWinv_Wzi = gnp.cho_solve((C, lower), Wzi)
-        elif gnp._gpmp_backend_ == 'torch':
+        elif gnp._gpmp_backend_ == "torch":
             C = gnp.cholesky(G)
             WKWinv_Wzi = gnp.cholesky_solve(Wzi.reshape(-1, 1), C, upper=False)
-            
+
         # Compute norm_2 = (W' zi)' * G^(-1) * (W' zi)
         norm_sqrd = gnp.einsum("i..., i...", Wzi, WKWinv_Wzi)
 
         return norm_sqrd
 
-    def sample_paths(self, xt, nb_paths, method='chol', check_result=True):
+    def sample_paths(self, xt, nb_paths, method="chol", check_result=True):
         """
         Generates nb_paths sample paths on xt from the GP model GP(0, k),
         where k is the covariance specified by Model.covariance.
@@ -762,7 +770,7 @@ class Model:
         >>> sample_paths = model.sample_paths(xt, nb_paths)
         """
         xt_ = gnp.asarray(xt)
-        
+
         K = self.covariance(xt_, xt_, self.covparam)
 
         # Factorization of the covariance matrix
@@ -801,7 +809,7 @@ class Model:
         ----------
         ztsim : ndarray, shape (n, nb_paths)
             Unconditional sample paths.
-        zi : ndarray, shape (ni, 1)
+        zi : ndarray, shape (ni, 1) or (ni, )
             Observed values corresponding to the input data points xi.
         xi_ind : ndarray, shape (ni, 1), dtype=int
             Indices of observed data points in ztsim.
@@ -824,48 +832,61 @@ class Model:
         >>> lambda_t = np.random.randn(3, 7)
         >>> ztsimc = model.conditional_sample_paths(ztsim, xi_ind, zi, xt_ind, lambda_t)
         """
-        zi_ = gnp.asarray(zi)
+        zi_ = gnp.asarray(zi).reshape(-1, 1)
         ztsim_ = gnp.asarray(ztsim)
 
-        d = zi_.reshape((-1, 1)) - ztsim_[xi_ind, :]
+        d = zi_ - ztsim_[xi_ind, :]
 
         ztsimc = ztsim_[xt_ind, :] + gnp.einsum("ij,ik->jk", lambda_t, d)
 
         return ztsimc
 
     @staticmethod
-    def check_dimensions(xi=None, zi=None, xt=None):
+    def ensure_shapes_and_type(xi=None, zi=None, xt=None, convert=True):
         """
-        Check dimensions of provided arrays.
+        Ensure correct shapes and types for provided arrays.
 
         Parameters
         ----------
         xi : ndarray or gnp.array(ni, dim), optional
             Observation points.
-        zi : ndarray or gnp.array(ni,), optional
+        zi : ndarray or gnp.array(ni,) or gnp.array(ni, 1), optional
             Observed values.
         xt : ndarray or gnp.array(nt, dim), optional
             Prediction points.
+        convert : bool, optional
+            Whether to convert input arrays to _gpmp_backend_ type or keep as-is.
 
-        Raises
-        ------
-        AssertionError
-            If provided arrays don't meet dimensionality requirements.
+        Returns
+        -------
+        xi, zi, xt : tuple
+            Tuples containing arrays with ensured shapes and types.
         """
 
         if xi is not None:
             assert len(xi.shape) == 2, "xi should be a 2D array"
 
         if zi is not None:
-            assert len(zi.shape) == 1, "zi should be a 1D array"
+            if len(zi.shape) == 2:
+                assert zi.shape[1] == 1, "zi should only have one column if it's a 2D array"
+                zi = zi.reshape(-1)  # reshapes (ni, 1) to (ni,)
+            else:
+                assert len(zi.shape) == 1, "zi should either be 1D or a 2D column array"
 
         if xt is not None:
             assert len(xt.shape) == 2, "xt should be a 2D array"
 
         if xi is not None and zi is not None:
-            assert xi.shape[0] == zi.shape[0], "Number of rows in xi should be equal to the length of zi"
-
+            assert xi.shape[0] == zi.shape[0], "Number of rows in xi should be equal to the number of rows in zi"
         if xi is not None and xt is not None:
             assert xi.shape[1] == xt.shape[1], "xi and xt should have the same number of columns"
-    
 
+        if convert:
+            if xi is not None:
+                xi = gnp.asarray(xi)
+            if zi is not None:
+                zi = gnp.asarray(zi)
+            if xt is not None:
+                xt = gnp.asarray(xt)
+
+        return xi, zi, xt
