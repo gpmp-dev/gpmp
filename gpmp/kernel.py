@@ -321,11 +321,11 @@ def anisotropic_parameters_initial_guess_constant_mean(model, xi, zi):
     covparam = gnp.concatenate((gnp.array([gnp.log(1.0)]), -gnp.log(rho)))
     n = xi_.shape[0]
     zTKinvz, Kinv1, Kinvz = model.k_inverses(xi_, zi_, covparam)
-    
-    mean_GLS = gnp.sum(Kinv1 * zi_) / gnp.sum(Kinv1)
+
+    mean_GLS = gnp.sum(Kinvz) / gnp.sum(Kinv1)
     sigma2_GLS = (1.0 / n) * zTKinvz
     
-    return mean_GLS, gnp.concatenate((gnp.array([gnp.log(sigma2_GLS)]), -gnp.log(rho)))
+    return mean_GLS, gnp.concatenate((gnp.log(sigma2_GLS), -gnp.log(rho)))
 
 
 def anisotropic_parameters_initial_guess(model, xi, zi):

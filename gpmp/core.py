@@ -95,12 +95,9 @@ class Model:
         Kii = self.covariance(xi, xi, self.covparam)
         Kit = self.covariance(xi, xt, self.covparam)
 
-        if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
-            lambda_t = gnp.solve(
-                Kii, Kit, overwrite_a=True, overwrite_b=True, assume_a='pos'
-            )
-        elif gnp._gpmp_backend_ == "torch":
-            lambda_t = gnp.solve(Kii, Kit)
+        lambda_t = gnp.solve(
+            Kii, Kit, overwrite_a=True, overwrite_b=True, assume_a='pos'
+        )
 
         if return_type == -1:
             zt_posterior_variance = None
@@ -152,7 +149,7 @@ class Model:
         RHS = gnp.vstack((Kit, Pt.T))
 
         # lambdamu_t = RHS^(-1) LHS
-        lambdamu_t = gnp.solve(LHS, RHS, overwrite_a=True, overwrite_b=True)
+        lambdamu_t = gnp.solve(LHS, RHS, overwrite_a=True, overwrite_b=True, assume_a='sym')
 
         lambda_t = lambdamu_t[0:ni, :]
 
@@ -336,12 +333,7 @@ class Model:
         K = self.covariance(xi, xi, self.covparam)
 
         # Use the "virtual cross-validation" formula
-        if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
-            C, lower = gnp.cho_factor(K)
-            Kinv = gnp.cho_solve((C, lower), gnp.eye(n))
-        elif gnp._gpmp_backend_ == "torch":
-            C = gnp.cholesky(K)
-            Kinv = gnp.cholesky_solve(gnp.eye(n), C, upper=False)
+        Kinv = gnp.cholesky_inv(K)
 
         # e_loo,i  = 1 / Kinv_i,i ( Kinv  z )_i
         Kinvzi = gnp.matmul(Kinv, zi)  # shape (n, )
@@ -372,17 +364,9 @@ class Model:
 
         # Use the "virtual cross-validation" formula
         # Qinv = K^-1 - K^-1P (Pt K^-1 P)^-1 Pt K^-1
-        if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
-            C, lower = gnp.cho_factor(K)
-            Kinv = gnp.cho_solve((C, lower), gnp.eye(n))
-            KinvP = gnp.cho_solve((C, lower), P)
-        elif gnp._gpmp_backend_ == "torch":
-            C = gnp.cholesky(K)
-            Kinv = gnp.cholesky_solve(gnp.eye(n), C, upper=False)
-            KinvP = gnp.cholesky_solve(P, C, upper=False)
-
+        Kinv = gnp.inv(K)
+        KinvP = gnp.matmul(Kinv, P)
         PtKinvP = gnp.einsum("ki, kj->ij", P, KinvP)
-
         R = gnp.solve(PtKinvP, KinvP.T)
         Qinv = Kinv - gnp.matmul(KinvP, R)
 
@@ -425,15 +409,8 @@ class Model:
         K = self.covariance(xi, xi, covparam)
         n = K.shape[0]
 
-        if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
-            C, lower = gnp.cho_factor(K)
-            Kinv_zi = gnp.cho_solve((C, lower), zi)
-        elif gnp._gpmp_backend_ == "torch":
-            C = gnp.cholesky(K)
-            Kinv_zi = gnp.cholesky_solve(zi.reshape(-1, 1), C, upper=False)
-
+        Kinv_zi, C = gnp.cholesky_solve(K, zi)           
         norm2 = gnp.einsum("i..., i...", zi, Kinv_zi)
-
         ldetK = 2.0 * gnp.sum(gnp.log(gnp.diag(C)))
 
         L = 0.5 * (n * gnp.log(2.0 * gnp.pi) + ldetK + norm2)
@@ -518,24 +495,20 @@ class Model:
 
         # Cholesky factorization: G = U' * U, with upper-triangular U
         # Compute G^(-1) * (W' zi)
-        if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
-            C, lower = gnp.cho_factor(G)
-            WKWinv_Wzi = gnp.cho_solve((C, lower), Wzi)
-        elif gnp._gpmp_backend_ == "torch":
-            try:
-                C = gnp.cholesky(G)
-            except (
-                RuntimeError
-            ):  # Use LinAlgError instead of raising RuntimeError for linalg operations https://github.com/pytorch/pytorch/issues/64785
+        try:
+            WKWinv_Wzi, C = gnp.cholesky_solve(G, Wzi)
+        except (RuntimeError):
+            if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
+                return gnp.inf
+            elif gnp._gpmp_backend_ == "torch":
+                # Use LinAlgError instead of raising RuntimeError for linalg operations https://github.com/pytorch/pytorch/issues/64785
                 # https://stackoverflow.com/questions/242485/starting-python-debugger-automatically-on-error
                 # extype, value, tb = __import__("sys").exc_info()
                 # __import__("traceback").print_exc()
                 # __import__("pdb").post_mortem(tb)
                 inf_tensor = gnp.tensor(float("inf"), requires_grad=True)
                 return inf_tensor  # returns inf with None gradient
-
-            WKWinv_Wzi = gnp.cholesky_solve(Wzi.reshape(-1, 1), C, upper=False)
-
+                
         # Compute norm2 = (W' zi)' * G^(-1) * (W' zi)
         norm2 = gnp.einsum("i..., i...", Wzi, WKWinv_Wzi)
 
@@ -576,13 +549,7 @@ class Model:
         >>> norm_sqrd = model.norm_k_sqrd_with_zero_mean(xi, zi, covparam)
         """
         K = self.covariance(xi, xi, covparam)
-        if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
-            C, lower = gnp.cho_factor(K)
-            Kinv_zi = gnp.cho_solve((C, lower), zi)
-        elif gnp._gpmp_backend_ == "torch":
-            C = gnp.cholesky(K)
-            Kinv_zi = gnp.cholesky_solve(zi.reshape(-1, 1), C, upper=False)
-
+        Kinv_zi, _ = gnp.cholesky_solve(K, zi)
         norm_sqrd = gnp.einsum("i..., i...", zi, Kinv_zi)
 
         return norm_sqrd
@@ -625,16 +592,11 @@ class Model:
         K = self.covariance(xi, xi, covparam)
         ones_vector = gnp.ones(zi.shape)
 
-        if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
-            C, lower = gnp.cho_factor(K)
-            Kinv_zi = gnp.cho_solve((C, lower), zi)
-            Kinv_1 = gnp.cho_solve((C, lower), ones_vector)
-        elif gnp._gpmp_backend_ == "torch":
-            C = gnp.cholesky(K)
-            Kinv_zi = gnp.cholesky_solve(zi, C, upper=False)
-            Kinv_1 = gnp.cholesky_solve(ones_vector, C, upper=False)
+        Kinv = gnp.cholesky_inv(K)
+        Kinv_zi = gnp.einsum("...i, i... ", Kinv, zi)
+        Kinv_1 = gnp.einsum("...i, i... ", Kinv, ones_vector)
 
-        zTKinvz = gnp.einsum("ij, ij", zi, Kinv_zi)
+        zTKinvz = gnp.einsum("i..., i...", zi, Kinv_zi)
 
         return zTKinvz, Kinv_1, Kinv_zi
 
@@ -673,14 +635,8 @@ class Model:
         # Compute G = W' * (K * W), the covariance matrix of contrasts
         G = gnp.matmul(W.T, gnp.matmul(K, W))
 
-        # Cholesky factorization: G = U' * U, with upper-triangular U
         # Compute G^(-1) * (W' zi)
-        if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
-            C, lower = gnp.cho_factor(G)
-            WKWinv_Wzi = gnp.cho_solve((C, lower), Wzi)
-        elif gnp._gpmp_backend_ == "torch":
-            C = gnp.cholesky(G)
-            WKWinv_Wzi = gnp.cholesky_solve(Wzi.reshape(-1, 1), C, upper=False)
+        WKWinv_Wzi, _ = gnp.cholesky_solve(G, Wzi)
 
         # Compute norm_2 = (W' zi)' * G^(-1) * (W' zi)
         norm_sqrd = gnp.einsum("i..., i...", Wzi, WKWinv_Wzi)

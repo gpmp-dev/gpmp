@@ -41,7 +41,11 @@ if _gpmp_backend_ is None:
 print(f"Using backend: {_gpmp_backend_}")
 
 
-# -------------------- NUMPY --------------------
+# -----------------------------------------------------
+#
+#                      NUMPY
+#
+# -----------------------------------------------------
 if _gpmp_backend_ == 'numpy':
     from numpy import array, empty
 
@@ -91,7 +95,7 @@ if _gpmp_backend_ == 'numpy':
         logical_and,
         logical_or
     )
-    from numpy.linalg import norm, cond, qr, svd
+    from numpy.linalg import norm, cond, qr, svd, inv
     from numpy.random import randn, choice
     from numpy import pi, inf
     from numpy import finfo, float64
@@ -147,23 +151,24 @@ if _gpmp_backend_ == 'numpy':
             invrho = exp(loginvrho)
             d = sqrt(sum(invrho * (xs - ys) ** 2, axis=1))
         return d
-
-    
-    def inv(K):
-
         
-    def cholesky_inv(K):
+    def cholesky_inv(A):
+        # FIXME: slow!
+        # n = A.shape[0]
+        # C, lower = cho_factor(A)
+        # Ainv = cho_solve((C, lower), eye(n))
+        return inv(A)
+
+    def cholesky_solve(A, b):
+        C, lower = cho_factor(A)
+        return cho_solve((C, lower), b), C
 
 
-            if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
-            C, lower = gnp.cho_factor(K)
-            Kinv = gnp.cho_solve((C, lower), gnp.eye(n))
-        elif gnp._gpmp_backend_ == "torch":
-            C = gnp.cholesky(K)
-            Kinv = gnp.cholesky_solve(gnp.eye(n), C, upper=False)
-
-
-# -------------------- TORCH --------------------
+# -----------------------------------------------------
+#
+#                      TORCH
+#
+# -----------------------------------------------------
 elif _gpmp_backend_ == 'torch':
     import torch
 
@@ -203,7 +208,7 @@ elif _gpmp_backend_ == 'torch':
         logical_and,
         logical_or
     )
-    from torch.linalg import cond, qr
+    from torch.linalg import cond, qr, inv
     from torch import randn
     from torch import cdist
     from torch import pi, inf
@@ -212,8 +217,6 @@ elif _gpmp_backend_ == 'torch':
     
     eps = finfo(float64).eps
     fmax = finfo(float64).max
-
-    from torch import cholesky_solve
 
     def array(x: list):
         return tensor(x)
@@ -224,7 +227,7 @@ elif _gpmp_backend_ == 'torch':
         elif isinstance(x, (int, float)):
             return tensor([x])
         else:
-            return torch.asrray(x)
+            return torch.asarray(x)
 
     def to_np(x):
         return x.numpy()
@@ -358,7 +361,20 @@ elif _gpmp_backend_ == 'torch':
             d = sqrt(sum(invrho * (xs - ys) ** 2, axis=1))
         return d
 
-# -------------------- JAX --------------------
+    def cholesky_solve(A, b):
+        C = torch.linalg.cholesky(A)
+        return torch.cholesky_solve(b.reshape(-1, 1), C, upper=False), C
+
+    def cholesky_inv(A):
+        C = torch.linalg.cholesky(A)
+        return torch.cholesky_inverse(C)
+
+
+# ------------------------------------------------------
+#
+#                        JAX
+#
+# ------------------------------------------------------
 elif _gpmp_backend_ == 'jax':
     import jax
 
@@ -418,7 +434,7 @@ elif _gpmp_backend_ == 'jax':
         logical_or
     )
     from jax.numpy.linalg import norm
-    from jax.numpy.linalg import cond, qr, svd
+    from jax.numpy.linalg import cond, qr, svd, inv
     from jax.numpy import pi, inf
     from jax.numpy import finfo, float64
     from jax.scipy.special import gammaln
@@ -507,6 +523,20 @@ elif _gpmp_backend_ == 'jax':
     def scaled_distance_elementwise(loginvrho, x, y):
         f = jax.vmap(jax.jit(scaled_distance), in_axes=(None, 0, 0), out_axes=0)(loginvrho, x, y)
         return f
+
+    def cholesky_inv(A):
+        # FIXME: slow!
+        # n = A.shape[0]
+        # C, lower = cho_factor(A)
+        # Ainv = cho_solve((C, lower), eye(n))
+        return inv(A)
+
+    def cholesky_solve(A, b):
+        C, lower = cho_factor(A)
+        return cho_solve((C, lower), b), C
+
+
+# ------------------------------------------------------------------
 
 else:
     raise RuntimeError("Please set the GPMP_BACKEND environment variable to 'numpy', 'torch' or 'jax'.")
