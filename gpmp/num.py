@@ -104,9 +104,12 @@ if _gpmp_backend_ == 'numpy':
     eps = finfo(float64).eps
     fmax = numpy.finfo(numpy.float64).max
 
+    
     def asarray(x):
-        if isinstance(x, (int, float)):
-            return array([x])
+        if isinstance(x, numpy.ndarray):
+            return x
+        elif isinstance(x, (int, float)):
+            return numpy.array([x])
         else:
             return numpy.asarray(x)
 
@@ -144,6 +147,21 @@ if _gpmp_backend_ == 'numpy':
             invrho = exp(loginvrho)
             d = sqrt(sum(invrho * (xs - ys) ** 2, axis=1))
         return d
+
+    
+    def inv(K):
+
+        
+    def cholesky_inv(K):
+
+
+            if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
+            C, lower = gnp.cho_factor(K)
+            Kinv = gnp.cho_solve((C, lower), gnp.eye(n))
+        elif gnp._gpmp_backend_ == "torch":
+            C = gnp.cholesky(K)
+            Kinv = gnp.cholesky_solve(gnp.eye(n), C, upper=False)
+
 
 # -------------------- TORCH --------------------
 elif _gpmp_backend_ == 'torch':
@@ -201,10 +219,12 @@ elif _gpmp_backend_ == 'torch':
         return tensor(x)
 
     def asarray(x):
-        if isinstance(x, (int, float)):
+        if isinstance(x, torch.Tensor):
+            return x
+        elif isinstance(x, (int, float)):
             return tensor([x])
         else:
-            return torch.asarray(x)
+            return torch.asrray(x)
 
     def to_np(x):
         return x.numpy()
@@ -303,7 +323,7 @@ elif _gpmp_backend_ == 'torch':
     def svd(A, full_matrices=True, hermitian=True):
         return torch.linalg.svd(A, full_matrices)
 
-    def solve(A, B, sym_pos=True, overwrite_a=True, overwrite_b=True):
+    def solve(A, B, overwrite_a=True, overwrite_b=True, assume_a='gen', sym_pos=False):
         return torch.linalg.solve(A, B)
 
     def grad(f):
@@ -410,6 +430,8 @@ elif _gpmp_backend_ == 'jax':
     fmax = finfo(float64).max
 
     def asarray(x):
+        if isinstance(x, jax.numpy.ndarray):
+            return x
         if isinstance(x, (int, float)):
             return jax.numpy.array([x])
         else:
