@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gpmp"
+version = "0.9.12"
+authors = [
+    {name = "Emmanuel Vazquez", email = "emmanuel.vazquez@centralesupelec.fr"},
+]
+description = "GPmp: the Gaussian process micro package"
+readme = "README.md"
+keywords = ["Gaussian processes", "kriging"]
+license = {file = "LICENSE.txt"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy",
+    "scipy>=1.8.0",
+    "matplotlib"
+]
+requires-python = ">=3.6"
+
+[project.urls]
+"Homepage" = "https://github.com/gpmp-dev/gpmp"
+
+[project.optional-dependencies]
+dev = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["gpmp", "gpmp.*", "examples", "tests"]
+
+[tool.setuptools.dynamic]
+version = {attr = "gpmp.VERSION"}
+readme = {file = "README.md"}
