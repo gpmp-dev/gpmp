@@ -74,8 +74,6 @@ def visualize_results(xt, zt, xi, zi, zpm, zpv):
 
 def main():
     xt, zt, xi, zi = generate_data()
-    xi_ = gnp.asarray(xi)
-    zi_ = gnp.asarray(zi)
 
     meanparam = None
     covparam0 = None
@@ -85,13 +83,6 @@ def main():
     covparam0 = gp.kernel.anisotropic_parameters_initial_guess(model, xi, zi)
 
     # selection criterion
-    def crit_(covparam):
-        l = model.negative_log_restricted_likelihood(covparam, xi_, zi_)
-        return l
-
-    nlrl = gnp.jax.jit(crit_)
-    dnlrl = gnp.jax.jit(gnp.grad(nlrl))
-    
     nlrl, dnlrl = gp.kernel.make_selection_criterion_with_gradient(
         model.negative_log_restricted_likelihood, xi, zi
     )

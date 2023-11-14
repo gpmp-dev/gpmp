@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 def generate_data():
     """
     Data generation.
-    
+
     Returns
     -------
     tuple
@@ -31,7 +31,7 @@ def generate_data():
     ni = 7
     xi = gp.misc.designs.ldrandunif(dim, ni, box)
     zi = gp.misc.testfunctions.twobumps(xi) + c
-   
+
     return xt, zt, xi, zi
 
 
@@ -47,7 +47,7 @@ def kernel(x, y, covparam, pairwise=False):
 def visualize_results(xt, zt, xi, zi, zpm, zpv):
     """
     Visualize the results using gp.misc.plotutils (a matplotlib wrapper).
-    
+
     Parameters
     ----------
     xt : numpy.ndarray
@@ -64,48 +64,41 @@ def visualize_results(xt, zt, xi, zi, zpm, zpv):
         Posterior variance
     """
     fig = gp.misc.plotutils.Figure(isinteractive=True)
-    fig.plot(xt, zt, 'k', linewidth=1, linestyle=(0, (5, 5)))
+    fig.plot(xt, zt, "k", linewidth=1, linestyle=(0, (5, 5)))
     fig.plotdata(xi, zi)
-    fig.plotgp(xt, zpm, zpv, colorscheme='simple')
-    fig.xlabel('$x$')
-    fig.ylabel('$z$')
-    fig.title('Posterior GP with parameters selected by ML')
+    fig.plotgp(xt, zpm, zpv, colorscheme="simple")
+    fig.xlabel("$x$")
+    fig.ylabel("$z$")
+    fig.title("Posterior GP with parameters selected by ML")
     fig.show()
 
 
 def main():
     xt, zt, xi, zi = generate_data()
-    xi_ = gnp.asarray(xi)
-    zi_ = gnp.asarray(zi)
 
     meanparam = None
     covparam0 = None
-    model = gp.core.Model(constant_mean, kernel, meanparam, covparam0, meantype='known')
+    model = gp.core.Model(constant_mean, kernel, meanparam, covparam0, meantype="known")
 
     # Parameter initial guess
-    meanparam0, covparam0 = gp.kernel.anisotropic_parameters_initial_guess_constant_mean(model, xi, zi)
+    (
+        meanparam0,
+        covparam0,
+    ) = gp.kernel.anisotropic_parameters_initial_guess_constant_mean(model, xi, zi)
     param0 = gnp.concatenate((meanparam0.reshape(1), covparam0))
-    
+
     # selection criterion
-    def crit_(param):
-        meanparam = param[0]
-        covparam = param[1:]
-        l = model.negative_log_likelihood(meanparam, covparam, xi_, zi_)
-        return l
-    nll = gnp.jax.jit(crit_)
-    dnll = gnp.jax.jit(gnp.grad(nll))
+    nll, dnll = gp.kernel.make_selection_criterion_with_gradient(
+        model.negative_log_likelihood, xi, zi, use_meanparam=True
+    )
 
     param_ml, info = gp.kernel.autoselect_parameters(
-        param0,
-        nll,
-        dnll,
-        silent=False,
-        info=True
+        param0, nll, dnll, silent=False, info=True
     )
-    
+
     model.meanparam = gnp.asarray(param_ml[0])
     model.covparam = gnp.asarray(param_ml[1:])
-    
+
     info["covparam0"] = param0[1:]
     info["covparam"] = param_ml[1:]
     info["selection_criterion"] = nll
@@ -116,8 +109,8 @@ def main():
     zpm, zpv = model.predict(xi, zi, xt)
 
     # Visualization
-    print('\nVisualization')
-    print('-------------')        
+    print("\nVisualization")
+    print("-------------")
     visualize_results(xt, zt, xi, zi, zpm, zpv)
 
     zloom, zloov, eloo = model.loo(xi, zi)
@@ -126,5 +119,5 @@ def main():
     return model
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     model = main()

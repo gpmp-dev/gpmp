@@ -394,7 +394,7 @@ def anisotropic_parameters_initial_guess(model, xi, zi):
     return gnp.concatenate((gnp.array([gnp.log(sigma2_GLS)]), -gnp.log(rho)))
 
 
-def make_selection_criterion_with_gradient(selection_criterion, xi, zi):
+def make_selection_criterion_with_gradient(selection_criterion, xi, zi, use_meanparam=False, meanparam_len=1):
     """
     Make selection criterion function with gradient.
 
@@ -406,6 +406,10 @@ def make_selection_criterion_with_gradient(selection_criterion, xi, zi):
         Locations of the observed data points.
     zi : ndarray, shape (n,)
         Observed values at the data points.
+    use_meanparam : bool, optional
+        Whether to use mean parameter in the selection criterion.
+    meanparam_len : int, optional
+        Length of the mean parameter, used only if use_meanparam is True.
 
     Returns
     -------
@@ -417,13 +421,20 @@ def make_selection_criterion_with_gradient(selection_criterion, xi, zi):
     xi_ = gnp.asarray(xi)
     zi_ = gnp.asarray(zi)
 
-    # selection criterion
-    def crit_(covparam):
-        l = selection_criterion(covparam, xi_, zi_)
-        return l
+    if use_meanparam:
+        # selection criterion with mean parameter
+        def crit_(param):
+            meanparam = param[:meanparam_len]
+            covparam = param[meanparam_len:]
+            l = selection_criterion(meanparam, covparam, xi_, zi_)
+            return l
+    else:
+        # selection criterion without mean parameter
+        def crit_(covparam):
+            l = selection_criterion(covparam, xi_, zi_)
+            return l
 
     crit_jit = gnp.jax.jit(crit_)
-
     dcrit = gnp.jax.jit(gnp.grad(crit_jit))
 
     return crit_jit, dcrit
