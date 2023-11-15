@@ -106,6 +106,8 @@ def main():
     print('-------------')
     visualize_results(xt, zt, xi, zi, zpm, zpv)
 
+    zloom, zloov, eloo = model.loo(xi, zi)
+    gp.misc.plotutils.plot_loo(zi, zloom, zloov)
 
 if __name__ == '__main__':
     main()

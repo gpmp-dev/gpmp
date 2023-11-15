@@ -89,7 +89,7 @@ def main():
 
     # selection criterion
     nll, dnll = gp.kernel.make_selection_criterion_with_gradient(
-        model.negative_log_likelihood, xi, zi, use_meanparam=True
+        model.negative_log_likelihood, xi, zi, use_meanparam=True, meanparam_len=1
     )
 
     param_ml, info = gp.kernel.autoselect_parameters(

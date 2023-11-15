@@ -84,7 +84,7 @@ def maternp_kernel(p: int, h):
     The Matérn kernel is defined as in Stein 1999, page 50:
 
     .. math::
-    
+
         K(h) = \\frac{1}{\\Gamma(\\nu) 2^{\\nu - 1}} (\\sqrt{2 \\nu} h)^\\nu K_\\nu(\\sqrt{2 \\nu} h)
 
     Where:
@@ -99,9 +99,9 @@ def maternp_kernel(p: int, h):
     A treatise on the theory of Bessel functions, pp. 80, Abramowitz and Stegun 1965, pp. 374-379, 443-444):
 
     .. math::
-    
+
         K(h) = \\exp(-2\\sqrt{\\nu}h) \\frac{\\Gamma(p+1)}{\\Gamma(2p+1)} \\sum_{i=0}^{p} \\frac{(p+i)!}{i!(p-i)!} (4\\sqrt{\\nu}h)^{p-i}
-    
+
     """
     global gln, pmax
 
@@ -303,7 +303,7 @@ def anisotropic_parameters_initial_guess_constant_mean(model, xi, zi):
             m_{GLS} = \frac{\mathbf{1}^T K^{-1} \mathbf{z}}{\mathbf{1}^T K^{-1} \mathbf{1}}
 
     concatenated parameters : array_like
-        An array containing the initialized :math:`\sigma^2_{GLS}` and :math:`\rho` values. 
+        An array containing the initialized :math:`\sigma^2_{GLS}` and :math:`\rho` values.
         The estimator :math:`\sigma^2_{GLS}` is given by:
 
         .. math::
@@ -324,7 +324,7 @@ def anisotropic_parameters_initial_guess_constant_mean(model, xi, zi):
 
     mean_GLS = gnp.sum(Kinvz) / gnp.sum(Kinv1)
     sigma2_GLS = (1.0 / n) * zTKinvz
-    
+
     return mean_GLS, gnp.concatenate((gnp.log(sigma2_GLS), -gnp.log(rho)))
 
 
@@ -354,24 +354,24 @@ def anisotropic_parameters_initial_guess(model, xi, zi):
     Notes
     -----
     The GLS estimate for :math:`\\sigma^2` is given by:
-    
+
     .. math::
 
         \\sigma^2_{GLS} = \\frac{1}{n} \\mathbf{z}^T \\mathbf{K}^{-1} \\mathbf{z}
-    
+
     Where:
-    
+
     * :math:`n` is the number of data points.
     * :math:`\\mathbf{z}` is the vector of observed data.
     * :math:`\\mathbf{K}` is the covariance matrix associated with the data locations.
-    
+
     Additionally, the function uses a relation (not from the reference) between :math:`\\rho`
     and the volume of a ball in dimension :math:`d` for initialization:
-    
+
     .. math::
-    
+
         V_d(R) = \\frac{\\pi^{d/2} R^d}{\\Gamma(d/2+1)}
-    
+
     Where :math:`R` is defined as :math:`\\rho / 2`.
 
     .. [1] Basak, S., Petit, S., Bect, J., & Vazquez, E. (2021).
@@ -394,7 +394,9 @@ def anisotropic_parameters_initial_guess(model, xi, zi):
     return gnp.concatenate((gnp.array([gnp.log(sigma2_GLS)]), -gnp.log(rho)))
 
 
-def make_selection_criterion_with_gradient(selection_criterion, xi, zi, use_meanparam=False, meanparam_len=1):
+def make_selection_criterion_with_gradient(
+    selection_criterion, xi, zi, use_meanparam=False, meanparam_len=1
+):
     """
     Make selection criterion function with gradient.
 
@@ -428,6 +430,7 @@ def make_selection_criterion_with_gradient(selection_criterion, xi, zi, use_mean
             covparam = param[meanparam_len:]
             l = selection_criterion(meanparam, covparam, xi_, zi_)
             return l
+
     else:
         # selection criterion without mean parameter
         def crit_(covparam):

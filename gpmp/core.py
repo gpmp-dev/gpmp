@@ -404,11 +404,11 @@ class Model:
         xi_, zi_, _ = Model.ensure_shapes_and_type(xi=xi, zi=zi, convert=convert_in)
 
         if self.meantype == "zero":
-            zloo, sigma2loo, eloo = self._loo_with_zero_mean(xi_, zi_)
+            zloo, sigma2loo, eloo = self._loo_with_zero_mean(self.covparam, xi_, zi_)
         elif self.meantype == "known":
-            zloo, sigma2loo, eloo = self._loo_with_known_mean(xi_, zi_)
+            zloo, sigma2loo, eloo = self._loo_with_known_mean(self.meanparam, self.covparam, xi_, zi_)
         elif self.meantype == "unknown":
-            zloo, sigma2loo, eloo = self._loo_with_unknown_mean(xi_, zi_)
+            zloo, sigma2loo, eloo = self._loo_with_unknown_mean(self.meanparam, self.covparam, xi_, zi_)
         else:
             raise ValueError(f"Unknown mean type: {self.meantype}")
 
@@ -444,7 +444,7 @@ class Model:
         mean = self.mean(xi, meanparam).reshape(-1)
         centered_zi = zi - mean
         zloo_centered, sigma2loo, eloo_centered = self._loo_with_zero_mean(
-            xi, centered_zi
+            covparam, xi, centered_zi
         )
         zloo = zloo_centered + mean
         return zloo, sigma2loo, eloo_centered
