@@ -8,44 +8,130 @@ import gpmp.num as gnp
 
 
 class Model:
-    """GP Model class
+    """Gaussian Process (GP) Model Class
 
     This class implements a Gaussian Process (GP) model for function
     approximation.
 
     Attributes
-    ==========
+    ----------
+    mean : callable or None
+        A function defining the mean of the Gaussian Process (GP),
+        used when `self.meantype` is either "known" or "unknown". When
+        `self.meantype` is "zero", this attribute should be set to
+        `None`. The mean function is called as
 
-    mean : callable
-        A function that returns the mean of the Gaussian Process (GP).
-        The function is called as follows:
-        P = self.mean(x, self.meanparam),
-        where x a (n x d) array of data points. It returns a (n x q) matrix.
-        q is the number of basis functions.
+        P = self.mean(x, meanparam),
+
+        where `x` is an (n x d) array representing n data points in a
+        d-dimensional space, and `meanparam` is an array of parameters
+        for the mean function.
+        The function returns a (n x q) matrix, where:
+
+        - If `self.meantype` is "known", `q` is 1, and the matrix
+          represents the known mean values at the points `x`.
+        - If `self.meantype` is "unknown", `q` is greater than or
+          equal to 1, indicating the model uses a linear combination
+          of q basis functions with unknown coefficients. Each
+          column of `P` corresponds to a different basis function
+          evaluated at `x`. These basis functions are typically
+          monomials, represented as :math:`x \\mapsto 1, x \\mapsto
+          x, x \\mapsto x^2, \\ldots`.
 
     covariance : callable
-        A function that returns the covariance of the Gaussian
-        Process (GP). The function is called as follows:
+        Returns the covariance of the GP. The function is called as
+
         K = self.covariance(x, y, self.covparam, pairwise),
+
         where x and y are (n x d) and (m x d) arrays of data points,
         and pairwise indicates if an (n x m) covariance matrix
         (pairwise == False) or an (n x 1) vector (n == m, pairwise =
         True) should be returned
 
     meanparam : array_like, optional
-        The parameters for the mean function, specified as a
-        one-dimensional array of values.
+        Parameters for the mean function, given as a one-dimensional
+        array. These parameters define the specific form and behavior
+        of the mean function used in the GP model.
 
     covparam : array_like, optional
-        The parameters for the covariance function, specified as a
-        one-dimensional array of values.
+        Parameters for the covariance function, given as a
+        one-dimensional array. These parameters determine the
+        characteristics of the covariance function, influencing
+        aspects like length scale, variance, and smoothness of the GP.
 
-    Example
-    =======
-            FIXME
-            mean = lambda x, meanparam: meanparam[0] + meanparam[1] * x
-            covariance = lambda x, y, covparam: covparam[0] * gnp)
-            model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
+    meantype : str, optional
+        The type of mean used in the model. It can be:
+
+        - 'zero': A zero mean function, implying the GP has no prior
+          mean, and self.mean is None.
+        - 'known': A known mean function with known parameters. Useful
+          when there's prior knowledge about the mean behavior of the
+          function being modeled.
+        - 'unknown': A linearly parameterized mean function with
+          unknown parameters, suitable for situations where the mean
+          structure is to be learned from data.
+
+    Methods
+    -------
+    kriging_predictor_with_zero_mean(xi, xt, return_type=0)
+        Compute the kriging predictor assuming a zero mean
+        function. Useful for models where the mean is assumed to be
+        negligible.
+
+    kriging_predictor(xi, xt, return_type=0)
+        Compute the kriging predictor considering a non-zero mean
+        function. This method is essential in practical applications.
+
+    predict(xi, zi, xt, return_lambdas=False, zero_neg_variances=True, convert_in=True, convert_out=True)
+        Performs prediction at target points `xt` given the data `(xi,
+        zi)`. The treatment of the mean function is based on the
+        `meantype` attribute.
+
+    loo(xi, zi, convert_in=True, convert_out=False)
+        Compute the leave-one-out (LOO) prediction error. This method
+        is valuable for model validation and hyperparameter tuning.
+
+    negative_log_likelihood_zero_mean(covparam, xi, zi)
+        Computes the negative log-likelihood for a zero-mean GP model.
+
+    negative_log_likelihood(meanparam, covparam, xi, zi)
+        Computes the negative log-likelihood for a GP model with a given mean.
+
+    negative_log_restricted_likelihood(covparam, xi, zi)
+        Computes the negative log-restricted likelihood (REML)
+
+    norm_k_sqrd_with_zero_mean(xi, zi, covparam)
+        Computes the squared norm of the residual vector for a
+        zero-mean GP model.
+
+    norm_k_sqrd(xi, zi, covparam)
+        Computes the squared norm of the residual vector after
+        applying a contrast matrix.
+
+    k_inverses(xi, zi, covparam)
+        Calculates various quantities involving the inverse of the
+        covariance matrix K.
+
+    sample_paths(xt, nb_paths, method="chol", check_result=True)
+        Generates sample paths from the GP model at specified input points.
+
+    conditional_sample_paths(ztsim, xi_ind, zi, xt_ind, lambda_t)
+        Generates conditional sample paths from unconditional sample
+        paths using kriging weights.
+
+    Examples
+    --------
+    >>> import gpmp as gp
+    >>> import gpmp.num as gnp
+    >>> mean = lambda x, meanparam: (meanparam[0] + meanparam[1] * x)
+    >>> def covariance(x, y, covparam, pairwise=False):
+    >>>     p = 0
+    >>>     return gp.kernel.maternp_covariance(x, y, p, covparam, pairwise)
+    >>> model = gp.core.Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
+    >>> xi = gnp.array([0.0, 1.0, 2.0, 3.0, 5.0]).reshape(-1, 1)
+    >>> zi = gnp.array([0.0, 1.2, 2.5, 4.2, 4.3])
+    >>> xt = gnp.array([0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]).reshape(-1, 1)
+    >>> zt_mean, zt_var = model.predict(xi, zi, xt)
 
     """
 
@@ -63,24 +149,29 @@ class Model:
             The parameters for the mean function, specified as a one-dimensional array of values.
         covparam : array_like, optional
             The parameters for the covariance function, specified as a one-dimensional array of values.
-        mean_type : str, optional
+        meantype : str, optional
             Type of mean used in the model. It can be:
             'zero' - Zero mean function.
             'known' - Known mean function with known parameters.
             'unknown' - Linearly parameterized mean function with unknown parameters.
-
-        Examples
-        --------
-        >>> mean = lambda x, meanparam: meanparam[0] + meanparam[1] * x
-        >>> covariance = lambda x, y,
         """
-        self.mean = mean
-        self.covariance = covariance
+        self.meantype = meantype
+
+        if meantype not in ["zero", "known", "unknown"]:
+            raise ValueError("meantype must be one of 'zero', 'known', or 'unknown'")
+
+        if meantype == "zero" and mean is not None:
+            raise ValueError("For meantype 'zero', mean must be None")
+
+        if meantype in ["known", "unknown"] and not callable(mean):
+            raise TypeError(
+                "For meantype 'known' or 'unknown', mean must be a callable function"
+            )
 
         self.meanparam = meanparam
         self.covparam = covparam
-
-        self.meantype = meantype
+        self.mean = mean
+        self.covariance = covariance
 
     def __repr__(self):
         output = str("<gpmp.core.Model object> " + hex(id(self)))
@@ -96,7 +187,7 @@ class Model:
         Kit = self.covariance(xi, xt, self.covparam)
 
         lambda_t = gnp.solve(
-            Kii, Kit, overwrite_a=True, overwrite_b=True, assume_a='pos'
+            Kii, Kit, overwrite_a=True, overwrite_b=True, assume_a="pos"
         )
 
         if return_type == -1:
@@ -149,7 +240,9 @@ class Model:
         RHS = gnp.vstack((Kit, Pt.T))
 
         # lambdamu_t = RHS^(-1) LHS
-        lambdamu_t = gnp.solve(LHS, RHS, overwrite_a=True, overwrite_b=True, assume_a='sym')
+        lambdamu_t = gnp.solve(
+            LHS, RHS, overwrite_a=True, overwrite_b=True, assume_a="sym"
+        )
 
         lambda_t = lambdamu_t[0:ni, :]
 
@@ -177,7 +270,8 @@ class Model:
         convert_in=True,
         convert_out=True,
     ):
-        """Performs a prediction at target points xt given the data (xi, zi).
+        """
+        Performs a prediction at target points xt given the data (xi, zi).
 
         Parameters
         ----------
@@ -215,13 +309,12 @@ class Model:
         1. "zero": The function uses the kriging predictor with zero mean.
         2. "unknown": Uses the general / intrinsic kriging predictor.
         3. "known": The zero-mean kriging predictor is used after
-            centering zi around the known mean. The mean is then added
-            back to the posterior mean prediction. 'meanparam' should
-            be provided for this type.
-        
+        centering zi around the known mean. The mean is then added
+        back to the posterior mean prediction. 'meanparam' should
+        be provided for this type.
+
         Ensure to set the appropriate 'meantype' for the desired
         behavior. Supported types are 'zero', 'known', and 'unknown'.
-
         """
         xi_, zi_, xt_ = Model.ensure_shapes_and_type(
             xi=xi, zi=zi, xt=xt, convert=convert_in
@@ -274,7 +367,6 @@ class Model:
         else:
             return (zt_posterior_mean, zt_posterior_variance, lambda_t)
 
-
     def loo(self, xi, zi, convert_in=True, convert_out=False):
         """
         Compute the leave-one-out (LOO) prediction error.
@@ -311,11 +403,11 @@ class Model:
         """
         xi_, zi_, _ = Model.ensure_shapes_and_type(xi=xi, zi=zi, convert=convert_in)
 
-        if self.meantype == 'zero':
+        if self.meantype == "zero":
             zloo, sigma2loo, eloo = self._loo_with_zero_mean(xi_, zi_)
-        elif self.meantype == 'known':
+        elif self.meantype == "known":
             zloo, sigma2loo, eloo = self._loo_with_known_mean(xi_, zi_)
-        elif self.meantype == 'unknown':
+        elif self.meantype == "unknown":
             zloo, sigma2loo, eloo = self._loo_with_unknown_mean(xi_, zi_)
         else:
             raise ValueError(f"Unknown mean type: {self.meantype}")
@@ -327,10 +419,9 @@ class Model:
 
         return zloo, sigma2loo, eloo
 
-    def _loo_with_zero_mean(self, xi, zi):
+    def _loo_with_zero_mean(self, covparam, xi, zi):
         """Compute LOO prediction error for zero mean."""
-        n = xi.shape[0]
-        K = self.covariance(xi, xi, self.covparam)
+        K = self.covariance(xi, xi, covparam)  # shape (n, n)
 
         # Use the "virtual cross-validation" formula
         Kinv = gnp.cholesky_inv(K)
@@ -348,19 +439,21 @@ class Model:
 
         return zloo, sigma2loo, eloo
 
-    def _loo_with_known_mean(self, xi, zi):
+    def _loo_with_known_mean(self, meanparam, covparam, xi, zi):
         """Compute LOO prediction error for known mean."""
-        mean = self.mean(xi, self.meanparam).reshape(-1)
+        mean = self.mean(xi, meanparam).reshape(-1)
         centered_zi = zi - mean
-        zloo_centered, sigma2loo, eloo_centered = self._loo_with_zero_mean(xi, centered_zi)
+        zloo_centered, sigma2loo, eloo_centered = self._loo_with_zero_mean(
+            xi, centered_zi
+        )
         zloo = zloo_centered + mean
         return zloo, sigma2loo, eloo_centered
 
-    def _loo_with_unknown_mean(self, xi, zi):
+    def _loo_with_unknown_mean(self, meanparam, covparam, xi, zi):
         """Compute LOO prediction error for unknown mean."""
         n = xi.shape[0]
-        K = self.covariance(xi, xi, self.covparam)
-        P = self.mean(xi, self.meanparam)
+        K = self.covariance(xi, xi, covparam)
+        P = self.mean(xi, meanparam)
 
         # Use the "virtual cross-validation" formula
         # Qinv = K^-1 - K^-1P (Pt K^-1 P)^-1 Pt K^-1
@@ -409,7 +502,7 @@ class Model:
         K = self.covariance(xi, xi, covparam)
         n = K.shape[0]
 
-        Kinv_zi, C = gnp.cholesky_solve(K, zi)           
+        Kinv_zi, C = gnp.cholesky_solve(K, zi)
         norm2 = gnp.einsum("i..., i...", zi, Kinv_zi)
         ldetK = 2.0 * gnp.sum(gnp.log(gnp.diag(C)))
 
@@ -497,7 +590,7 @@ class Model:
         # Compute G^(-1) * (W' zi)
         try:
             WKWinv_Wzi, C = gnp.cholesky_solve(G, Wzi)
-        except (RuntimeError):
+        except RuntimeError:
             if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
                 return gnp.inf
             elif gnp._gpmp_backend_ == "torch":
@@ -508,7 +601,7 @@ class Model:
                 # __import__("pdb").post_mortem(tb)
                 inf_tensor = gnp.tensor(float("inf"), requires_grad=True)
                 return inf_tensor  # returns inf with None gradient
-                
+
         # Compute norm2 = (W' zi)' * G^(-1) * (W' zi)
         norm2 = gnp.einsum("i..., i...", Wzi, WKWinv_Wzi)
 
@@ -770,7 +863,9 @@ class Model:
 
         if zi is not None:
             if len(zi.shape) == 2:
-                assert zi.shape[1] == 1, "zi should only have one column if it's a 2D array"
+                assert (
+                    zi.shape[1] == 1
+                ), "zi should only have one column if it's a 2D array"
                 zi = zi.reshape(-1)  # reshapes (ni, 1) to (ni,)
             else:
                 assert len(zi.shape) == 1, "zi should either be 1D or a 2D column array"
@@ -779,9 +874,13 @@ class Model:
             assert len(xt.shape) == 2, "xt should be a 2D array"
 
         if xi is not None and zi is not None:
-            assert xi.shape[0] == zi.shape[0], "Number of rows in xi should be equal to the number of rows in zi"
+            assert (
+                xi.shape[0] == zi.shape[0]
+            ), "Number of rows in xi should be equal to the number of rows in zi"
         if xi is not None and xt is not None:
-            assert xi.shape[1] == xt.shape[1], "xi and xt should have the same number of columns"
+            assert (
+                xi.shape[1] == xt.shape[1]
+            ), "xi and xt should have the same number of columns"
 
         if convert:
             if xi is not None:
