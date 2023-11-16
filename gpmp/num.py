@@ -172,7 +172,7 @@ if _gpmp_backend_ == 'numpy':
 elif _gpmp_backend_ == 'torch':
     import torch
 
-    torch.set_default_tensor_type(torch.DoubleTensor)
+    torch.set_default_dtype(torch.float64)
 
     from torch import tensor, is_tensor
 
