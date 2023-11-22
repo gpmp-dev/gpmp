@@ -122,11 +122,11 @@ def tcrps_gaussian(mu, sigma, z, a=-gnp.inf, b=gnp.inf):
     result: float or np.ndarray
         The S_{a, b}^\tCRPS (P, z) value(s) for the given Gaussian distribution(s).
     """
-    mu = gnp.array(mu)
-    sigma = gnp.array(sigma)
-    z = gnp.array(z)
-    a = gnp.array(a)
-    b = gnp.array(b)
+    mu = gnp.asarray(mu)
+    sigma = gnp.asarray(sigma)
+    z = gnp.asarray(z)
+    a = gnp.asarray(a)
+    b = gnp.asarray(b)
     if gnp.isfinite(a) and gnp.isfinite(b):
         term1 = gnp.maximum(gnp.minimum(b, z) - a, 0.0)
         term2 = ei2_up(mu, sigma, b) - ei2_up(mu, sigma, a)
