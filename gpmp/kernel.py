@@ -267,7 +267,7 @@ def anisotropic_parameters_initial_guess_zero_mean(model, xi, zi):
 
     delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
     d = xi_.shape[1]
-    rho = (gnp.exp(gnp.gammaln(d / 2 + 1)) / gnp.pi ** (d / 2)) ** (1 / d) * delta
+    rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi ** 0.5) * delta
 
     covparam = gnp.concatenate((gnp.array([log(1.0)]), -gnp.log(rho)))
     n = xi_.shape[0]
@@ -316,7 +316,7 @@ def anisotropic_parameters_initial_guess_constant_mean(model, xi, zi):
 
     delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
     d = xi_.shape[1]
-    rho = (gnp.exp(gnp.gammaln(d / 2 + 1)) / gnp.pi ** (d / 2)) ** (1 / d) * delta
+    rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi ** 0.5) * delta
 
     covparam = gnp.concatenate((gnp.array([gnp.log(1.0)]), -gnp.log(rho)))
     n = xi_.shape[0]
@@ -385,7 +385,7 @@ def anisotropic_parameters_initial_guess(model, xi, zi):
 
     delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
     d = xi_.shape[1]
-    rho = (gnp.exp(gnp.gammaln(d / 2 + 1)) / gnp.pi ** (d / 2)) ** (1 / d) * delta
+    rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi ** 0.5) * delta
 
     covparam = gnp.concatenate((gnp.array([log(1.0)]), -gnp.log(rho)))
     n = xi_.shape[0]
