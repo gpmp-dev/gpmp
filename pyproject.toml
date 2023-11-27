@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gpmp"
-version = "0.9.12"
+version = "0.9.13"
 authors = [
     {name = "Emmanuel Vazquez", email = "emmanuel.vazquez@centralesupelec.fr"},
 ]
