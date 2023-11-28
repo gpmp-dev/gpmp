@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gpmp"
-version = "0.9.13"
+dynamic = ["version"]
 authors = [
     {name = "Emmanuel Vazquez", email = "emmanuel.vazquez@centralesupelec.fr"},
 ]
 description = "GPmp: the Gaussian process micro package"
-readme = "README.md"
 keywords = ["Gaussian processes", "kriging"]
+readme = "README.md"
 license = {file = "LICENSE.txt"}
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -35,5 +35,4 @@ where = ["."]
 include = ["gpmp", "gpmp.*", "examples", "tests"]
 
 [tool.setuptools.dynamic]
-version = {attr = "gpmp.VERSION"}
-readme = {file = "README.md"}
+version = {file = "VERSION"}
