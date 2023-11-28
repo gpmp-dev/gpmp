@@ -20,7 +20,7 @@ def main():
     fig.xlabel('h')
     fig.ylabel('$k_{p+1/2}(h)$')
     fig.legend()
-    fig.show()
+    fig.show(grid=True)
 
 
 if __name__ == '__main__':

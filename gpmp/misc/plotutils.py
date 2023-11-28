@@ -59,22 +59,24 @@ class Figure:
     def subplot(self, i):
         self.ax = self.axes[i - 1]
         if self.boxoff:
-            set_boxoff()
+            self.set_boxoff()
 
-    def show(self, grid=None, legend=None, legend_fontsize=None):
+    def show(self, grid=None, legend=None, legend_fontsize=None, xlim=None):
         if grid:
             self.grid()
-        if legend_fontsize is not None:
+        if legend and legend_fontsize is not None:
             self.legend(fontsize=legend_fontsize)
         elif legend:
             self.legend()
+        if xlim is not None:
+            self.xlim(xlim)
         plt.show()
 
     def plot(self, x, z, *args, **kargs):
         self.ax.plot(x, z, *args, **kargs)
 
-    def plotdata(self, x, z):
-        self.ax.plot(x, z, "rs", markerfacecolor="none", markersize=6)
+    def plotdata(self, x, z, label='data'):
+        self.ax.plot(x, z, "rs", markerfacecolor="none", markersize=6, label=label)
 
     def xlabel(self, s):
         self.ax.set_xlabel(s)
@@ -266,6 +268,7 @@ def crosssections(model, xi, zi, box, ind_i, ind_dim, nt=100):
             fig.subplot(num_crosssections * d + i + 1)
             fig.plotgp(t, zpm, zpv)
             fig.plot(xi[ind_i[i], ind_dim[d]] * np.array([1, 1]), fig.ax.get_ylim())
+            fig.grid()
             if i == 0:
                 fig.ax.set_ylabel("z along x_{:d}".format(d + 1))
             if d == 0:
@@ -292,4 +295,5 @@ def plot_loo(zi, zloom, zloov):
     xmin = min(xmin, ymin)
     xmax = max(xmax, ymax)
     fig.ax.plot([xmin, xmax], [xmin, xmax], "--")
+    fig.ax.grid(True, "major", linestyle=(0, (1, 5)), linewidth=0.5)
     fig.show()

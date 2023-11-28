@@ -111,9 +111,8 @@ def visualize(xt, zt, xi, zi, zpm, zpv):
     fig.plot(xt, zt, 'C0', linestyle=(0, (5, 5)), linewidth=1.0)
     fig.plotdata(xi, zi)
     fig.plotgp(xt, zpm, zpv)
-    fig.xlabel('x')
-    fig.ylabel('z')
-    fig.show()
+    fig.xylabels('x', 'z')
+    fig.show(grid=True, legend=True, legend_fontsize=9)
 
 
 def main():

@@ -114,10 +114,9 @@ def visualize(xt, zt, xi, zi, zpm, zpv, zsim, zpsim):
     fig.plot(xt[:, 0], zt, 'C0', linestyle=(0, (5, 5)), linewidth=1)
     fig.plot(xi[:, 0], zi, 'rs')
     fig.plotgp(xt[:, 0], zpm, zpv)
-    fig.xlabel('x')
-    fig.ylabel('z')
+    fig.xylabels('x', 'z')
     fig.title('Data and Prediction, no sample paths')
-    fig.show()
+    fig.show(grid=True)
 
     ni = xi.shape[0]
     nt = xt.shape[0]
@@ -130,7 +129,7 @@ def visualize(xt, zt, xi, zi, zpm, zpv, zsim, zpsim):
     fig.ax.set_prop_cycle(None)
     fig.plot(xixt[xi_ind, 0], zsim[xi_ind], 'o')
     fig.title('Unconditional sample paths, with simulated noisy observations for each sample path')
-    fig.show()
+    fig.show(grid=True)
 
     fig = plotutils.Figure(isinteractive=True)
     fig.plot(xixt[xt_ind, 0], zt, 'C2', linewidth=1)
@@ -138,7 +137,7 @@ def visualize(xt, zt, xi, zi, zpm, zpv, zsim, zpsim):
     fig.plot(xi[:, 0], zi, 'rs')
     fig.plotgp(xt[:, 0], zpm, zpv)
     fig.title('Conditional Sample Paths')
-    fig.show()
+    fig.show(grid=True)
 
 
 def main():

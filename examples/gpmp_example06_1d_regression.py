@@ -110,9 +110,9 @@ def visualize(xt, zt, xi, zi, zpm, zpv):
     fig.plot(xt, zt, 'C0', linestyle=(0, (5, 5)), linewidth=1)
     fig.plot(xi, zi, 'rs')
     fig.plotgp(xt, zpm, zpv)
-    fig.xlabel('x')
-    fig.ylabel('z')
-    fig.show()
+    fig.xylabels('x', 'z')
+    fig.title('GP regression with noisy observations')
+    fig.show(grid=True)
 
 
 if __name__ == "__main__":
