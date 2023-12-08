@@ -66,7 +66,7 @@ def visualize_results(xt, zt, xi, zi, zpm, zpv):
     fig = gp.misc.plotutils.Figure(isinteractive=True)
     fig.plot(xt, zt, "k", linewidth=1, linestyle=(0, (5, 5)))
     fig.plotdata(xi, zi)
-    fig.plotgp(xt, zpm, zpv, colorscheme="simple")
+    fig.plotgp(xt, zpm, zpv, colorscheme="bw")
     fig.xylabels("$x$", "$z$")
     fig.title("Posterior GP with parameters selected by ML")
     fig.show(xlim=[-1.0, 1.0])

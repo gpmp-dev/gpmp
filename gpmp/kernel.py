@@ -264,13 +264,12 @@ def anisotropic_parameters_initial_guess_zero_mean(model, xi, zi):
     """
     xi_ = gnp.asarray(xi)
     zi_ = gnp.asarray(zi)
+    n = xi_.shape[0]
+    d = xi_.shape[1]
 
     delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
-    d = xi_.shape[1]
     rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi ** 0.5) * delta
-
     covparam = gnp.concatenate((gnp.array([log(1.0)]), -gnp.log(rho)))
-    n = xi_.shape[0]
     sigma2_GLS = (
         1.0 / n * model.norm_k_sqrd_with_zero_mean(xi_, zi_.reshape((-1,)), covparam)
     )
