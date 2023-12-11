@@ -77,18 +77,21 @@ def main():
 
     meanparam = None
     covparam0 = None
-    model = gp.core.Model(constant_mean, kernel, meanparam, covparam0, meantype="known")
+    model = gp.core.Model(
+        constant_mean, kernel, meanparam, covparam0, meantype="parameterized"
+    )
 
     # Parameter initial guess
     (
         meanparam0,
         covparam0,
     ) = gp.kernel.anisotropic_parameters_initial_guess_constant_mean(model, xi, zi)
-    param0 = gnp.concatenate((meanparam0.reshape(1), covparam0))
+
+    param0 = gnp.concatenate((meanparam0, covparam0))
 
     # selection criterion
     nll, dnll = gp.kernel.make_selection_criterion_with_gradient(
-        model.negative_log_likelihood, xi, zi, use_meanparam=True, meanparam_len=1
+        model.negative_log_likelihood, xi, zi, parameterized_mean=True, meanparam_len=1
     )
 
     param_ml, info = gp.kernel.autoselect_parameters(

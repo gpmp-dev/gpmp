@@ -263,7 +263,7 @@ def anisotropic_parameters_initial_guess_zero_mean(model, xi, zi):
     See anisotropic_parameters_initial_guess
     """
     xi_ = gnp.asarray(xi)
-    zi_ = gnp.asarray(zi)
+    zi_ = gnp.asarray(zi).reshape(-1, 1)
     n = xi_.shape[0]
     d = xi_.shape[1]
 
@@ -271,31 +271,33 @@ def anisotropic_parameters_initial_guess_zero_mean(model, xi, zi):
     rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi ** 0.5) * delta
     covparam = gnp.concatenate((gnp.array([log(1.0)]), -gnp.log(rho)))
     sigma2_GLS = (
-        1.0 / n * model.norm_k_sqrd_with_zero_mean(xi_, zi_.reshape((-1,)), covparam)
+        1.0 / n * model.norm_k_sqrd_with_zero_mean(xi_, zi_, covparam)
     )
 
-    return gnp.concatenate((gnp.array([gnp.log(sigma2_GLS)]), -gnp.log(rho)))
+    return gnp.concatenate((gnp.log(sigma2_GLS), -gnp.log(rho)))
 
 
 def anisotropic_parameters_initial_guess_constant_mean(model, xi, zi):
-    """
-    Anisotropic initialization strategy with a constant mean.
+    """Anisotropic initialization strategy with a parameterized constant mean.
 
-    This function provides initial parameter guesses for an anisotropic Gaussian process with a constant mean.
+    This function provides initial parameter guesses for an
+    anisotropic Gaussian process with a parameterized constant mean.
 
     Parameters
     ----------
     model : object
         The Gaussian process model object.
     xi : array_like, shape (n, d)
-        Input data points used for fitting the GP model, where `n` is the number of points and `d` is the dimensionality.
+        Input data points used for fitting the GP model, where `n` is
+        the number of points and `d` is the dimensionality.
     zi : array_like, shape (n, )
         Output (response) values corresponding to the input data points xi.
 
     Returns
     -------
     mean_GLS : float
-        The generalized least squares (GLS) estimator of the mean. Computed as:
+        The generalized least squares (GLS) estimator of the
+        mean. Computed as:
 
         .. math::
 
@@ -312,28 +314,30 @@ def anisotropic_parameters_initial_guess_constant_mean(model, xi, zi):
     """
     xi_ = gnp.asarray(xi)
     zi_ = gnp.asarray(zi).reshape((-1, 1))  # Ensure zi_ is a column vector
+    n = xi_.shape[0]
+    d = xi_.shape[1]
 
     delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
-    d = xi_.shape[1]
     rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi ** 0.5) * delta
 
     covparam = gnp.concatenate((gnp.array([gnp.log(1.0)]), -gnp.log(rho)))
-    n = xi_.shape[0]
     zTKinvz, Kinv1, Kinvz = model.k_inverses(xi_, zi_, covparam)
 
     mean_GLS = gnp.sum(Kinvz) / gnp.sum(Kinv1)
     sigma2_GLS = (1.0 / n) * zTKinvz
 
-    return mean_GLS, gnp.concatenate((gnp.log(sigma2_GLS), -gnp.log(rho)))
+    return mean_GLS.reshape(1), gnp.concatenate((gnp.log(sigma2_GLS), -gnp.log(rho)))
 
 
 def anisotropic_parameters_initial_guess(model, xi, zi):
     """
-    Anisotropic initialization strategy for parameters of a Gaussian process model.
+    Anisotropic initialization strategy for parameters of a Gaussian
+    process model.
 
-    Given the observed data points and their values, this function computes an
-    initial guess for the anisotropic parameters. The guess for :math:`\\sigma^2` is
-    initialized using the Generalized Least Squares (GLS) estimate as described below.
+    Given the observed data points and their values, this function
+    computes an initial guess for the anisotropic parameters. The
+    guess for :math:`\\sigma^2` is initialized using the Generalized
+    Least Squares (GLS) estimate as described below.
 
     Parameters
     ----------
@@ -347,8 +351,9 @@ def anisotropic_parameters_initial_guess(model, xi, zi):
     Returns
     -------
     initial_params : ndarray
-        Initial guess for the anisotropic parameters, comprising the estimate for
-        :math:`\\sigma^2_{GLS}` followed by the estimates for the anisotropic lengthscales.
+        Initial guess for the anisotropic parameters, comprising the
+        estimate for :math:`\\sigma^2_{GLS}` followed by the estimates
+        for the anisotropic lengthscales.
 
     Notes
     -----
@@ -364,8 +369,9 @@ def anisotropic_parameters_initial_guess(model, xi, zi):
     * :math:`\\mathbf{z}` is the vector of observed data.
     * :math:`\\mathbf{K}` is the covariance matrix associated with the data locations.
 
-    Additionally, the function uses a relation (not from the reference) between :math:`\\rho`
-    and the volume of a ball in dimension :math:`d` for initialization:
+    Additionally, the function uses a relation (not from the
+    reference) between :math:`\\rho` and the volume of a ball in
+    dimension :math:`d` for initialization:
 
     .. math::
 
@@ -380,21 +386,21 @@ def anisotropic_parameters_initial_guess(model, xi, zi):
     """
 
     xi_ = gnp.asarray(xi)
-    zi_ = gnp.asarray(zi)
-
-    delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
+    zi_ = gnp.asarray(zi).reshape(-1, 1)
+    n = xi_.shape[0]
     d = xi_.shape[1]
+    
+    delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
     rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi ** 0.5) * delta
 
     covparam = gnp.concatenate((gnp.array([log(1.0)]), -gnp.log(rho)))
-    n = xi_.shape[0]
-    sigma2_GLS = 1.0 / n * model.norm_k_sqrd(xi_, zi_.reshape((-1,)), covparam)
+    sigma2_GLS = 1.0 / n * model.norm_k_sqrd(xi_, zi_, covparam)
 
-    return gnp.concatenate((gnp.array([gnp.log(sigma2_GLS)]), -gnp.log(rho)))
+    return gnp.concatenate((gnp.log(sigma2_GLS), -gnp.log(rho)))
 
 
 def make_selection_criterion_with_gradient(
-    selection_criterion, xi, zi, use_meanparam=False, meanparam_len=1
+    selection_criterion, xi, zi, parameterized_mean=False, meanparam_len=1
 ):
     """
     Make selection criterion function with gradient.
@@ -407,10 +413,10 @@ def make_selection_criterion_with_gradient(
         Locations of the observed data points.
     zi : ndarray, shape (n,)
         Observed values at the data points.
-    use_meanparam : bool, optional
+    parameterized_mean : bool, optional
         Whether to use mean parameter in the selection criterion.
     meanparam_len : int, optional
-        Length of the mean parameter, used only if use_meanparam is True.
+        Length of the mean parameter, used only if parameterized_mean is True.
 
     Returns
     -------
@@ -422,8 +428,8 @@ def make_selection_criterion_with_gradient(
     xi_ = gnp.asarray(xi)
     zi_ = gnp.asarray(zi)
 
-    if use_meanparam:
-        # selection criterion with mean parameter
+    if parameterized_mean:
+        # make a selection criterion with mean parameter
         def crit_(param):
             meanparam = param[:meanparam_len]
             covparam = param[meanparam_len:]
@@ -431,7 +437,7 @@ def make_selection_criterion_with_gradient(
             return l
 
     else:
-        # selection criterion without mean parameter
+        # make a selection criterion without mean parameter
         def crit_(covparam):
             l = selection_criterion(covparam, xi_, zi_)
             return l

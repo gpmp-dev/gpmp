@@ -17,9 +17,10 @@ class Model:
     ----------
     mean : callable or None
         A function defining the mean of the Gaussian Process (GP),
-        used when `self.meantype` is either "known" or "unknown". When
-        `self.meantype` is "zero", this attribute should be set to
-        `None`. The mean function is called as
+        used when `self.meantype` is either "parameterized" or
+        "linear_predictor". When `self.meantype` is "zero", this
+        attribute is not used and should be set to `None`. The mean
+        function is called as
 
         P = self.mean(x, meanparam),
 
@@ -28,11 +29,11 @@ class Model:
         for the mean function.
         The function returns a (n x q) matrix, where:
 
-        - If `self.meantype` is "known", `q` is 1, and the matrix
-          represents the known mean values at the points `x`.
-        - If `self.meantype` is "unknown", `q` is greater than or
+        - If `self.meantype` is "parameterized", `q` is 1, and the matrix
+          represents the parameterized mean values at the points `x`.
+        - If `self.meantype` is "linear_predictor", `q` is greater than or
           equal to 1, indicating the model uses a linear combination
-          of q basis functions with unknown coefficients. Each
+          of q basis functions with linear_predictor coefficients. Each
           column of `P` corresponds to a different basis function
           evaluated at `x`. These basis functions are typically
           monomials, represented as :math:`x \\mapsto 1, x \\mapsto
@@ -62,13 +63,13 @@ class Model:
     meantype : str, optional
         The type of mean used in the model. It can be:
 
-        - 'zero': A zero mean function, implying the GP has no prior
-          mean, and self.mean is None.
-        - 'known': A known mean function with known parameters. Useful
+        - 'zero': A zero mean function, implying the GP has a zero prior
+          mean function. Then, self.mean is never called and should be set to None.
+        - 'parameterized': A parameterized mean function with parameterized parameters. Useful
           when there's prior knowledge about the mean behavior of the
           function being modeled.
-        - 'unknown': A linearly parameterized mean function with
-          unknown parameters, suitable for situations where the mean
+        - 'linear_predictor': A linearly parameterized mean function with
+          linear_predictor parameters, suitable for situations where the mean
           structure is to be learned from data.
 
     Methods
@@ -136,7 +137,12 @@ class Model:
     """
 
     def __init__(
-        self, mean, covariance, meanparam=None, covparam=None, meantype="unknown"
+        self,
+        mean,
+        covariance,
+        meanparam=None,
+        covparam=None,
+        meantype="linear_predictor",
     ):
         """
         Parameters
@@ -152,20 +158,22 @@ class Model:
         meantype : str, optional
             Type of mean used in the model. It can be:
             'zero' - Zero mean function.
-            'known' - Known mean function with known parameters.
-            'unknown' - Linearly parameterized mean function with unknown parameters.
+            'parameterized' - Known mean function with parameterized parameters.
+            'linear_predictor' - Linearly parameterized mean function with linear_predictor parameters.
         """
         self.meantype = meantype
 
-        if meantype not in ["zero", "known", "unknown"]:
-            raise ValueError("meantype must be one of 'zero', 'known', or 'unknown'")
+        if meantype not in ["zero", "parameterized", "linear_predictor"]:
+            raise ValueError(
+                "meantype must be one of 'zero', 'parameterized', or 'linear_predictor'"
+            )
 
         if meantype == "zero" and mean is not None:
             raise ValueError("For meantype 'zero', mean must be None")
 
-        if meantype in ["known", "unknown"] and not callable(mean):
+        if meantype in ["parameterized", "linear_predictor"] and not callable(mean):
             raise TypeError(
-                "For meantype 'known' or 'unknown', mean must be a callable function"
+                "For meantype 'parameterized' or 'linear_predictor', mean must be a callable function"
             )
 
         self.meanparam = meanparam
@@ -214,8 +222,8 @@ class Model:
             Prediction points
         return_type : -1, 0 or 1
             If -1, returned posterior variance is None. If 0
-            (default), return the posterior variance at points xt. If
-            1, return the posterior covariance.
+            (default), return the posterior variance at points xt.
+            If 1, return the posterior covariance.
 
         Notes
         -----
@@ -307,40 +315,42 @@ class Model:
 
         Treatment of the mean based on 'meantype':
         1. "zero": The function uses the kriging predictor with zero mean.
-        2. "unknown": Uses the general / intrinsic kriging predictor.
-        3. "known": The zero-mean kriging predictor is used after
-        centering zi around the known mean. The mean is then added
+        2. "linear_predictor": Uses the general / intrinsic kriging predictor.
+        3. "parameterized": The zero-mean kriging predictor is used after
+        centering zi around the parameterized mean. The mean is then added
         back to the posterior mean prediction. 'meanparam' should
         be provided for this type.
 
         Ensure to set the appropriate 'meantype' for the desired
-        behavior. Supported types are 'zero', 'known', and 'unknown'.
+        behavior. Supported types are 'zero', 'parameterized', and 'linear_predictor'.
         """
         xi_, zi_, xt_ = Model.ensure_shapes_and_type(
             xi=xi, zi=zi, xt=xt, convert=convert_in
         )
 
         # Decide which kriging predictor to use and if we need to adjust for mean
-        mean_adjustment = 0.0
+        zt_prior_mean_ = 0.0
         if self.meantype == "zero":
             lambda_t, zt_posterior_variance_ = self.kriging_predictor_with_zero_mean(
                 xi_, xt_
             )
-        elif self.meantype == "unknown":
+        elif self.meantype == "linear_predictor":
             lambda_t, zt_posterior_variance_ = self.kriging_predictor(xi_, xt_)
-        elif self.meantype == "known":
+        elif self.meantype == "parameterized":
             lambda_t, zt_posterior_variance_ = self.kriging_predictor_with_zero_mean(
                 xi_, xt_
             )
 
             if self.meanparam is None:
-                raise ValueError("For meantype 'known', meanparam should not be None.")
-            mean_values = self.mean(xi_, self.meanparam).reshape(-1)
-            zi_ = zi_ - mean_values
-            mean_adjustment = self.mean(xt_, self.meanparam).reshape(-1)
+                raise ValueError(
+                    "For meantype 'parameterized', meanparam *should not* be None."
+                )
+            zi_prior_mean_ = self.mean(xi_, self.meanparam).reshape(-1)
+            zi_ = zi_ - zi_prior_mean_
+            zt_prior_mean_ = self.mean(xt_, self.meanparam).reshape(-1)
         else:
             raise ValueError(
-                f"Invalid mean_type {self.mean_type}. Supported types are 'zero', 'known', and 'unknown'."
+                f"Invalid mean_type {self.mean_type}. Supported types are 'zero', 'parameterized', and 'linear_predictor'."
             )
 
         if gnp.any(zt_posterior_variance_ < 0.0):
@@ -352,7 +362,7 @@ class Model:
             zt_posterior_variance_ = gnp.maximum(zt_posterior_variance_, 0.0)
 
         # posterior mean
-        zt_posterior_mean_ = gnp.einsum("i..., i...", lambda_t, zi_) + mean_adjustment
+        zt_posterior_mean_ = gnp.einsum("i..., i...", lambda_t, zi_) + zt_prior_mean_
 
         # outputs
         if convert_out:
@@ -368,16 +378,17 @@ class Model:
             return (zt_posterior_mean, zt_posterior_variance, lambda_t)
 
     def loo(self, xi, zi, convert_in=True, convert_out=False):
-        """
-        Compute the leave-one-out (LOO) prediction error.
+        """Compute the leave-one-out (LOO) prediction error.
 
-        This method computes the LOO prediction error using the "virtual cross-validation" formula,
-        which allows for efficient computation of LOO predictions without re-fitting the model.
+        This method computes the LOO prediction error using the
+        "virtual cross-validation" formula, which allows for efficient
+        computation of LOO predictions without re-fitting the model.
 
         Parameters
         ----------
         xi : array_like, shape (n, d)
-            Input data points used for fitting the GP model, where n is the number of points and d is the dimensionality.
+            Input data points used for fitting the GP model, where n
+            is the number of points and d is the dimensionality.
         zi : array_like, shape (n, ) or (n, 1)
             Output (response) values corresponding to the input data points xi.
         convert_in : bool, optional
@@ -400,15 +411,20 @@ class Model:
         >>> zi = np.array([1.2, 2.5, 4.2])
         >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
         >>> zloo, sigma2loo, eloo = model.loo(xi, zi)
+
         """
         xi_, zi_, _ = Model.ensure_shapes_and_type(xi=xi, zi=zi, convert=convert_in)
 
         if self.meantype == "zero":
             zloo, sigma2loo, eloo = self._loo_with_zero_mean(self.covparam, xi_, zi_)
-        elif self.meantype == "known":
-            zloo, sigma2loo, eloo = self._loo_with_known_mean(self.meanparam, self.covparam, xi_, zi_)
-        elif self.meantype == "unknown":
-            zloo, sigma2loo, eloo = self._loo_with_unknown_mean(self.meanparam, self.covparam, xi_, zi_)
+        elif self.meantype == "parameterized":
+            zloo, sigma2loo, eloo = self._loo_with_parameterized_mean(
+                self.meanparam, self.covparam, xi_, zi_
+            )
+        elif self.meantype == "linear_predictor":
+            zloo, sigma2loo, eloo = self._loo_with_linear_predictor_mean(
+                self.meanparam, self.covparam, xi_, zi_
+            )
         else:
             raise ValueError(f"Unknown mean type: {self.meantype}")
 
@@ -439,18 +455,18 @@ class Model:
 
         return zloo, sigma2loo, eloo
 
-    def _loo_with_known_mean(self, meanparam, covparam, xi, zi):
-        """Compute LOO prediction error for known mean."""
-        mean = self.mean(xi, meanparam).reshape(-1)
-        centered_zi = zi - mean
+    def _loo_with_parameterized_mean(self, meanparam, covparam, xi, zi):
+        """Compute LOO prediction error for parameterized mean."""
+        zi_prior_mean = self.mean(xi, meanparam).reshape(-1)
+        centered_zi = zi - zi_prior_mean
         zloo_centered, sigma2loo, eloo_centered = self._loo_with_zero_mean(
             covparam, xi, centered_zi
         )
-        zloo = zloo_centered + mean
+        zloo = zloo_centered + zi_prior_mean
         return zloo, sigma2loo, eloo_centered
 
-    def _loo_with_unknown_mean(self, meanparam, covparam, xi, zi):
-        """Compute LOO prediction error for unknown mean."""
+    def _loo_with_linear_predictor_mean(self, meanparam, covparam, xi, zi):
+        """Compute LOO prediction error for linear_predictor mean."""
         n = xi.shape[0]
         K = self.covariance(xi, xi, covparam)
         P = self.mean(xi, meanparam)
@@ -502,7 +518,15 @@ class Model:
         K = self.covariance(xi, xi, covparam)
         n = K.shape[0]
 
-        Kinv_zi, C = gnp.cholesky_solve(K, zi)
+        try:
+            Kinv_zi, C = gnp.cholesky_solve(K, zi)
+        except RuntimeError:
+            if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
+                return gnp.inf
+            elif gnp._gpmp_backend_ == "torch":
+                inf_tensor = gnp.tensor(float("inf"), requires_grad=True)
+                return inf_tensor  # returns inf with None gradient
+
         norm2 = gnp.einsum("i..., i...", zi, Kinv_zi)
         ldetK = 2.0 * gnp.sum(gnp.log(gnp.diag(C)))
 
@@ -511,50 +535,56 @@ class Model:
         return L.reshape(())
 
     def negative_log_likelihood(self, meanparam, covparam, xi, zi):
-        """
-        Computes the negative log-likelihood of the Gaussian process model with a given mean.
+        """Computes the negative log-likelihood of the Gaussian
+        process model with a given mean.
 
-        This function computes the negative log-likelihood based on the provided mean function,
-        covariance function, and their parameters.
+        This function computes the negative log-likelihood based on
+        the provided mean function, covariance function, and their
+        parameters.
 
         Parameters
         ----------
         meanparam : gnp.array
-            Parameters for the mean function. This array contains the hyperparameters
-            required by the chosen mean function.
+            Parameters for the mean function. This array contains the
+            hyperparameters required by the chosen mean function.
         covparam : gnp.array
-            Parameters for the covariance function. This array contains the hyperparameters
-            required by the chosen covariance function.
+            Parameters for the covariance function. This array
+            contains the hyperparameters required by the chosen
+            covariance function.
         xi : ndarray(ni,d)
-            Locations of the data points in the input space, where ni is the number of data points
-            and d is the dimensionality of the input space.
+            Locations of the data points in the input space, where ni
+            is the number of data points and d is the dimensionality
+            of the input space.
         zi : ndarray(ni, )
             Observed values corresponding to each data point in xi.
 
         Returns
         -------
         nll : scalar
-            Negative log-likelihood of the observed data given the model, mean, and covariance parameters.
+            Negative log-likelihood of the observed data given the
+            model, mean, and covariance parameters.
+
         """
-        mean = self.mean(xi, meanparam).reshape(-1)
-        centered_zi = zi - mean
+        zi_prior_mean = self.mean(xi, meanparam).reshape(-1)
+        centered_zi = zi - zi_prior_mean
 
         # Call the zero mean version with the centered observations
         return self.negative_log_likelihood_zero_mean(covparam, xi, centered_zi)
 
     def negative_log_restricted_likelihood(self, covparam, xi, zi):
-        """
-        Compute the negative log-restricted likelihood of the GP model.
+        """Compute the negative log-restricted likelihood of the GP model.
 
-        This method calculates the negative log-restricted likelihood, which is used for
-        parameter estimation in the Gaussian Process model.
+        This method calculates the negative log-restricted likelihood,
+        which is used for parameter estimation in the Gaussian Process
+        model with a mean of type "linear predictor"
 
         Parameters
         ----------
         covparam : gnp.array
             Covariance parameters for the Gaussian Process.
         xi : array_like, shape (n, d)
-            Input data points used for fitting the GP model, where n is the number of points and d is the dimensionality.
+            Input data points used for fitting the GP model, where n
+            is the number of points and d is the dimensionality.
         zi : array_like, shape (n, )
             Output (response) values corresponding to the input data points xi.
 
@@ -570,6 +600,7 @@ class Model:
         >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
         >>> covparam = np.array([1.0, 0.1])
         >>> L = model.negative_log_restricted_likelihood(covparam, xi, zi)
+
         """
         K = self.covariance(xi, xi, covparam)
         P = self.mean(xi, self.meanparam)
@@ -594,7 +625,8 @@ class Model:
             if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
                 return gnp.inf
             elif gnp._gpmp_backend_ == "torch":
-                # Use LinAlgError instead of raising RuntimeError for linalg operations https://github.com/pytorch/pytorch/issues/64785
+                # Use LinAlgError instead of raising RuntimeError for linalg operations
+                # https://github.com/pytorch/pytorch/issues/64785
                 # https://stackoverflow.com/questions/242485/starting-python-debugger-automatically-on-error
                 # extype, value, tb = __import__("sys").exc_info()
                 # __import__("traceback").print_exc()
@@ -613,16 +645,16 @@ class Model:
         return L.reshape(())
 
     def norm_k_sqrd_with_zero_mean(self, xi, zi, covparam):
-        """
-        Compute the squared norm of the residual vector with zero mean.
+        """Compute the squared norm of the residual vector with zero mean.
 
-        This method calculates the squared norm of the residual vector (zi - mean(xi)) using
-        the inverse of the covariance matrix K.
+        This method calculates the squared norm of the residual vector
+        (zi - mean(xi)) using the inverse of the covariance matrix K.
 
         Parameters
         ----------
         xi : array_like, shape (n, d)
-            Input data points used for fitting the GP model, where n is the number of points and d is the dimensionality.
+            Input data points used for fitting the GP model, where n
+            is the number of points and d is the dimensionality.
         zi : array_like, shape (n, )
             Output (response) values corresponding to the input data points xi.
         covparam : array_like
@@ -640,6 +672,7 @@ class Model:
         >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
         >>> covparam = np.array([1.0, 0.1])
         >>> norm_sqrd = model.norm_k_sqrd_with_zero_mean(xi, zi, covparam)
+
         """
         K = self.covariance(xi, xi, covparam)
         Kinv_zi, _ = gnp.cholesky_solve(K, zi)
@@ -694,16 +727,18 @@ class Model:
         return zTKinvz, Kinv_1, Kinv_zi
 
     def norm_k_sqrd(self, xi, zi, covparam):
-        """
-        Compute the squared norm of the residual vector after applying the contrast matrix W.
+        """Compute the squared norm of the residual vector after
+        applying the contrast matrix W.
 
-        This method calculates the squared norm of the residual vector (Wz) using the inverse of
-        the covariance matrix (WKW), where W is a matrix of contrasts.
+        This method calculates the squared norm of the residual vector
+        (Wz) using the inverse of the covariance matrix (WKW), where W
+        is a matrix of contrasts.
 
         Parameters
         ----------
         xi : ndarray, shape (ni, d)
-            Input data points used for fitting the GP model, where ni is the number of points and d is the dimensionality.
+            Input data points used for fitting the GP model, where ni
+            is the number of points and d is the dimensionality.
         zi : ndarray, shape (ni, 1) or (ni, )
             Output (response) values corresponding to the input data points xi.
         covparam : array_like
@@ -712,7 +747,9 @@ class Model:
         Returns
         -------
         float
-            The squared norm of the residual vector after applying the contrast matrix W: (Wz)' (WKW)^-1 Wz.
+            The squared norm of the residual vector after applying the
+            contrast matrix W: (Wz)' (WKW)^-1 Wz.
+
         """
         K = self.covariance(xi, xi, covparam)
         P = self.mean(xi, self.meanparam)
@@ -738,17 +775,22 @@ class Model:
 
     def sample_paths(self, xt, nb_paths, method="chol", check_result=True):
         """
-        Generates nb_paths sample paths on xt from the GP model GP(0, k),
-        where k is the covariance specified by Model.covariance.
+        Generates nb_paths sample paths on xt from the zero-mean
+        GP model GP(0, k), where k is the covariance specified by
+        Model.covariance.
 
         Parameters
         ----------
         xt : ndarray, shape (nt, d)
-            Input data points where the sample paths are to be generated, where nt is the number of points and d is the dimensionality.
+            Input data points where the sample paths are to be
+            generated, where nt is the number of points and d is the
+            dimensionality.
         nb_paths : int
             Number of sample paths to generate.
         method : str, optional, default: 'chol'
-            Method used for the factorization of the covariance matrix. Options are 'chol' for Cholesky decomposition and 'svd' for singular value decomposition.
+            Method used for the factorization of the covariance
+            matrix. Options are 'chol' for Cholesky decomposition and
+            'svd' for singular value decomposition.
         check_result : bool, optional, default: True
             If True, checks if the Cholesky factorization is successful.
 
@@ -763,6 +805,7 @@ class Model:
         >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
         >>> nb_paths = 10
         >>> sample_paths = model.sample_paths(xt, nb_paths)
+
         """
         xt_ = gnp.asarray(xt)
 
@@ -786,8 +829,7 @@ class Model:
         return zsim
 
     def conditional_sample_paths(self, ztsim, xi_ind, zi, xt_ind, lambda_t):
-        """
-        Generates conditional sample paths on xt from unconditional
+        """Generates conditional sample paths on xt from unconditional
         sample paths ztsim, using the matrix of kriging weights
         lambda_t, which is provided by kriging_predictor() or predict().
 
@@ -796,10 +838,13 @@ class Model:
         observed values zi. xt_ind specifies indices in ztsim
         corresponding to conditional simulation points.
 
+        This method assumes the mean function is of type 'zero' or
+        'linear_predictor'.
+
         NOTE: the function implements "conditioning by kriging" (see,
         e.g., Chiles and Delfiner, Geostatistics: Modeling Spatial
         Uncertainty, Wiley, 1999).
-
+        
         Parameters
         ----------
         ztsim : ndarray, shape (n, nb_paths)
@@ -826,16 +871,63 @@ class Model:
         >>> xt_ind = np.array([[1], [2], [4], [5], [6], [8], [9]])
         >>> lambda_t = np.random.randn(3, 7)
         >>> ztsimc = model.conditional_sample_paths(ztsim, xi_ind, zi, xt_ind, lambda_t)
+
         """
         zi_ = gnp.asarray(zi).reshape(-1, 1)
         ztsim_ = gnp.asarray(ztsim)
 
-        d = zi_ - ztsim_[xi_ind, :]
+        delta = zi_ - ztsim_[xi_ind, :]
 
-        ztsimc = ztsim_[xt_ind, :] + gnp.einsum("ij,ik->jk", lambda_t, d)
+        ztsimc = ztsim_[xt_ind, :] + gnp.einsum("ij,ik->jk", lambda_t, delta)
 
         return ztsimc
 
+    def conditional_sample_paths_parameterized_mean(self, ztsim, xi, xi_ind, zi, xt, xt_ind, lambda_t):
+        """
+        Generates conditional sample paths with a parameterized mean function.
+
+        This method accommodates parameterized means, adjusting the
+        unconditional sample paths 'ztsim' with respect to observed
+        values 'zi' at 'xi' and prediction points 'xt', using kriging
+        weights 'lambda_t'.
+
+        Parameters
+        ----------
+        ztsim : ndarray
+            Unconditional sample paths.
+        xi : ndarray
+            Input data points for observed values.
+        xi_ind : ndarray, dtype=int
+            Indices of observed data points in ztsim.
+        zi : ndarray
+            Observed values at the input data points xi.
+        xt : ndarray
+            Prediction data points.
+        xt_ind : ndarray, dtype=int
+            Indices of prediction data points in ztsim.
+        lambda_t : ndarray
+            Kriging weights matrix.
+
+        Returns
+        -------
+        ztsimc : ndarray
+            Conditional sample paths at prediction points xt, adjusted for a parameterized mean.
+
+        """
+        xi_, zi_, xt_ = Model.ensure_shapes_and_type(xi=xi, zi=zi, xt=xt)
+        ztsim_ = gnp.asarray(ztsim)
+                
+        zi_prior_mean_ = self.mean(xi_, self.meanparam).reshape(-1)
+        zi_centered_ = zi_ - zi_prior_mean_
+        
+        zt_prior_mean_ = self.mean(xt_, self.meanparam).reshape(-1, 1)
+
+        delta = zi_centered_.reshape(-1, 1) - ztsim_[xi_ind, :]
+
+        ztsimc = ztsim_[xt_ind, :] + gnp.einsum("ij,ik->jk", lambda_t, delta) + zt_prior_mean_
+
+        return ztsimc
+        
     @staticmethod
     def ensure_shapes_and_type(xi=None, zi=None, xt=None, convert=True):
         """
