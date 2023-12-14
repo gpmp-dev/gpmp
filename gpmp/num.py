@@ -51,6 +51,7 @@ if _gpmp_backend_ == "numpy":
     from numpy import array, empty
 
     from numpy import (
+        copy,
         reshape,
         where,
         any,
@@ -112,7 +113,7 @@ if _gpmp_backend_ == "numpy":
 
     eps = finfo(float64).eps
     fmax = numpy.finfo(numpy.float64).max
-
+    
     def set_elem1(x, index, v):
         x[index] = v
         return x
@@ -283,6 +284,9 @@ elif _gpmp_backend_ == "torch":
     eps = finfo(float64).eps
     fmax = finfo(float64).max
 
+    def copy(x):
+        return x.clone()
+    
     def set_elem1(x, index, v):
         x[index] = v
         return x
@@ -592,6 +596,9 @@ elif _gpmp_backend_ == "jax":
     eps = finfo(float64).eps
     fmax = finfo(float64).max
 
+    def copy(x):
+        return array(x, copy=True)
+    
     @jax.jit
     def set_elem1(x, index, v):
         return x.at[index].set(v)
