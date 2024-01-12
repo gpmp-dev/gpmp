@@ -435,7 +435,7 @@ def make_selection_criterion_with_gradient(
 
 
 def autoselect_parameters(
-    p0, criterion, gradient, bounds=None, silent=True, info=False, method="SLSQP"
+    p0, criterion, gradient, bounds=None, silent=True, info=False, method="SLSQP", method_options={}
 ):
     """Optimize parameters using a provided criterion and gradient function.
 
@@ -465,6 +465,8 @@ def autoselect_parameters(
     method : str, optional
         Optimization method to use. Supported methods are 'L-BFGS-B' and 'SLSQP'.
         Default is 'SLSQP'.
+    method_options : dict, optional, default {}
+        User options for the optimization method.
 
     Returns
     -------
@@ -533,6 +535,8 @@ def autoselect_parameters(
         }
     else:
         raise ValueError("Optmization method not implemented.")
+
+    options.update(method_options)
 
     if silent is False:
         options["disp"] = True
