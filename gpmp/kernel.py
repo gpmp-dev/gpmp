@@ -259,11 +259,9 @@ def anisotropic_parameters_initial_guess_zero_mean(model, xi, zi):
     d = xi_.shape[1]
 
     delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
-    rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi ** 0.5) * delta
+    rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi**0.5) * delta
     covparam = gnp.concatenate((gnp.array([log(1.0)]), -gnp.log(rho)))
-    sigma2_GLS = (
-        1.0 / n * model.norm_k_sqrd_with_zero_mean(xi_, zi_, covparam)
-    )
+    sigma2_GLS = 1.0 / n * model.norm_k_sqrd_with_zero_mean(xi_, zi_, covparam)
 
     return gnp.concatenate((gnp.log(sigma2_GLS), -gnp.log(rho)))
 
@@ -308,7 +306,7 @@ def anisotropic_parameters_initial_guess_constant_mean(model, xi, zi):
     d = xi_.shape[1]
 
     delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
-    rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi ** 0.5) * delta
+    rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi**0.5) * delta
 
     covparam = gnp.concatenate((gnp.array([gnp.log(1.0)]), -gnp.log(rho)))
     zTKinvz, Kinv1, Kinvz = model.k_inverses(xi_, zi_, covparam)
@@ -376,9 +374,9 @@ def anisotropic_parameters_initial_guess(model, xi, zi):
     zi_ = gnp.asarray(zi).reshape(-1, 1)
     n = xi_.shape[0]
     d = xi_.shape[1]
-    
+
     delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
-    rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi ** 0.5) * delta
+    rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi**0.5) * delta
 
     covparam = gnp.concatenate((gnp.array([log(1.0)]), -gnp.log(rho)))
     sigma2_GLS = 1.0 / n * model.norm_k_sqrd(xi_, zi_, covparam)
@@ -435,7 +433,14 @@ def make_selection_criterion_with_gradient(
 
 
 def autoselect_parameters(
-    p0, criterion, gradient, bounds=None, silent=True, info=False, method="SLSQP"
+    p0,
+    criterion,
+    gradient,
+    bounds=None,
+    silent=True,
+    info=False,
+    method="SLSQP",
+    method_options={},
 ):
     """Optimize parameters using a provided criterion and gradient function.
 
@@ -465,6 +470,8 @@ def autoselect_parameters(
     method : str, optional
         Optimization method to use. Supported methods are 'L-BFGS-B' and 'SLSQP'.
         Default is 'SLSQP'.
+    method_options : dict, optional, default {}
+        User options for the optimization method.
 
     Returns
     -------
@@ -533,6 +540,8 @@ def autoselect_parameters(
         }
     else:
         raise ValueError("Optmization method not implemented.")
+
+    options.update(method_options)
 
     if silent is False:
         options["disp"] = True
