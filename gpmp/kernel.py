@@ -152,7 +152,7 @@ def maternp_covariance_ii_or_tt(x, p, param, pairwise=False):
     """
     sigma2 = gnp.exp(param[0])
     loginvrho = param[1:]
-    nugget = 10.0 * gnp.finfo(gnp.float64).eps
+    nugget = 10.0 * sigma2 * gnp.finfo(gnp.float64).eps
 
     if pairwise:
         # return a vector of covariances
