@@ -13,8 +13,7 @@ import matplotlib.pyplot as plt
 
 
 def diag(model, info_select_parameters, xi, zi):
-    """
-    Run model diagnosis and display the results.
+    """Run model diagnosis and display the results.
 
     Parameters
     ----------
@@ -50,8 +49,7 @@ def perf(model, xi, zi, loo=True, loo_res=None, xtzt=None, zpmzpv=None):
 
 
 def modeldiagnosis_init(model, info):
-    """
-    Build model diagnosis based on the provided model and information.
+    """Build model diagnosis based on the provided model and information.
 
     Parameters
     ----------
@@ -132,7 +130,6 @@ def compute_performance(model, xi, zi, loo=True, loo_res=None, xtzt=None, zpmzpv
           residual error sum of squares to the total sum of squares in
           the test set predictions.
         - 'test_pit': PIT of the test set predictions.
-
     """
     xi = gnp.asarray(xi)
     zi = gnp.asarray(zi)
@@ -180,8 +177,8 @@ def compute_performance(model, xi, zi, loo=True, loo_res=None, xtzt=None, zpmzpv
     return perf
 
 def plot_pit_ecdf(pit, fig=None):
-    """Plot the empirical cumulative distribution function (ECDF) of a
-    Probability Integral Transform (PIT) vector.
+    """Plot the empirical cumulative distribution function (ECDF) of a Probability
+    Integral Transform (PIT) vector.
 
     Parameters
     ----------
@@ -194,8 +191,7 @@ def plot_pit_ecdf(pit, fig=None):
     Returns
     -------
     None
-
-        """
+    """
     n = pit.shape[0]
     p = gnp.concatenate((gnp.array([0]), gnp.linspace(0, 1, n)))
     pit_sorted = gnp.concatenate((gnp.array([0.]), gnp.sort(pit)))
@@ -208,8 +204,7 @@ def plot_pit_ecdf(pit, fig=None):
     plt.show()
 
 def model_diagnosis_disp(md, xi, zi):
-    """
-    Display model diagnosis information.
+    """Display model diagnosis information.
 
     Parameters
     ----------
@@ -252,8 +247,7 @@ def model_diagnosis_disp(md, xi, zi):
 
 
 def plot_likelihood_sigma_rho(model, info):
-    """
-    Plot likelihood profile for sigma and rho parameters.
+    """Plot likelihood profile for sigma and rho parameters.
 
     Parameters
     ----------
@@ -322,8 +316,7 @@ def plot_likelihood_sigma_rho(model, info):
 
 
 def sigma_rho_from_covparam(covparam):
-    """
-    Extract sigma and rho parameters from the covariance parameters.
+    """Extract sigma and rho parameters from the covariance parameters.
 
     Parameters
     ----------
@@ -346,8 +339,7 @@ def sigma_rho_from_covparam(covparam):
 
 
 def describe_array(x, rownames, normalizing_factor=None):
-    """
-    Create a DataFrame containing descriptive statistics for the given data.
+    """Create a DataFrame containing descriptive statistics for the given data.
 
     Parameters
     ----------
@@ -387,8 +379,7 @@ def describe_array(x, rownames, normalizing_factor=None):
 
 
 def pretty_print_dictionnary(d, fp=4):
-    """
-    Print a dictionary with formatted values.
+    """Print a dictionary with formatted values.
 
     Parameters
     ----------

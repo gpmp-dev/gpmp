@@ -36,3 +36,6 @@ include = ["gpmp", "gpmp.*", "examples", "tests"]
 
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}
+
+[tool.autoflake]
+check = true

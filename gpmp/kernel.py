@@ -4,19 +4,17 @@
 # License: GPLv3 (see LICENSE)
 ## --------------------------------------------------------------
 import time
-import warnings
 import numpy as np
 import gpmp.num as gnp
 from scipy.optimize import minimize, OptimizeWarning
-from math import exp, log, sqrt
+from math import log, sqrt
 
 
 ## -- kernels
 
 
 def exponential_kernel(h):
-    """
-    Exponential kernel.
+    """Exponential kernel.
 
     The exponential kernel is defined as:
 
@@ -40,8 +38,7 @@ def exponential_kernel(h):
 
 
 def matern32_kernel(h):
-    """
-    Matérn 3/2 kernel.
+    """Matérn 3/2 kernel.
 
     The Matérn 3/2 kernel is defined as:
 
@@ -69,7 +66,7 @@ def matern32_kernel(h):
 
 
 def compute_gammaln(up_to_p):
-    """Compute gammaln values"""
+    """Compute gammaln values."""
     return [gnp.asarray(gnp.gammaln(i)) for i in range(2 * up_to_p + 2)]
 
 
@@ -78,8 +75,7 @@ pmax = -1
 
 
 def maternp_kernel(p: int, h):
-    """
-    Matérn kernel with half-integer regularity nu = p + 1/2.
+    """Matérn kernel with half-integer regularity nu = p + 1/2.
 
     The Matérn kernel is defined as in Stein 1999, page 50:
 
@@ -101,7 +97,6 @@ def maternp_kernel(p: int, h):
     .. math::
 
         K(h) = \\exp(-2\\sqrt{\\nu}h) \\frac{\\Gamma(p+1)}{\\Gamma(2p+1)} \\sum_{i=0}^{p} \\frac{(p+i)!}{i!(p-i)!} (4\\sqrt{\\nu}h)^{p-i}
-
     """
     global gln, pmax
 
@@ -126,8 +121,7 @@ def maternp_kernel(p: int, h):
 
 
 def maternp_covariance_ii_or_tt(x, p, param, pairwise=False):
-    """
-    Covariance between observations or predictands at x.
+    """Covariance between observations or predictands at x.
 
     The covariance matrix is computed using the Matérn kernel with half-integer regularity:
 
@@ -172,8 +166,7 @@ def maternp_covariance_ii_or_tt(x, p, param, pairwise=False):
 
 
 def maternp_covariance_it(x, y, p, param, pairwise=False):
-    """
-    Covariance between observations and prediction points.
+    """Covariance between observations and prediction points.
 
     Parameters
     ----------
@@ -211,8 +204,7 @@ def maternp_covariance_it(x, y, p, param, pairwise=False):
 
 
 def maternp_covariance(x, y, p, param, pairwise=False):
-    """
-    Matérn covariance function with half-integer regularity nu = p + 1/2.
+    """Matérn covariance function with half-integer regularity nu = p + 1/2.
 
     The kernel is defined in terms of the Euclidean distance, between
     pairs of input points. For the Matérn kernel, the distance measure
@@ -246,7 +238,6 @@ def maternp_covariance(x, y, p, param, pairwise=False):
     -----
     An isotropic covariance is obtained if param = [log(sigma2) log(1/rho)]
     (only one length scale parameter).
-
     """
     if y is x or y is None:
         return maternp_covariance_ii_or_tt(x, p, param, pairwise)
@@ -258,7 +249,7 @@ def maternp_covariance(x, y, p, param, pairwise=False):
 
 
 def anisotropic_parameters_initial_guess_zero_mean(model, xi, zi):
-    """anisotropic initialization strategy with zero mean
+    """Anisotropic initialization strategy with zero mean.
 
     See anisotropic_parameters_initial_guess
     """
@@ -310,7 +301,6 @@ def anisotropic_parameters_initial_guess_constant_mean(model, xi, zi):
         .. math::
 
             \sigma^2_{GLS} = \frac{1}{n} \mathbf{z}^T K^{-1} \mathbf{z}
-
     """
     xi_ = gnp.asarray(xi)
     zi_ = gnp.asarray(zi).reshape((-1, 1))  # Ensure zi_ is a column vector
@@ -330,9 +320,7 @@ def anisotropic_parameters_initial_guess_constant_mean(model, xi, zi):
 
 
 def anisotropic_parameters_initial_guess(model, xi, zi):
-    """
-    Anisotropic initialization strategy for parameters of a Gaussian
-    process model.
+    """Anisotropic initialization strategy for parameters of a Gaussian process model.
 
     Given the observed data points and their values, this function
     computes an initial guess for the anisotropic parameters. The
@@ -382,7 +370,6 @@ def anisotropic_parameters_initial_guess(model, xi, zi):
     .. [1] Basak, S., Petit, S., Bect, J., & Vazquez, E. (2021).
        Numerical issues in maximum likelihood parameter estimation for
        Gaussian process interpolation. arXiv:2101.09747.
-
     """
 
     xi_ = gnp.asarray(xi)
@@ -402,8 +389,7 @@ def anisotropic_parameters_initial_guess(model, xi, zi):
 def make_selection_criterion_with_gradient(
     selection_criterion, xi, zi, parameterized_mean=False, meanparam_len=1
 ):
-    """
-    Make selection criterion function with gradient.
+    """Make selection criterion function with gradient.
 
     Parameters
     ----------
@@ -451,8 +437,7 @@ def make_selection_criterion_with_gradient(
 def autoselect_parameters(
     p0, criterion, gradient, bounds=None, silent=True, info=False, method="SLSQP"
 ):
-    """
-    Optimize parameters using a provided criterion and gradient function.
+    """Optimize parameters using a provided criterion and gradient function.
 
     This function automatically optimizes the parameters of a given model based on
     a specified criterion function and its gradient. Different optimization methods
@@ -495,7 +480,6 @@ def autoselect_parameters(
     The function uses the `minimize` method from `scipy.optimize` for optimization.
     Depending on the backend (`gnp._gpmp_backend_`), different preparations are made
     for the criterion and gradient functions to ensure compatibility.
-
     """
     tic = time.time()
     if gnp._gpmp_backend_ == "jax":
@@ -586,8 +570,8 @@ def autoselect_parameters(
 
 
 def select_parameters_with_reml(model, xi, zi, covparam0=None, info=False, verbosity=0):
-    """
-    Optimize Gaussian process model parameters using Restricted Maximum Likelihood (REML).
+    """Optimize Gaussian process model parameters using Restricted Maximum Likelihood
+    (REML).
 
     This function performs parameter optimization for a Gaussian process model using the
     REML criterion. The function can use a provided initial guess for the covariance
@@ -669,8 +653,7 @@ def select_parameters_with_reml(model, xi, zi, covparam0=None, info=False, verbo
 
 
 def update_parameters_with_reml(model, xi, zi, info=False):
-    """
-    Update model parameters with Restricted Maximum Likelihood (REML).
+    """Update model parameters with Restricted Maximum Likelihood (REML).
 
     Parameters
     ----------

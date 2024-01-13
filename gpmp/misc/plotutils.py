@@ -12,15 +12,13 @@ from matplotlib import interactive
 
 
 class Figure:
-    """
-    Figures manager class
+    """Figures manager class.
 
     Attributes
     ----------
 
     Methods
     -------
-
     """
 
     def __init__(self, nrows=1, ncols=1, isinteractive=True, boxoff=True, **kargs):
@@ -134,7 +132,8 @@ class Figure:
         show_ci_labels=True,
         **kwargs
     ):
-        """coverage intervals
+        """Coverage intervals.
+
         norminv (1 - 0.05/2)  = 1.959964
         norminv (1 - 0.01/2)  = 2.575829
         norminv (1 - 0.001/2) = 3.290527
@@ -225,8 +224,8 @@ class Figure:
 
 
 def crosssections(model, xi, zi, box, ind_i, ind_dim, nt=100):
-    """Display "cross-section" predictions at points xi[ind_i] along
-    dimensions specified in ind_dim
+    """Display "cross-section" predictions at points xi[ind_i] along dimensions
+    specified in ind_dim.
 
     Parameters
     ----------
@@ -276,7 +275,7 @@ def crosssections(model, xi, zi, box, ind_i, ind_dim, nt=100):
 
 
 def plot_loo(zi, zloom, zloov):
-    """LOO plot
+    """LOO plot.
 
     Parameters
     ----------

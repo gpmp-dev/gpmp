@@ -8,7 +8,7 @@ import gpmp.num as gnp
 
 
 class Model:
-    """Gaussian Process (GP) Model Class
+    """Gaussian Process (GP) Model Class.
 
     This class implements a Gaussian Process (GP) model for function
     approximation.
@@ -133,7 +133,6 @@ class Model:
     >>> zi = gnp.array([0.0, 1.2, 2.5, 4.2, 4.3])
     >>> xt = gnp.array([0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]).reshape(-1, 1)
     >>> zt_mean, zt_var = model.predict(xi, zi, xt)
-
     """
 
     def __init__(
@@ -190,7 +189,7 @@ class Model:
         return output
 
     def kriging_predictor_with_zero_mean(self, xi, xt, return_type=0):
-        """Compute the kriging predictor with zero mean"""
+        """Compute the kriging predictor with zero mean."""
         Kii = self.covariance(xi, xi, self.covparam)
         Kit = self.covariance(xi, xt, self.covparam)
 
@@ -212,7 +211,7 @@ class Model:
         return lambda_t, zt_posterior_variance
 
     def kriging_predictor(self, xi, xt, return_type=0):
-        """Compute the kriging predictor with non-zero mean
+        """Compute the kriging predictor with non-zero mean.
 
         Parameters
         ----------
@@ -233,7 +232,6 @@ class Model:
         covariance matrix of the predictands. This means that the
         information of which are the observation points and which are
         the prediction points must be coded in xi / xt
-
         """
         # LHS
         Kii = self.covariance(xi, xi, self.covparam)
@@ -278,8 +276,7 @@ class Model:
         convert_in=True,
         convert_out=True,
     ):
-        """
-        Performs a prediction at target points xt given the data (xi, zi).
+        """Performs a prediction at target points xt given the data (xi, zi).
 
         Parameters
         ----------
@@ -411,7 +408,6 @@ class Model:
         >>> zi = np.array([1.2, 2.5, 4.2])
         >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
         >>> zloo, sigma2loo, eloo = model.loo(xi, zi)
-
         """
         xi_, zi_, _ = Model.ensure_shapes_and_type(xi=xi, zi=zi, convert=convert_in)
 
@@ -467,7 +463,6 @@ class Model:
 
     def _loo_with_linear_predictor_mean(self, meanparam, covparam, xi, zi):
         """Compute LOO prediction error for linear_predictor mean."""
-        n = xi.shape[0]
         K = self.covariance(xi, xi, covparam)
         P = self.mean(xi, meanparam)
 
@@ -493,7 +488,8 @@ class Model:
         return zloo, sigma2loo, eloo
 
     def negative_log_likelihood_zero_mean(self, covparam, xi, zi):
-        """Computes the negative log-likelihood of the Gaussian process model with zero mean.
+        """Computes the negative log-likelihood of the Gaussian process model with zero
+        mean.
 
         This function is specific to the zero-mean case, and the negative log-likelihood
         is computed based on the provided covariance function and parameters.
@@ -513,7 +509,6 @@ class Model:
         -------
         nll : scalar
             Negative log-likelihood of the observed data given the model and covariance parameters.
-
         """
         K = self.covariance(xi, xi, covparam)
         n = K.shape[0]
@@ -535,8 +530,8 @@ class Model:
         return L.reshape(())
 
     def negative_log_likelihood(self, meanparam, covparam, xi, zi):
-        """Computes the negative log-likelihood of the Gaussian
-        process model with a given mean.
+        """Computes the negative log-likelihood of the Gaussian process model with a
+        given mean.
 
         This function computes the negative log-likelihood based on
         the provided mean function, covariance function, and their
@@ -563,7 +558,6 @@ class Model:
         nll : scalar
             Negative log-likelihood of the observed data given the
             model, mean, and covariance parameters.
-
         """
         zi_prior_mean = self.mean(xi, meanparam).reshape(-1)
         centered_zi = zi - zi_prior_mean
@@ -600,7 +594,6 @@ class Model:
         >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
         >>> covparam = np.array([1.0, 0.1])
         >>> L = model.negative_log_restricted_likelihood(covparam, xi, zi)
-
         """
         K = self.covariance(xi, xi, covparam)
         P = self.mean(xi, self.meanparam)
@@ -672,7 +665,6 @@ class Model:
         >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
         >>> covparam = np.array([1.0, 0.1])
         >>> norm_sqrd = model.norm_k_sqrd_with_zero_mean(xi, zi, covparam)
-
         """
         K = self.covariance(xi, xi, covparam)
         Kinv_zi, _ = gnp.cholesky_solve(K, zi)
@@ -681,8 +673,7 @@ class Model:
         return norm_sqrd
 
     def k_inverses(self, xi, zi, covparam):
-        """
-        Compute various quantities involving the inverse of K.
+        """Compute various quantities involving the inverse of K.
 
         Specifically, this method calculates:
         - z^T K^-1 z
@@ -727,8 +718,8 @@ class Model:
         return zTKinvz, Kinv_1, Kinv_zi
 
     def norm_k_sqrd(self, xi, zi, covparam):
-        """Compute the squared norm of the residual vector after
-        applying the contrast matrix W.
+        """Compute the squared norm of the residual vector after applying the contrast
+        matrix W.
 
         This method calculates the squared norm of the residual vector
         (Wz) using the inverse of the covariance matrix (WKW), where W
@@ -749,7 +740,6 @@ class Model:
         float
             The squared norm of the residual vector after applying the
             contrast matrix W: (Wz)' (WKW)^-1 Wz.
-
         """
         K = self.covariance(xi, xi, covparam)
         P = self.mean(xi, self.meanparam)
@@ -774,10 +764,8 @@ class Model:
         return norm_sqrd
 
     def sample_paths(self, xt, nb_paths, method="chol", check_result=True):
-        """
-        Generates nb_paths sample paths on xt from the zero-mean
-        GP model GP(0, k), where k is the covariance specified by
-        Model.covariance.
+        """Generates nb_paths sample paths on xt from the zero-mean GP model GP(0, k),
+        where k is the covariance specified by Model.covariance.
 
         Parameters
         ----------
@@ -805,7 +793,6 @@ class Model:
         >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
         >>> nb_paths = 10
         >>> sample_paths = model.sample_paths(xt, nb_paths)
-
         """
         xt_ = gnp.asarray(xt)
 
@@ -829,9 +816,9 @@ class Model:
         return zsim
 
     def conditional_sample_paths(self, ztsim, xi_ind, zi, xt_ind, lambda_t):
-        """Generates conditional sample paths on xt from unconditional
-        sample paths ztsim, using the matrix of kriging weights
-        lambda_t, which is provided by kriging_predictor() or predict().
+        """Generates conditional sample paths on xt from unconditional sample paths
+        ztsim, using the matrix of kriging weights lambda_t, which is provided by
+        kriging_predictor() or predict().
 
         Conditioning is done with respect to ni observations, located
         at the indices given by xi_ind in ztsim, with corresponding
@@ -844,7 +831,7 @@ class Model:
         NOTE: the function implements "conditioning by kriging" (see,
         e.g., Chiles and Delfiner, Geostatistics: Modeling Spatial
         Uncertainty, Wiley, 1999).
-        
+
         Parameters
         ----------
         ztsim : ndarray, shape (n, nb_paths)
@@ -871,7 +858,6 @@ class Model:
         >>> xt_ind = np.array([[1], [2], [4], [5], [6], [8], [9]])
         >>> lambda_t = np.random.randn(3, 7)
         >>> ztsimc = model.conditional_sample_paths(ztsim, xi_ind, zi, xt_ind, lambda_t)
-
         """
         zi_ = gnp.asarray(zi).reshape(-1, 1)
         ztsim_ = gnp.asarray(ztsim)
@@ -882,9 +868,10 @@ class Model:
 
         return ztsimc
 
-    def conditional_sample_paths_parameterized_mean(self, ztsim, xi, xi_ind, zi, xt, xt_ind, lambda_t):
-        """
-        Generates conditional sample paths with a parameterized mean function.
+    def conditional_sample_paths_parameterized_mean(
+        self, ztsim, xi, xi_ind, zi, xt, xt_ind, lambda_t
+    ):
+        """Generates conditional sample paths with a parameterized mean function.
 
         This method accommodates parameterized means, adjusting the
         unconditional sample paths 'ztsim' with respect to observed
@@ -912,26 +899,28 @@ class Model:
         -------
         ztsimc : ndarray
             Conditional sample paths at prediction points xt, adjusted for a parameterized mean.
-
         """
         xi_, zi_, xt_ = Model.ensure_shapes_and_type(xi=xi, zi=zi, xt=xt)
         ztsim_ = gnp.asarray(ztsim)
-                
+
         zi_prior_mean_ = self.mean(xi_, self.meanparam).reshape(-1)
         zi_centered_ = zi_ - zi_prior_mean_
-        
+
         zt_prior_mean_ = self.mean(xt_, self.meanparam).reshape(-1, 1)
 
         delta = zi_centered_.reshape(-1, 1) - ztsim_[xi_ind, :]
 
-        ztsimc = ztsim_[xt_ind, :] + gnp.einsum("ij,ik->jk", lambda_t, delta) + zt_prior_mean_
+        ztsimc = (
+            ztsim_[xt_ind, :]
+            + gnp.einsum("ij,ik->jk", lambda_t, delta)
+            + zt_prior_mean_
+        )
 
         return ztsimc
-        
+
     @staticmethod
     def ensure_shapes_and_type(xi=None, zi=None, xt=None, convert=True):
-        """
-        Ensure correct shapes and types for provided arrays.
+        """Ensure correct shapes and types for provided arrays.
 
         Parameters
         ----------
