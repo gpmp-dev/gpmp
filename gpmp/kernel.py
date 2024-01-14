@@ -152,7 +152,6 @@ def maternp_covariance_ii_or_tt(x, p, param, pairwise=False):
     """
     sigma2 = gnp.exp(param[0])
     loginvrho = param[1:]
-    nugget = 10.0 * sigma2 * gnp.finfo(gnp.float64).eps
 
     if pairwise:
         # return a vector of covariances
@@ -160,7 +159,7 @@ def maternp_covariance_ii_or_tt(x, p, param, pairwise=False):
     else:
         # return a covariance matrix
         K = gnp.scaled_distance(loginvrho, x, x)  # nx x nx
-        K = sigma2 * maternp_kernel(p, K) + nugget * gnp.eye(K.shape[0])
+        K = sigma2 * maternp_kernel(p, K)
 
     return K
 
