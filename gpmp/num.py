@@ -397,9 +397,6 @@ elif _gpmp_backend_ == "torch":
         a = torch.where(torch.isinf(a), torch.full_like(a, bigf), a)
         return a
 
-    def cholesky(A, lower=True, overwrite_a=True):
-        return torch.linalg.cholesky(A, upper=not (lower))
-
     def svd(A, full_matrices=True, hermitian=True):
         return torch.linalg.svd(A, full_matrices)
 
@@ -437,6 +434,16 @@ elif _gpmp_backend_ == "torch":
             invrho = exp(loginvrho)
             d = sqrt(sum(invrho * (xs - ys) ** 2, axis=1))
         return d
+
+    # NOTE: in cholesky() and cho_factor(), overwrite_a and check_finite
+    # are kept for consistency with Scipy but silently ignored.
+
+    def cholesky(A, lower=False, overwrite_a=False, check_finite=True):
+        return torch.linalg.cholesky(A, upper=not (lower))
+
+    def cho_factor(A, lower=False, overwrite_a=False, check_finite=True):
+        # torch.linalg does not have cho_factor(), use cholesky() instead.
+        return torch.linalg.cholesky(A, upper=not (lower))
 
     def cholesky_solve(A, b):
         C = torch.linalg.cholesky(A)
