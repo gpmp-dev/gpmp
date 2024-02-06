@@ -5,8 +5,8 @@ License: GPLv3 (see LICENSE)
 --------------------------------------------------------------
 
 Description:
-    This module sets and prints the backend to be used by the GPMP (Generic
-    Python Matrix Processing) framework.
+    This module sets and prints the backend to be used by the GPmp (Gaussian
+    Process micro package) framework.
 
     The backend is set by checking for the existence of certain libraries in
     the system and, if available, sets an environment variable "GPMP_BACKEND" 
@@ -435,10 +435,9 @@ elif _gpmp_backend_ == "torch":
             d = sqrt(sum(invrho * (xs - ys) ** 2, axis=1))
         return d
 
-    # NOTE: in cholesky() and cho_factor(), overwrite_a and check_finite
-    # are kept for consistency with Scipy but silently ignored.
-
     def cholesky(A, lower=False, overwrite_a=False, check_finite=True):
+        # NOTE: in cholesky(), overwrite_a and check_finite
+        # are kept for consistency with Scipy but silently ignored.
         return torch.linalg.cholesky(A, upper=not (lower))
 
     def cho_factor(A, lower=False, overwrite_a=False, check_finite=True):
