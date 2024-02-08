@@ -440,7 +440,7 @@ def autoselect_parameters(
     silent=True,
     info=False,
     method="SLSQP",
-    method_options={},
+    method_options={}
 ):
     """Optimize parameters using a provided criterion and gradient function.
 
