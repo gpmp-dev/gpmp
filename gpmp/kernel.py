@@ -432,6 +432,11 @@ def make_selection_criterion_with_gradient(
     return crit_jit, dcrit
 
 
+import time
+import numpy as np
+from scipy.optimize import minimize
+
+
 def autoselect_parameters(
     p0,
     criterion,
@@ -440,9 +445,10 @@ def autoselect_parameters(
     silent=True,
     info=False,
     method="SLSQP",
-    method_options={}
+    method_options={},
 ):
-    """Optimize parameters using a provided criterion and gradient function.
+    """
+    Optimize parameters using a provided criterion and gradient function.
 
     This function automatically optimizes the parameters of a given model based on
     a specified criterion function and its gradient. Different optimization methods
@@ -488,16 +494,41 @@ def autoselect_parameters(
     Depending on the backend (`gnp._gpmp_backend_`), different preparations are made
     for the criterion and gradient functions to ensure compatibility.
     """
+    # Track optimization start time
     tic = time.time()
+
+    # Setup to record parameter and criterion history
+    history_params = []
+    history_criterion = []
+    best_criterion = float("inf")
+    best_params = None
+
+    def record_history(p, criterion_value):
+        nonlocal best_criterion, best_params
+        history_params.append(p.copy())
+        history_criterion.append(criterion_value)
+
+        if criterion_value < best_criterion:
+            best_criterion = criterion_value
+            best_params = p.copy()
+
+    # Determine which backend to use and configure the criterion and gradient functions
     if gnp._gpmp_backend_ == "jax":
         # scipy.optimize.minimize cannot use jax arrays
-        crit_asnumpy = criterion
+        def crit_asnumpy(p):
+            J = criterion(p).item()
+            record_history(p, J)
+            return J
+
         gradient_asnumpy = lambda p: gnp.to_np(gradient(p))
+
     elif gnp._gpmp_backend_ == "torch":
 
         def crit_asnumpy(p):
             v = criterion(gnp.asarray(p))
-            return v.detach().item()
+            J = v.detach().item()
+            record_history(p, J)
+            return J
 
         def gradient_asnumpy(p):
             g = gradient(gnp.asarray(p))
@@ -511,41 +542,40 @@ def autoselect_parameters(
         def crit_asnumpy(p):
             try:
                 J = criterion(p)
-            except:
+            except Exception as e:
                 J = np.Inf
+            record_history(p, J)
             return J
 
         gradient_asnumpy = None
 
+    # Set default optimization options and update with user-provided options
+    options = {"disp": not silent}
     if method == "L-BFGS-B":
-        options = {
-            "disp": False,
-            "maxcor": 20,
-            "ftol": 1e-06,
-            "gtol": 1e-05,
-            "eps": 1e-08,
-            "maxfun": 15000,
-            "maxiter": 15000,
-            "iprint": -1,
-            "maxls": 40,
-            "finite_diff_rel_step": None,
-        }
+        options.update(
+            {
+                "maxcor": 20,
+                "ftol": 1e-6,
+                "gtol": 1e-5,
+                "eps": 1e-8,
+                "maxfun": 15000,
+                "maxiter": 15000,
+                "maxls": 40,
+                "iprint": -1,
+                "maxls": 40,
+                "finite_diff_rel_step": None,
+            }
+        )
     elif method == "SLSQP":
-        options = {
-            "disp": False,
-            "ftol": 1e-06,
-            "eps": 1e-08,
-            "maxiter": 15000,
-            "finite_diff_rel_step": None,
-        }
+        options.update(
+            {"ftol": 1e-6, "eps": 1e-8, "maxiter": 15000, "finite_diff_rel_step": None}
+        )
     else:
-        raise ValueError("Optmization method not implemented.")
+        raise ValueError("Optimization method not implemented.")
 
     options.update(method_options)
 
-    if silent is False:
-        options["disp"] = True
-
+    # Perform the minimization
     r = minimize(
         crit_asnumpy,
         p0,
@@ -558,24 +588,182 @@ def autoselect_parameters(
         options=options,
     )
 
-    best = r.x
-    if silent is False:
+    # Ensure that the best values are returned
+    if r.fun > best_criterion:
+        r.x = best_params
+        r.fun = best_criterion
+        r.best_value_returned = False
+    else:
+        r.best_value_returned = True
+
+    # Set additional information about the optimization process
+    r.history_params = history_params
+    r.history_criterion = history_criterion
+    r.initial_params = p0
+    r.final_params = r.x
+    r.selection_criterion = criterion
+    r.total_time = time.time() - tic
+
+    if not silent:
+        print("Optimization completed. Best found criterion:", best_criterion)
         print("Gradient")
         print("--------")
         if gradient_asnumpy is not None:
-            print(gradient_asnumpy(best))
+            print(gradient_asnumpy(r.x))
         else:
             print("gradient not available")
         print(".")
-    r.covparam0 = p0
-    r.covparam = best
-    r.selection_criterion = criterion
-    r.time = time.time() - tic
 
     if info:
-        return best, r
+        return r.x, r
     else:
-        return best
+        return r.x
+
+
+# def autoselect_parameters(
+#     p0,
+#     criterion,
+#     gradient,
+#     bounds=None,
+#     silent=True,
+#     info=False,
+#     method="SLSQP",
+#     method_options={}
+# ):
+#     """Optimize parameters using a provided criterion and gradient function.
+
+#     This function automatically optimizes the parameters of a given model based on
+#     a specified criterion function and its gradient. Different optimization methods
+#     can be used based on the `method` argument.
+
+#     Parameters
+#     ----------
+#     p0 : ndarray
+#         Initial guess of the parameters.
+#     criterion : function
+#         Function that computes the selection criterion for a given parameter set.
+#         It should take an ndarray of parameters and return a scalar value.
+#     gradient : function
+#         Function that computes the gradient of the selection criterion with respect
+#         to the parameters. It should take an ndarray of parameters and return an ndarray
+#         of the same shape.
+#     bounds : sequence of tuple, optional
+#         A sequence of (min, max) pairs specifying bounds for each parameter.
+#         Use None to indicate no bounds. Default is None.
+#     silent : bool, optional
+#         If True, suppresses optimization output messages. Default is True.
+#     info : bool, optional
+#         If True, returns additional information about the optimization process.
+#         Default is False.
+#     method : str, optional
+#         Optimization method to use. Supported methods are 'L-BFGS-B' and 'SLSQP'.
+#         Default is 'SLSQP'.
+#     method_options : dict, optional, default {}
+#         User options for the optimization method.
+
+#     Returns
+#     -------
+#     best : ndarray
+#         Array of optimized parameters.
+#     r : OptimizeResult, optional
+#         A dictionary of optimization information (only if `info=True`). This includes
+#         details like the initial parameters, final parameters, selection criterion function,
+#         and total time taken for optimization.
+
+#     Notes
+#     -----
+#     The function uses the `minimize` method from `scipy.optimize` for optimization.
+#     Depending on the backend (`gnp._gpmp_backend_`), different preparations are made
+#     for the criterion and gradient functions to ensure compatibility.
+#     """
+#     tic = time.time()
+#     if gnp._gpmp_backend_ == "jax":
+#         # scipy.optimize.minimize cannot use jax arrays
+#         crit_asnumpy = criterion
+#         gradient_asnumpy = lambda p: gnp.to_np(gradient(p))
+#     elif gnp._gpmp_backend_ == "torch":
+
+#         def crit_asnumpy(p):
+#             v = criterion(gnp.asarray(p))
+#             return v.detach().item()
+
+#         def gradient_asnumpy(p):
+#             g = gradient(gnp.asarray(p))
+#             if g is None:
+#                 return gnp.zeros(p.shape)
+#             else:
+#                 return g
+
+#     elif gnp._gpmp_backend_ == "numpy":
+
+#         def crit_asnumpy(p):
+#             try:
+#                 J = criterion(p)
+#             except:
+#                 J = np.Inf
+#             return J
+
+#         gradient_asnumpy = None
+
+#     if method == "L-BFGS-B":
+#         options = {
+#             "disp": False,
+#             "maxcor": 20,
+#             "ftol": 1e-06,
+#             "gtol": 1e-05,
+#             "eps": 1e-08,
+#             "maxfun": 15000,
+#             "maxiter": 15000,
+#             "iprint": -1,
+#             "maxls": 40,
+#             "finite_diff_rel_step": None,
+#         }
+#     elif method == "SLSQP":
+#         options = {
+#             "disp": False,
+#             "ftol": 1e-06,
+#             "eps": 1e-08,
+#             "maxiter": 15000,
+#             "finite_diff_rel_step": None,
+#         }
+#     else:
+#         raise ValueError("Optmization method not implemented.")
+
+#     options.update(method_options)
+
+#     if silent is False:
+#         options["disp"] = True
+
+#     r = minimize(
+#         crit_asnumpy,
+#         p0,
+#         args=(),
+#         method=method,
+#         jac=gradient_asnumpy,
+#         bounds=bounds,
+#         tol=None,
+#         callback=None,
+#         options=options,
+#     )
+
+#     best = r.x
+#     if silent is False:
+#         print("Gradient")
+#         print("--------")
+#         if gradient_asnumpy is not None:
+#             print(gradient_asnumpy(best))
+#         else:
+#             print("gradient not available")
+#         print(".")
+#     r.covparam0 = p0
+#     r.covparam = best
+#     r.selection_criterion = criterion
+#     r.time = time.time() - tic
+
+#     if info:
+#         return best, r
+#     else:
+#         return best
 
 
 def select_parameters_with_reml(model, xi, zi, covparam0=None, info=False, verbosity=0):

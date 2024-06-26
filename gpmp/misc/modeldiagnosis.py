@@ -73,9 +73,10 @@ def modeldiagnosis_init(model, info):
     
     md['param_selection'] = {
         'cvg_reached': info.success,
+        'optimal_val': info.best_value_returned,
         'n_evals': info.nfev,
-        'time': info.time,
-        'initial_val': float(info.selection_criterion(info.covparam0)),
+        'time': info.total_time,
+        'initial_val': float(info.selection_criterion(info.initial_params)),
         'final_val': info.fun
     }
 
