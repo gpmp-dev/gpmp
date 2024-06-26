@@ -273,7 +273,6 @@ elif _gpmp_backend_ == "torch":
     )
     from torch.linalg import cond, qr, inv
     from torch import rand, randn
-    from torch import cdist
     from torch import pi, inf
     from torch import finfo, float64
     from torch.distributions.multivariate_normal import MultivariateNormal
@@ -421,11 +420,44 @@ elif _gpmp_backend_ == "torch":
         def jit(f, *args, **kwargs):
             return f
 
+    def custom_sqrt(x):
+        arbitrary_value = 1.0
+        mask = (x == 0.0)
+        x_copy = torch.where(mask, arbitrary_value, x)
+
+        res = torch.where(mask, 0.0, sqrt(x_copy))
+
+        return res
+
+    import torch
+
+    def cdist(x, y, zero_diagonal=True):
+        # Reshaping x and y to allow for broadcasting
+        x_reshaped = x.reshape(x.shape[0], 1, x.shape[1])
+        y_reshaped = y.reshape(1, y.shape[0], y.shape[1])
+
+        # Broadcasting x and y to perform element-wise subtraction
+        d_square = torch.sum((x_reshaped - y_reshaped) ** 2, axis=2)
+        distances = custom_sqrt(d_square)
+
+        # If x and y are the same and zero_diagonal is True, set diagonal elements to zero
+        if zero_diagonal and x is y:
+            mask = torch.eye(distances.size(0), dtype=torch.bool, device=x.device)
+            distances = distances.masked_fill(mask, 0.0)
+
+        return distances
+
     def scaled_distance(loginvrho, x, y):
         invrho = exp(loginvrho)
         xs = invrho * x
-        ys = invrho * y
-        return cdist(xs, ys)
+
+        if x is y:
+            d = cdist(xs, xs)
+        else:
+            ys = invrho * y
+            d = cdist(xs, ys)
+
+        return d
 
     def scaled_distance_elementwise(loginvrho, x, y):
         if x is y or y is None:
