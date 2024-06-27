@@ -428,19 +428,21 @@ elif _gpmp_backend_ == "torch":
         res = torch.where(mask, 0.0, sqrt(x_copy))
 
         return res
-
-    import torch
-
+    
     def cdist(x, y, zero_diagonal=True):
-        # Reshaping x and y to allow for broadcasting
-        x_reshaped = x.reshape(x.shape[0], 1, x.shape[1])
-        y_reshaped = y.reshape(1, y.shape[0], y.shape[1])
+        if x is y:
+            # use view method: requires contiguous tensor
+            x_norm = (x ** 2).sum(1).view(-1, 1)
+            distances = x_norm + x_norm.t() - 2.0 * torch.mm(x, x.t())
+        else:
+            # Compute squared distances without explicit broadcasting
+            x_norm = (x ** 2).sum(1).view(-1, 1)
+            y_norm = (y ** 2).sum(1).view(1, -1)
+            distances = x_norm + y_norm - 2.0 * torch.mm(x, y.t())
 
-        # Broadcasting x and y to perform element-wise subtraction
-        d_square = torch.sum((x_reshaped - y_reshaped) ** 2, axis=2)
-        distances = custom_sqrt(d_square)
+        # Apply custom square root
+        distances = custom_sqrt(distances.clamp(min=0.0))
 
-        # If x and y are the same and zero_diagonal is True, set diagonal elements to zero
         if zero_diagonal and x is y:
             mask = torch.eye(distances.size(0), dtype=torch.bool, device=x.device)
             distances = distances.masked_fill(mask, 0.0)
