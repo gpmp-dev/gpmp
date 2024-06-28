@@ -13,7 +13,7 @@ the data is assumed to be noiseless.
 
 ----
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2023, CentraleSupelec
+Copyright (c) 2022-2024, CentraleSupelec
 License: GPLv3 (see LICENSE)
 """
 import gpmp.num as gnp
@@ -47,8 +47,8 @@ def choose_test_case(problem):
         f = gp.misc.testfunctions.borehole
         dim = 8
         box = [
-            [0.05, 100., 63070., 990., 63.1, 700., 1120., 9855.],
-            [0.15, 50000., 115600., 1110., 116., 820., 1680., 12045.],
+            [0.05, 100.0, 63070.0, 990.0, 63.1, 700.0, 1120.0, 9855.0],
+            [0.15, 50000.0, 115600.0, 1110.0, 116.0, 820.0, 1680.0, 12045.0],
         ]
         ni = 30
         xi = gp.misc.designs.maximinldlhs(dim, ni, box)
@@ -108,6 +108,18 @@ def main():
     gp.misc.plotutils.plot_loo(zi, zloom, zloov)
 
     gp.misc.plotutils.crosssections(model, xi, zi, box, [0, 1], list(range(dim)))
+
+    print('')
+    
+    gp.misc.modeldiagnosis.perf(
+        model,
+        xi,
+        zi,
+        loo=True,
+        loo_res=(zloom, zloov, eloo),
+        xtzt=(xt, zt),
+        zpmzpv=(zpm, zpv),
+    )
 
 
 if __name__ == "__main__":

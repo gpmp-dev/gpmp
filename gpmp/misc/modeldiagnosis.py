@@ -113,7 +113,7 @@ def compute_performance(model, xi, zi, loo=True, loo_res=None, xtzt=None, zpmzpv
         A dictionary containing the computed performance metrics. The
         metrics that are computed depend on the input arguments.
         If `loo` is True, the following keys are present:
-        - 'loo_tss': total sum of squares in the leave-one-out predictions.
+        - 'data_tss': total sum of squares in the data.
         - 'loo_press': predictive residual error sum of squares in the
           leave-one-out predictions.
         - 'loo_Q2': coefficient of determination for the leave-one-out predictions.
@@ -158,13 +158,13 @@ def compute_performance(model, xi, zi, loo=True, loo_res=None, xtzt=None, zpmzpv
 
     if loo:
         # total sum of squares
-        perf['loo_tss'] = gnp.norm(zi - gnp.mean(zi), ord=2)
+        perf['data_tss'] = gnp.norm(zi - gnp.mean(zi), ord=2)
         # Predictive residual Error sum of squares
         perf['loo_press'] = gnp.norm(eloo, ord=2)
         # Q2
-        perf['loo_Q2'] = 1 - perf['loo_press'] / perf['loo_tss']
+        perf['loo_Q2'] = 1 - perf['loo_press'] / perf['data_tss']
         # L2err
-        perf['loo_log10ratio'] = gnp.log10(perf['loo_press'] / perf['loo_tss'])
+        perf['loo_log10ratio'] = gnp.log10(perf['loo_press'] / perf['data_tss'])
         # PIT
         perf['loo_pit'] = gnp.normal.cdf(zi, loc=zloom, scale=gnp.sqrt(zloov))
 
@@ -389,11 +389,13 @@ def pretty_print_dictionnary(d, fp=4):
     fp : int, optional
         Number of decimal places for floating-point values, by default 4.
     """
+    max_key_length = max(15, max(len(str(k)) for k in d.keys()) + 2)
+    
     for k, v in d.items():
         if not gnp.isscalar(v):
             v = v.item()
         if isinstance(v, float):
-            s = f'{{:>15s}}: {{:s}}'
+            s = f'{{:>{max_key_length}s}}: {{:s}}'
             print(s.format(k, ftos(v, fp)))
         else:
-            print('{:>15s}: {}'.format(k, v))
+            print(f'{k:>{max_key_length}s}: {v}')
