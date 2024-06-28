@@ -102,8 +102,7 @@ In order to generate the intereactive html:
 
 ## To do
 
-* unit tests
-* improve package setup
+* write documentation
 
 ## Authors
 
@@ -111,7 +110,7 @@ In order to generate the intereactive html:
 
 ## Copyright
 
- Copyright (C) 2022-2023 CentraleSupelec
+ Copyright (C) 2022-2024 CentraleSupelec
 
 ## License
 
