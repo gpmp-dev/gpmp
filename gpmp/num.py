@@ -1,6 +1,6 @@
 """
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2023, CentraleSupelec
+Copyright (c) 2022-2024, CentraleSupelec
 License: GPLv3 (see LICENSE)
 --------------------------------------------------------------
 
@@ -113,7 +113,7 @@ if _gpmp_backend_ == "numpy":
 
     eps = finfo(float64).eps
     fmax = numpy.finfo(numpy.float64).max
-    
+
     def set_elem1(x, index, v):
         x[index] = v
         return x
@@ -121,7 +121,7 @@ if _gpmp_backend_ == "numpy":
     def set_row2(A, index, x):
         A[index, :] = x
         return A
-    
+
     def set_col2(A, index, x):
         A[:, index] = x
         return A
@@ -285,7 +285,7 @@ elif _gpmp_backend_ == "torch":
 
     def copy(x):
         return x.clone()
-    
+
     def set_elem1(x, index, v):
         x[index] = v
         return x
@@ -293,7 +293,7 @@ elif _gpmp_backend_ == "torch":
     def set_row2(A, index, x):
         A[index, :] = x
         return A
-    
+
     def set_col2(A, index, x):
         A[:, index] = x
         return A
@@ -422,25 +422,23 @@ elif _gpmp_backend_ == "torch":
 
     def custom_sqrt(x):
         arbitrary_value = 1.0
-        mask = (x == 0.0)
+        mask = x == 0.0
         x_copy = torch.where(mask, arbitrary_value, x)
 
         res = torch.where(mask, 0.0, sqrt(x_copy))
 
         return res
-    
+
     def cdist(x, y, zero_diagonal=True):
         if x is y:
             # use view method: requires contiguous tensor
-            x_norm = (x ** 2).sum(1).view(-1, 1)
+            x_norm = (x**2).sum(1).view(-1, 1)
             distances = x_norm + x_norm.t() - 2.0 * torch.mm(x, x.t())
         else:
-            # Compute squared distances without explicit broadcasting
-            x_norm = (x ** 2).sum(1).view(-1, 1)
-            y_norm = (y ** 2).sum(1).view(1, -1)
+            x_norm = (x**2).sum(1).view(-1, 1)
+            y_norm = (y**2).sum(1).view(1, -1)
             distances = x_norm + y_norm - 2.0 * torch.mm(x, y.t())
 
-        # Apply custom square root
         distances = custom_sqrt(distances.clamp(min=0.0))
 
         if zero_diagonal and x is y:
@@ -638,15 +636,15 @@ elif _gpmp_backend_ == "jax":
 
     def copy(x):
         return array(x, copy=True)
-    
+
     @jax.jit
     def set_elem1(x, index, v):
         return x.at[index].set(v)
-    
+
     @jax.jit
     def set_row2(A, index, x):
         return A.at[index, :].set(x)
-    
+
     @jax.jit
     def set_col2(A, index, x):
         return A.at[:, index].set(x)
@@ -764,10 +762,10 @@ elif _gpmp_backend_ == "jax":
                 cov = cov * eye(1)
             if isscalar(mean):
                 mean = array([mean])
-            
+
             d = cov.shape[0]  # Dimensionality from the covariance matrix
             mean_vector = full((d,), mean)  # Expand mean to a vector
-            
+
             return jax.random.multivariate_normal(
                 key, mean=mean_vector, cov=cov, shape=(n,)
             )
