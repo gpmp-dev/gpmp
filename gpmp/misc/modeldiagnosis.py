@@ -277,20 +277,20 @@ def plot_likelihood_sigma_rho(model, info):
     selection_criterion = info.selection_criterion
     selection_criterion_values = np.zeros((n, n))
 
+    log_sigma_squared = gnp.expand_dims(gnp.asarray(log_sigma_squared), axis=2)
+    log_inv_rho = gnp.expand_dims(gnp.asarray(log_inv_rho), axis=2)
+    log_params = gnp.concatenate((log_sigma_squared, log_inv_rho), axis=2)
+
     if gnp._gpmp_backend_ == 'torch':
         print('  please wait... PyTorch is slow to perform this operation...')
+        
     for i in range(n):
         for j in range(n):
-            if gnp._gpmp_backend_ == 'torch':
-                covparam = gnp.asarray(gnp.numpy.array([log_sigma_squared[i, j], log_inv_rho[i, j]]))
-            else:
-                covparam = gnp.numpy.array([log_sigma_squared[i, j], log_inv_rho[i, j]])
-            # if gnp._gpmp_backend_ == 'torch':
-            #     covparam = gnp.asarray(covparam)
-
+            covparam = log_params[i, j]
             selection_criterion_values[i, j] = selection_criterion(covparam)
 
     selection_criterion_values = np.nan_to_num(selection_criterion_values, copy=False)
+    
     print('  done.')
     print('  number of evaluations: {:d}'.format(n*n))
     print('  exec time: {:.3f}s'.format(time.time() - tic))

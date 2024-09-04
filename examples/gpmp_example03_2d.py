@@ -14,7 +14,7 @@ the data is assumed to be noiseless.
 
 ----
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2023, CentraleSupelec
+Copyright (c) 2022-2024, CentraleSupelec
 License: GPLv3 (see LICENSE)
 ----
 This example is based on the file stk_example_kb03.m from the STK at
@@ -57,10 +57,7 @@ def create_model():
         p = 6
         return gp.kernel.maternp_covariance(x, y, p, covparam, pairwise)
 
-    meanparam = None
-    covparam = None
-
-    return gp.core.Model(constant_mean, kernel, meanparam, covparam)
+    return gp.core.Model(constant_mean, kernel)
 
 
 def main():

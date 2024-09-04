@@ -2,7 +2,7 @@
 Plot and optimize the restricted negative log-likelihood
 
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2023, CentraleSupelec
+Copyright (c) 2022-2024, CentraleSupelec
 License: GPLv3 (see LICENSE)
 """
 
@@ -74,9 +74,9 @@ def visualize_results(xt, zt, xi, zi, zpm, zpv):
 def main():
     xt, zt, xi, zi = generate_data()
 
-    meanparam = None
+    meanparam0 = None
     covparam0 = None
-    model = gp.core.Model(constant_mean, kernel, meanparam, covparam0)
+    model = gp.core.Model(constant_mean, kernel, meanparam0, covparam0)
 
     # Parameter initial guess
     covparam0 = gp.kernel.anisotropic_parameters_initial_guess(model, xi, zi)
