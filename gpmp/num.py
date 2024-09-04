@@ -17,9 +17,8 @@ Description:
 
 """
 import os
-import importlib
 import numpy
-
+from importlib import util as importlib_util
 
 _gpmp_backend_ = os.environ.get("GPMP_BACKEND")
 
@@ -32,9 +31,9 @@ def set_backend_env_var(backend):
 
 # Automatically set the backend if not already set in the environment.
 if _gpmp_backend_ is None:
-    if importlib.util.find_spec("torch") is not None:
+    if importlib_util.find_spec("torch") is not None:
         set_backend_env_var("torch")
-    elif importlib.util.find_spec("jax") is not None:
+    elif importlib_util.find_spec("jax") is not None:
         set_backend_env_var("jax")
     else:
         set_backend_env_var("numpy")
@@ -65,6 +64,7 @@ if _gpmp_backend_ == "numpy":
         stack,
         tile,
         concatenate,
+        expand_dims,
         empty,
         empty_like,
         zeros,
@@ -101,12 +101,12 @@ if _gpmp_backend_ == "numpy":
         logical_and,
         logical_or,
     )
-    from numpy.linalg import norm, cond, qr, svd, inv
+    from numpy.linalg import norm, cond, cholesky, qr, svd, inv
     from numpy.random import rand, randn, choice
     from numpy import pi, inf
     from numpy import finfo, float64
     from scipy.special import gammaln
-    from scipy.linalg import solve, cholesky, cho_factor, cho_solve
+    from scipy.linalg import solve, solve_triangular, cho_factor, cho_solve
     from scipy.spatial.distance import cdist
     from scipy.stats import norm as normal
     from scipy.stats import multivariate_normal as scipy_mvnormal
@@ -184,8 +184,10 @@ if _gpmp_backend_ == "numpy":
         return inv(A)
 
     def cholesky_solve(A, b):
-        C, lower = cho_factor(A)
-        return cho_solve((C, lower), b), C
+        L = cholesky(A)
+        y = solve_triangular(L, b, lower=True)
+        x = solve_triangular(L.T, y, lower=False)
+        return x, L
 
     class multivariate_normal:
         @staticmethod
@@ -271,7 +273,7 @@ elif _gpmp_backend_ == "torch":
         logical_and,
         logical_or,
     )
-    from torch.linalg import cond, qr, inv
+    from torch.linalg import cond, cholesky, qr, inv
     from torch import rand, randn
     from torch import pi, inf
     from torch import finfo, float64
@@ -301,6 +303,9 @@ elif _gpmp_backend_ == "torch":
     def set_col3(A, index, x):
         A[:, :, index] = x
         return A
+
+    def expand_dims(tensor, axis):
+        return tensor.unsqueeze(axis)
 
     def array(x: list):
         return tensor(x)
@@ -467,21 +472,20 @@ elif _gpmp_backend_ == "torch":
             d = sqrt(sum(invrho * (xs - ys) ** 2, axis=1))
         return d
 
-    def cholesky(A, lower=False, overwrite_a=False, check_finite=True):
-        # NOTE: in cholesky(), overwrite_a and check_finite
-        # are kept for consistency with Scipy but silently ignored.
-        return torch.linalg.cholesky(A, upper=not (lower))
-
     def cho_factor(A, lower=False, overwrite_a=False, check_finite=True):
         # torch.linalg does not have cho_factor(), use cholesky() instead.
-        return torch.linalg.cholesky(A, upper=not (lower))
+        return cholesky(A, upper=not (lower))
 
     def cholesky_solve(A, b):
-        C = torch.linalg.cholesky(A)
-        return torch.cholesky_solve(b.reshape(-1, 1), C, upper=False), C
+        if b.dim() == 1:
+            b = b.reshape(-1, 1)
+        L = cholesky(A)
+        y = torch.linalg.solve_triangular(L, b, upper=False)
+        x = torch.linalg.solve_triangular(L.t(), y, upper=True)
+        return x, L
 
     def cholesky_inv(A):
-        C = torch.linalg.cholesky(A)
+        C = cholesky(A)
         return torch.cholesky_inverse(C)
 
     class normal:
@@ -586,6 +590,7 @@ elif _gpmp_backend_ == "jax":
         stack,
         tile,
         concatenate,
+        expand_dims,
         empty,
         empty_like,
         zeros,
@@ -623,11 +628,11 @@ elif _gpmp_backend_ == "jax":
         logical_or,
     )
     from jax.numpy.linalg import norm
-    from jax.numpy.linalg import cond, qr, svd, inv
+    from jax.numpy.linalg import cond, cholesky, qr, svd, inv
     from jax.numpy import pi, inf
     from jax.numpy import finfo, float64
     from jax.scipy.special import gammaln
-    from jax.scipy.linalg import solve, cholesky, cho_factor, cho_solve
+    from jax.scipy.linalg import solve, solve_triangular, cho_factor, cho_solve
     from jax.scipy.stats import norm as normal
     from scipy.stats import multivariate_normal as scipy_mvnormal
 
@@ -741,8 +746,10 @@ elif _gpmp_backend_ == "jax":
         return inv(A)
 
     def cholesky_solve(A, b):
-        C, lower = cho_factor(A)
-        return cho_solve((C, lower), b), C
+        L = cholesky(A)
+        y = solve_triangular(L, b, lower=True)
+        x = solve_triangular(L.T, y, lower=False)
+        return x, L
 
     def seed(s):
         return jax.random.PRNGKey(s)

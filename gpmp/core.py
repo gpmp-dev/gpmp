@@ -193,9 +193,7 @@ class Model:
         Kii = self.covariance(xi, xi, self.covparam)
         Kit = self.covariance(xi, xt, self.covparam)
 
-        lambda_t = gnp.solve(
-            Kii, Kit, overwrite_a=True, overwrite_b=True, assume_a="pos"
-        )
+        lambda_t, _ = gnp.cholesky_solve(Kii, Kit)
 
         if return_type == -1:
             zt_posterior_variance = None
@@ -597,8 +595,7 @@ class Model:
         """
         K = self.covariance(xi, xi, covparam)
         P = self.mean(xi, self.meanparam)
-        Pshape = P.shape
-        n, q = Pshape
+        n, q = P.shape
 
         # Compute a matrix of contrasts
         [Q, R] = gnp.qr(P, "complete")
@@ -800,7 +797,7 @@ class Model:
 
         # Factorization of the covariance matrix
         if method == "chol":
-            C = gnp.cholesky(K, lower=True, overwrite_a=True)
+            C = gnp.cholesky(K)
             if check_result:
                 if gnp.isnan(C).any():
                     raise AssertionError(
@@ -815,7 +812,7 @@ class Model:
 
         return zsim
 
-    def conditional_sample_paths(self, ztsim, xi_ind, zi, xt_ind, lambda_t):
+    def conditional_sample_paths(self, ztsim, xi_ind, zi, xt_ind, lambda_t, convert_out=True):
         """Generates conditional sample paths on xt from unconditional sample paths
         ztsim, using the matrix of kriging weights lambda_t, which is provided by
         kriging_predictor() or predict().
@@ -844,6 +841,8 @@ class Model:
             Indices of prediction data points in ztsim.
         lambda_t : ndarray, shape (ni, nt)
             Kriging weights.
+        convert_out : bool, optional
+            Whether to return numpy arrays or keep _gpmp_backend_ types.
 
         Returns
         -------
@@ -866,10 +865,13 @@ class Model:
 
         ztsimc = ztsim_[xt_ind, :] + gnp.einsum("ij,ik->jk", lambda_t, delta)
 
+        if convert_out:
+            ztsimc = gnp.to_np(ztsimc)
+
         return ztsimc
 
     def conditional_sample_paths_parameterized_mean(
-        self, ztsim, xi, xi_ind, zi, xt, xt_ind, lambda_t
+            self, ztsim, xi, xi_ind, zi, xt, xt_ind, lambda_t, convert_out=True
     ):
         """Generates conditional sample paths with a parameterized mean function.
 
@@ -894,6 +896,8 @@ class Model:
             Indices of prediction data points in ztsim.
         lambda_t : ndarray
             Kriging weights matrix.
+        convert_out : bool, optional
+            Whether to return numpy arrays or keep _gpmp_backend_ types.
 
         Returns
         -------
@@ -915,6 +919,9 @@ class Model:
             + gnp.einsum("ij,ik->jk", lambda_t, delta)
             + zt_prior_mean_
         )
+
+        if convert_out:
+            ztsimc = gnp.to_np(ztsimc)
 
         return ztsimc
 
