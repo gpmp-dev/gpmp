@@ -247,8 +247,9 @@ def model_diagnosis_disp(md, xi, zi):
     print(df_zi.concat(df_xi))
 
 
-def plot_likelihood_sigma_rho(model, info):
-    """Plot likelihood profile for sigma and rho parameters.
+def plot_2d_likelihood_params(model, info, param_indices=(0, 1), param_names=None):
+    """
+    Plot likelihood profile for any two parameters in covparam.
 
     Parameters
     ----------
@@ -256,64 +257,94 @@ def plot_likelihood_sigma_rho(model, info):
         Model object.
     info : object
         Information object containing the parameter selection process.
+    param_indices : tuple, optional
+        Indices of the two parameters to plot (default is (0, 1)).
+    param_names : list, optional
+        Names of the two parameters for labeling the axes (default is None).
     """
     print('  ***  Computing likelihood profile for plotting...') 
 
     tic = time.time()
     n = 200
-    sigma_0 = math.exp(model.covparam[0] / 2)
-    rho_0 = math.exp(-model.covparam[1])
-    f = 4
-    sigma = np.logspace(math.log10(sigma_0) - math.log10(f),
-                        math.log10(sigma_0) + math.log(f), n)
-    rho = np.logspace(math.log10(rho_0) - math.log10(f),
-                      math.log10(rho_0) + math.log(f), n)
+    param_1_idx, param_2_idx = param_indices
 
-    sigma_mesh, rho_mesh = np.meshgrid(sigma, rho)
-    # sigma_mesh_, rho_mesh_ = gnp.asarray(sigma_mesh), gnp.asarray(rho_mesh)
-    log_sigma_squared = np.log(sigma_mesh ** 2)
-    log_inv_rho = np.log(1 / rho_mesh)
+    # Initialize param1 and param2 based on their indices (standard deviation or scale parameter)
+    param_1_0 = math.exp(model.covparam[param_1_idx] / 2 if param_1_idx == 0 else -model.covparam[param_1_idx])
+    param_2_0 = math.exp(model.covparam[param_2_idx] / 2 if param_2_idx == 0 else -model.covparam[param_2_idx])
+
+    f = 4  # multiplying factor
+    param_1 = np.logspace(math.log10(param_1_0) - math.log10(f),
+                          math.log10(param_1_0) + math.log(f), n)
+    param_2 = np.logspace(math.log10(param_2_0) - math.log10(f),
+                          math.log10(param_2_0) + math.log(f), n)
+
+    param_1_mesh, param_2_mesh = np.meshgrid(param_1, param_2)
+    log_param_1 = np.log(param_1_mesh ** 2) if param_1_idx == 0 else np.log(1 / param_1_mesh)
+    log_param_2 = np.log(param_2_mesh ** 2) if param_2_idx == 0 else np.log(1 / param_2_mesh)
     
     selection_criterion = info.selection_criterion
     selection_criterion_values = np.zeros((n, n))
 
-    log_sigma_squared = gnp.expand_dims(gnp.asarray(log_sigma_squared), axis=2)
-    log_inv_rho = gnp.expand_dims(gnp.asarray(log_inv_rho), axis=2)
-    log_params = gnp.concatenate((log_sigma_squared, log_inv_rho), axis=2)
+    log_param_1 = gnp.expand_dims(gnp.asarray(log_param_1), axis=2)
+    log_param_2 = gnp.expand_dims(gnp.asarray(log_param_2), axis=2)
+    log_params = gnp.concatenate((log_param_1, log_param_2), axis=2)
 
-    if gnp._gpmp_backend_ == 'torch':
-        print('  please wait... PyTorch is slow to perform this operation...')
-        
     for i in range(n):
+
+        elapsed_time = time.time() - tic
+        average_time_per_iteration = elapsed_time / (i + 1)
+        remaining_time = average_time_per_iteration * (n - (i + 1))
+        percentage = (i + 1) / n * 100
+        print(f"       Progress: {percentage:.2f}% | time remaining: {remaining_time:.1f}s", end='\r')
+
         for j in range(n):
             covparam = log_params[i, j]
             selection_criterion_values[i, j] = selection_criterion(covparam)
-
+            
     selection_criterion_values = np.nan_to_num(selection_criterion_values, copy=False)
     
-    print('  done.')
-    print('  number of evaluations: {:d}'.format(n*n))
-    print('  exec time: {:.3f}s'.format(time.time() - tic))
+    elapsed_time = time.time() - tic
+    print(f"       Progress: 100% complete | Total time: {elapsed_time:.3f}s")    
+    print(f'       number of evaluations: {n * n}')
 
     shift_criterion = True
     shift = - np.min(selection_criterion_values) if shift_criterion else 0
 
+    # Plot the likelihood profile
     plt.figure()
-    plt.contourf(np.log10(sigma_mesh), np.log10(rho_mesh),
-                 np.log10(np.maximum(1e-2,
-                                     selection_criterion_values + shift)))
-    plt.plot(0.5*np.log10(np.exp(info.covparam[0])),
-             - np.log10(np.exp(info.covparam[1])),
+    plt.contourf(np.log10(param_1_mesh), np.log10(param_2_mesh),
+                 np.log10(np.maximum(1e-2, selection_criterion_values + shift)))
+    plt.plot(0.5 * np.log10(np.exp(info.covparam[param_1_idx])),
+             -np.log10(np.exp(info.covparam[param_2_idx])),
              'ro')
-    plt.plot(0.5*np.log10(np.exp(info.covparam0[0])),
-             - np.log10(np.exp(info.covparam0[1])),
+    plt.plot(0.5 * np.log10(np.exp(info.covparam0[param_1_idx])),
+             -np.log10(np.exp(info.covparam0[param_2_idx])),
              'bo')
-    plt.xlabel('sigma (log10)')
-    plt.ylabel('rho (log10)')
-    plt.title('log10 of the {}negative log restricted likelihood'.
-              format('shifted ' if shift_criterion else ''))
+
+    # Define axis labels (use names if provided)
+    x_label = param_names[0] if param_names else f'Parameter {param_1_idx} (log10)'
+    y_label = param_names[1] if param_names else f'Parameter {param_2_idx} (log10)'
+
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
+    plt.title(f'log10 of the {"shifted " if shift_criterion else ""}negative log restricted likelihood')
     plt.colorbar()
     plt.show()
+
+
+def plot_likelihood_sigma_rho(model, info):
+    """
+    Specific case of likelihood plotting for sigma (param 0) and rho (param 1).
+    
+    Parameters
+    ----------
+    model : object
+        Model object.
+    info : object
+        Information object containing the parameter selection process.
+    """
+    # Use the generalized function to plot sigma and rho with custom names
+    plot_2d_likelihood_params(model, info, param_indices=(0, 1), param_names=['sigma (log10)', 'rho (log10)'])
 
 
 def sigma_rho_from_covparam(covparam):

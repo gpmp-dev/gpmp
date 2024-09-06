@@ -1,3 +1,4 @@
+- 0.9.16 changes in core.py, num.py about  Cholesky factorization
 - 0.9.15 mid-2024 version
 - 0.9.10 add documentation, unit tests, torch 
 - 0.9.0 -> 0.9.5 alpha versions based on JAX
