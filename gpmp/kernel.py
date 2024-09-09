@@ -385,14 +385,16 @@ def anisotropic_parameters_initial_guess(model, xi, zi):
 
 
 def make_selection_criterion_with_gradient(
-    selection_criterion, xi, zi, parameterized_mean=False, meanparam_len=1
+    model, selection_criterion, xi, zi, parameterized_mean=False, meanparam_len=1
 ):
     """Make selection criterion function with gradient.
 
     Parameters
     ----------
+    model : object
+        Instance of a Gaussian process model that needs parameter optimization.
     selection_criterion : function
-        Selection criterion function.
+        Selection criterion function. (See Notes.)
     xi : ndarray, shape (n, d)
         Locations of the observed data points.
     zi : ndarray, shape (n,)
@@ -408,6 +410,23 @@ def make_selection_criterion_with_gradient(
         Selection criterion function with gradient.
     dcrit : function
         Gradient of the selection criterion function.
+
+    Notes
+    -----
+    The `criterion` function should follow one of the following two forms:
+
+    - For models without a parameterized mean: `criterion(model,
+      covparam, xi, zi)` where `covparam` are the covariance
+      parameters.
+
+    - For models with a parameterized mean: `criterion(model,
+      meanparam, covparam, xi, zi)` where both `meanparam` and
+      `covparam` are passed.
+
+    The function will automatically handle the form of the criterion
+    based on whether a mean parameter is used (controlled by the
+    `parameterized_mean` flag in the criterion definition).
+
     """
     xi_ = gnp.asarray(xi)
     zi_ = gnp.asarray(zi)
@@ -417,13 +436,13 @@ def make_selection_criterion_with_gradient(
         def crit_(param):
             meanparam = param[:meanparam_len]
             covparam = param[meanparam_len:]
-            l = selection_criterion(meanparam, covparam, xi_, zi_)
+            l = selection_criterion(model, meanparam, covparam, xi_, zi_)
             return l
 
     else:
         # make a selection criterion without mean parameter
         def crit_(covparam):
-            l = selection_criterion(covparam, xi_, zi_)
+            l = selection_criterion(model, covparam, xi_, zi_)
             return l
 
     crit_jit = gnp.jax.jit(crit_)
@@ -614,27 +633,56 @@ def autoselect_parameters(
         return r.x
 
 
-def select_parameters_with_reml(model, xi, zi, covparam0=None, info=False, verbosity=0):
-    """Optimize Gaussian process model parameters using Restricted Maximum Likelihood
-    (REML).
+def select_parameters_with_criterion(
+    model,
+    criterion,
+    xi,
+    zi,
+    meanparam0=None,
+    covparam0=None,
+    parameterized_mean=False,
+    meanparam_len=1,
+    info=False,
+    verbosity=0,
+):
+    """Optimize Gaussian process model parameters using a specified
+    selection criterion.
 
-    This function performs parameter optimization for a Gaussian process model using the
-    REML criterion. The function can use a provided initial guess for the covariance
-    parameters or employ a default initialization strategy. Additional information
-    about the optimization can be obtained by setting the `info` parameter to True.
+    This function performs parameter optimization for a Gaussian
+    process model using the provided selection criterion. It can use a
+    provided initial guess for the covariance parameters or employ a
+    default initialization strategy. Additional information about the
+    optimization can be obtained by setting the `info` parameter to
+    True.
 
     Parameters
     ----------
     model : object
         Instance of a Gaussian process model that needs parameter optimization.
+    criterion : function
+        The selection criterion function (e.g., ML, REML or REMAP). The function must follow one of two forms:
+
+        - For models without a parameterized mean:
+          `criterion(model, covparam, xi, zi)` where `covparam` are the covariance parameters.
+
+        - For models with a parameterized mean:
+          `criterion(model, meanparam, covparam, xi, zi)` where both `meanparam` and
+          `covparam` are passed.
     xi : ndarray, shape (n, d)
         Locations of the observed data points in the input space.
     zi : ndarray, shape (n,)
         Observed values corresponding to the data points `xi`.
+    meanparam0 : ndarray, shape (meanparam_len,), optional
+        Initial guess for the mean parameters. Required if `parameterized_mean=True`. Default is None.
     covparam0 : ndarray, shape (covparam_dim,), optional
         Initial guess for the covariance parameters. If not provided, the function
         defaults to the `anisotropic_parameters_initial_guess` method for initialization.
         Default is None.
+    parameterized_mean : bool, optional
+        Whether the mean is parameterized and included in the selection criterion.
+        Default is False.
+    meanparam_len : int, optional
+        Length of the mean parameter vector if `parameterized_mean` is True. Default is 1.
     info : bool, optional
         Controls the return of additional optimization information. If set to True, the
         function returns an info dictionary with details about the optimization process.
@@ -657,57 +705,98 @@ def select_parameters_with_reml(model, xi, zi, covparam0=None, info=False, verbo
 
     Notes
     -----
-    The optimization process relies on the `autoselect_parameters` function, which in turn
-    uses the scipy's `minimize` function for optimization. Depending on the verbosity
-    level set, this function provides different levels of output during its execution.
+    The `criterion` function should follow one of the following two forms:
+
+    - For models without a parameterized mean:
+      `criterion(model, covparam, xi, zi)` where `covparam` are the covariance parameters.
+
+    - For models with a parameterized mean:
+      `criterion(model, meanparam, covparam, xi, zi)` where both `meanparam` and `covparam` are passed.
     """
     tic = time.time()
 
     if covparam0 is None:
         covparam0 = anisotropic_parameters_initial_guess(model, xi, zi)
 
-    nlrl, dnlrl = make_selection_criterion_with_gradient(
-        model.negative_log_restricted_likelihood, xi, zi
+    # If the model has a parameterized mean, we need an initial guess for the mean parameters
+    if parameterized_mean:
+        if meanparam0 is None:
+            raise ValueError(
+                "meanparam0 must be provided when parameterized_mean is True."
+            )
+        # Concatenate meanparam0 and covparam0 into a single parameter vector
+        param0 = gnp.concatenate([meanparam0, covparam0])
+    else:
+        param0 = covparam0
+
+    # Create the criterion and its gradient using the passed criterion function
+    criterion_func, criterion_grad = make_selection_criterion_with_gradient(
+        model,
+        criterion,
+        xi,
+        zi,
+        parameterized_mean=parameterized_mean,
+        meanparam_len=meanparam_len,
     )
 
     silent = True
     if verbosity == 1:
-        print("Parameter selection...")
+        print("Parameter selection using custom criterion...")
     elif verbosity == 2:
         silent = False
 
-    covparam_reml, info_ret = autoselect_parameters(
-        covparam0, nlrl, dnlrl, silent=silent, info=True
+    # Optimize parameters using the provided criterion
+    param_opt, info_ret = autoselect_parameters(
+        param0, criterion_func, criterion_grad, silent=silent, info=True
     )
 
     if verbosity == 1:
         print("done.")
 
+    # Split the optimized parameters into meanparam and covparam if the mean is parameterized
+    if parameterized_mean:
+        meanparam_opt = param_opt[:meanparam_len]
+        covparam_opt = param_opt[meanparam_len:]
+        model.meanparam = gnp.asarray(meanparam_opt)
+    else:
+        meanparam_opt = None
+        covparam_opt = param_opt
+
+    model.covparam = gnp.asarray(covparam_opt)
+
     # NB: info is essentially a dict with attribute accessors
-
-    model.covparam = gnp.asarray(covparam_reml)
-
     if info:
+        info_ret["meanparam0"] = meanparam0
         info_ret["covparam0"] = covparam0
-        info_ret["covparam"] = covparam_reml
-        info_ret["selection_criterion"] = nlrl
+        info_ret["meanparam"] = meanparam_opt
+        info_ret["covparam"] = covparam_opt
+        info_ret["selection_criterion"] = criterion_func
         info_ret["time"] = time.time() - tic
         return model, info_ret
     else:
         return model
 
 
-def update_parameters_with_reml(model, xi, zi, info=False):
-    """Update model parameters with Restricted Maximum Likelihood (REML).
+def update_parameters_with_criterion(
+    model, criterion, xi, zi, parameterized_mean=False, meanparam_len=1, info=False
+):
+    """Update model parameters using a specified selection criterion.
 
     Parameters
     ----------
     model : object
-        Gaussian process model object.
+        Gaussian process model.
+    criterion : function
+        The selection criterion function (e.g., REML or REMAP).
     xi : ndarray, shape (n, d)
         Locations of the observed data points.
     zi : ndarray, shape (n,)
         Observed values at the data points.
+    parameterized_mean : bool, optional
+        Whether the mean is parameterized and included in the selection criterion.
+        Default is False.
+    meanparam_len : int, optional
+        Length of the mean parameter vector if `parameterized_mean` is True. Default is 1.
     info : bool, optional
         If True, returns additional information. Default is False.
 
@@ -722,22 +811,181 @@ def update_parameters_with_reml(model, xi, zi, info=False):
 
     covparam0 = model.covparam
 
-    nlrl, dnlrl = make_selection_criterion_with_gradient(
-        model.negative_log_restricted_likelihood, xi, zi
+    # If parameterized mean, take meanparam0 from the model
+    if parameterized_mean:
+        meanparam0 = model.meanparam
+        param0 = np.concatenate([meanparam0, covparam0])
+    else:
+        param0 = covparam0
+
+    # Create the criterion and its gradient using the passed criterion function
+    criterion_func, criterion_grad = make_selection_criterion_with_gradient(
+        model,
+        criterion,
+        xi,
+        zi,
+        parameterized_mean=parameterized_mean,
+        meanparam_len=meanparam_len,
     )
 
-    covparam_reml, info_ret = autoselect_parameters(
-        covparam0, nlrl, dnlrl, silent=True, info=True
+    # Optimize parameters using the provided criterion
+    param_opt, info_ret = autoselect_parameters(
+        param0, criterion_func, criterion_grad, silent=True, info=True
     )
 
-    model.covparam = covparam_reml
+    # Split the optimized parameters into meanparam and covparam if the mean is parameterized
+    if parameterized_mean:
+        meanparam_opt = param_opt[:meanparam_len]
+        covparam_opt = param_opt[meanparam_len:]
+        model.meanparam = meanparam_opt
+    else:
+        meanparam_opt = None
+        covparam_opt = param_opt
+
+    model.covparam = covparam_opt
 
     if info:
+        info_ret["meanparam0"] = meanparam0 if parameterized_mean else None
         info_ret["covparam0"] = covparam0
-        info_ret["covparam"] = covparam_reml
-        info_ret["selection_criterion"] = nlrl
+        info_ret["meanparam"] = meanparam_opt
+        info_ret["covparam"] = covparam_opt
+        info_ret["selection_criterion"] = criterion_func
         info_ret["time"] = time.time() - tic
         return model, info_ret
     else:
         return model
-    # --- end if
+
+
+def negative_log_likelihood_zero_mean(model, covparam, xi, zi):
+    """Wrapper to core.model.negative_log_likelihood_zero_mean."""
+    return model.negative_log_likelihood_zero_mean(covparam, xi, zi)
+
+
+def negative_log_likelihood(model, meanparam, covparam, xi, zi):
+    """Wrapper to core.model.negative_log_likelihood."""
+    return model.negative_log_likelihood(meanparam, covparam, xi, zi)
+
+
+def negative_log_restricted_likelihood(model, covparam, xi, zi):
+    """Wrapper to core.model.negative_log_restricted_likelihood."""
+    return model.negative_log_restricted_likelihood(covparam, xi, zi)
+
+
+def select_parameters_with_reml(model, xi, zi, covparam0=None, info=False, verbosity=0):
+    """Optimize Gaussian process model parameters using Restricted Maximum Likelihood (REML).
+
+    See select_parameters_with_criterion()
+    """
+    return select_parameters_with_criterion(
+        model,
+        negative_log_restricted_likelihood,
+        xi,
+        zi,
+        covparam0=covparam0,
+        info=info,
+        verbosity=verbosity,
+    )
+
+
+def update_parameters_with_reml(model, xi, zi, info=False):
+    """Update model parameters using Restricted Maximum Likelihood (REML).
+
+    See update_parameters_with_criterion
+    """
+    return update_parameters_with_criterion(
+        model, model.negative_log_restricted_likelihood, xi, zi, info=info
+    )
+
+
+def log_prior_jeffrey_variance(covparam, lbda = 1.0):
+    """Compute a log prior using Jeffrey's prior on the variance parameter.
+
+    This function assumes a Jeffrey's prior on the variance parameter:
+
+    .. math::
+        \pi(\sigma^2) \propto \frac{1}{\sigma^2}
+
+    Parameters
+    ----------
+    covparam : ndarray
+        Parameter array, where the first element is the
+        log(variance) (i.e., log(sigma^2)), and the remaining elements
+        are the log of the length-scale parameters (log(1/rho)).
+    lbda : float, optional
+        Scaling factor for the log prior. Default is 1.0.
+
+    Returns
+    -------
+    log_p : float
+        The logarithm of the prior probability.
+
+    """
+    log_sigma2 = covparam[0]
+
+    # Jeffrey's prior: p(sigma^2) \propto 1 / sigma^2 => log p(sigma^2) = - log(sigma^2)
+    log_prior_sigma2 = -log_sigma2
+
+    return lbda * log_prior_sigma2
+
+
+def neg_log_restricted_posterior_with_jeffreys_prior(model, covparam, xi, zi):
+    """Compute the negative log restricted posterior using Jeffrey's
+    prior on the variance parameter.
+
+    This function combines the negative log restricted likelihood with
+    a Jeffrey's prior on the variance parameter:
+
+    .. math::
+        \pi(\sigma^2) \propto \frac{1}{\sigma^2}
+
+    Parameters
+    ----------
+    model : object
+        Gaussian process model object.
+    covparam : ndarray
+        The covariance parameter array, where the first element is the
+        log(variance) (i.e., log(sigma^2)), and the remaining elements
+        are the log of the length-scale parameters (log(1/rho)).
+    xi : ndarray
+        The input data points.
+    zi : ndarray
+        The observed values at the input data points.
+
+    Returns
+    -------
+    float
+        The value of the negative log restricted posterior.
+
+    """
+    # Compute the negative log restricted likelihood
+    nlrl = model.negative_log_restricted_likelihood(covparam, xi, zi)
+
+    # Compute the log prior using Jeffrey's prior on the variance
+    log_prior = log_prior_jeffrey_variance(covparam)
+
+    # Posterior
+    neg_log_posterior = nlrl - log_prior
+
+    return neg_log_posterior
+
+
+def select_parameters_with_remap(
+    model, xi, zi, covparam0=None, info=False, verbosity=0
+):
+    """Optimize Gaussian process model parameters using Restricted Maximum A Posteriori (REMAP)."""
+    return select_parameters_with_criterion(
+        model,
+        neg_log_restricted_posterior_with_jeffreys_prior,
+        xi,
+        zi,
+        covparam0=covparam0,
+        info=info,
+        verbosity=verbosity,
+    )
+
+
+def update_parameters_with_remap(model, xi, zi, info=False):
+    """Update model parameters using Restricted Maximum A Posteriori (REMAP)."""
+    return update_parameters_with_criterion(
+        model, neg_log_restricted_posterior_with_jeffreys_prior, xi, zi, info=info
+    )

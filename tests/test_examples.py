@@ -8,8 +8,9 @@ from examples import (
     gpmp_example06_1d_regression,
     gpmp_example10_sample_paths,
     gpmp_example11_sample_paths_noisy_obs,
-    gpmp_example20_1d_interpolation_variation,
-    gpmp_example21_1d_interpolation_variation
+    gpmp_example20_1d_interpolation_variation_remap,
+    gpmp_example21_1d_interpolation_variation_reml,
+    gpmp_example22_1d_interpolation_variation_ml
     )
     
 
@@ -39,10 +40,13 @@ class TestExamples(unittest.TestCase):
         gpmp_example11_sample_paths_noisy_obs.main()
 
     def test_20(self):
-        gpmp_example20_1d_interpolation_variation.main()
+        gpmp_example20_1d_interpolation_variation_remap.main()
         
     def test_21(self):
-        gpmp_example21_1d_interpolation_variation.main()
+        gpmp_example21_1d_interpolation_variation_reml.main()
+
+    def test_22(self):
+        gpmp_example22_1d_interpolation_variation_ml.main()
 
 
 if __name__ == "__main__":

@@ -67,34 +67,17 @@ def visualize_results(xt, zt, xi, zi, zpm, zpv):
     fig.plotdata(xi, zi)
     fig.plotgp(xt, zpm, zpv, colorscheme='simple')
     fig.xylabels('$x$', '$z$')
-    fig.title('Posterior GP with parameters selected by ReML')
-    fig.show(xlim=[-1.0, 1.0])
+    fig.title('Posterior GP with parameters selected by ReMAP')
+    fig.show(grid=True, xlim=[-1.0, 1.0], legend=True, legend_fontsize=9)
 
 
 def main():
     xt, zt, xi, zi = generate_data()
 
-    meanparam0 = None
-    covparam0 = None
-    model = gp.core.Model(constant_mean, kernel, meanparam0, covparam0)
+    model = gp.core.Model(constant_mean, kernel)
 
-    # Parameter initial guess
-    covparam0 = gp.kernel.anisotropic_parameters_initial_guess(model, xi, zi)
-
-    # selection criterion
-    nlrl, dnlrl = gp.kernel.make_selection_criterion_with_gradient(
-        model.negative_log_restricted_likelihood, xi, zi
-    )
-
-    covparam_reml, info = gp.kernel.autoselect_parameters(
-        covparam0, nlrl, dnlrl, silent=False, info=True
-    )
-
-    model.covparam = gnp.asarray(covparam_reml)
-    info["covparam0"] = covparam0
-    info["covparam"] = covparam_reml
-    info["selection_criterion"] = nlrl
-
+    # Automatic selection of parameters using REMAP
+    model, info = gp.kernel.select_parameters_with_remap(model, xi, zi, info=True)
     gp.misc.modeldiagnosis.diag(model, info, xi, zi)
 
     # Prediction
@@ -103,10 +86,12 @@ def main():
     # Visualization
     print('\nVisualization')
     print('-------------')
+    plot_likelihood = True
+    if plot_likelihood:
+        gp.misc.modeldiagnosis.plot_likelihood_sigma_rho(model, info, criterion_name='restricted maximum a posteriori')
+        
     visualize_results(xt, zt, xi, zi, zpm, zpv)
 
-    zloom, zloov, eloo = model.loo(xi, zi)
-    gp.misc.plotutils.plot_loo(zi, zloom, zloov)
 
 if __name__ == '__main__':
     main()
