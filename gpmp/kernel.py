@@ -722,9 +722,8 @@ def select_parameters_with_criterion(
     if parameterized_mean:
         if meanparam0 is None:
             raise ValueError(
-                "meanparam0 must be provided when parameterized_mean is True."
+                "meanparam0 must be provided when parameterized_mean is True. Use anisotropic_parameters_initial_guess_constant_mean if needed."
             )
-        # Concatenate meanparam0 and covparam0 into a single parameter vector
         param0 = gnp.concatenate([meanparam0, covparam0])
     else:
         param0 = covparam0
@@ -739,13 +738,13 @@ def select_parameters_with_criterion(
         meanparam_len=meanparam_len,
     )
 
+    # Optimize parameters using the provided criterion
     silent = True
     if verbosity == 1:
         print("Parameter selection using custom criterion...")
     elif verbosity == 2:
         silent = False
 
-    # Optimize parameters using the provided criterion
     param_opt, info_ret = autoselect_parameters(
         param0, criterion_func, criterion_grad, silent=silent, info=True
     )
@@ -764,7 +763,7 @@ def select_parameters_with_criterion(
 
     model.covparam = gnp.asarray(covparam_opt)
 
-    # NB: info is essentially a dict with attribute accessors
+    # NB: info_ret is essentially a dict with attribute accessors
     if info:
         info_ret["meanparam0"] = meanparam0
         info_ret["covparam0"] = covparam0
@@ -804,56 +803,21 @@ def update_parameters_with_criterion(
     -------
     model : object
         Updated Gaussian process model object with optimized parameters.
-    info_ret : dict, optional
+    info_ret : object, optional
         Additional information about the optimization (if info=True).
     """
-    tic = time.time()
 
-    covparam0 = model.covparam
-
-    # If parameterized mean, take meanparam0 from the model
-    if parameterized_mean:
-        meanparam0 = model.meanparam
-        param0 = np.concatenate([meanparam0, covparam0])
-    else:
-        param0 = covparam0
-
-    # Create the criterion and its gradient using the passed criterion function
-    criterion_func, criterion_grad = make_selection_criterion_with_gradient(
+    return select_parameters_with_criterion(
         model,
         criterion,
         xi,
         zi,
+        meanparam0=model.meanparam if parameterized_mean else None,
+        covparam0=model.covparam,
         parameterized_mean=parameterized_mean,
         meanparam_len=meanparam_len,
+        info=info,
     )
-
-    # Optimize parameters using the provided criterion
-    param_opt, info_ret = autoselect_parameters(
-        param0, criterion_func, criterion_grad, silent=True, info=True
-    )
-
-    # Split the optimized parameters into meanparam and covparam if the mean is parameterized
-    if parameterized_mean:
-        meanparam_opt = param_opt[:meanparam_len]
-        covparam_opt = param_opt[meanparam_len:]
-        model.meanparam = meanparam_opt
-    else:
-        meanparam_opt = None
-        covparam_opt = param_opt
-
-    model.covparam = covparam_opt
-
-    if info:
-        info_ret["meanparam0"] = meanparam0 if parameterized_mean else None
-        info_ret["covparam0"] = covparam0
-        info_ret["meanparam"] = meanparam_opt
-        info_ret["covparam"] = covparam_opt
-        info_ret["selection_criterion"] = criterion_func
-        info_ret["time"] = time.time() - tic
-        return model, info_ret
-    else:
-        return model
 
 
 def negative_log_likelihood_zero_mean(model, covparam, xi, zi):
@@ -897,13 +861,13 @@ def update_parameters_with_reml(model, xi, zi, info=False):
     )
 
 
-def log_prior_jeffrey_variance(covparam, lbda = 1.0):
+def log_prior_jeffrey_variance(covparam, lbda=1.0):
     """Compute a log prior using Jeffrey's prior on the variance parameter.
 
     This function assumes a Jeffrey's prior on the variance parameter:
 
     .. math::
-        \pi(\sigma^2) \propto \frac{1}{\sigma^2}
+        \pi(\sigma^2) \propto \left(\frac{1}{\sigma^2}\right)^\lambda
 
     Parameters
     ----------
@@ -922,10 +886,10 @@ def log_prior_jeffrey_variance(covparam, lbda = 1.0):
     """
     log_sigma2 = covparam[0]
 
-    # Jeffrey's prior: p(sigma^2) \propto 1 / sigma^2 => log p(sigma^2) = - log(sigma^2)
-    log_prior_sigma2 = -log_sigma2
+    # Jeffrey's prior: p(sigma^2) \propto (1 / sigma^2)^lbda => log p(sigma^2) = - lbda * log(sigma^2)
+    log_prior_sigma2 = - lbda * log_sigma2
 
-    return lbda * log_prior_sigma2
+    return log_prior_sigma2
 
 
 def neg_log_restricted_posterior_with_jeffreys_prior(model, covparam, xi, zi):
