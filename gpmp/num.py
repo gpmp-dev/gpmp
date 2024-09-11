@@ -286,7 +286,7 @@ elif _gpmp_backend_ == "torch":
     fmax = finfo(float64).max
 
     def copy(x):
-        return x.clone()
+        return torch.clone(tensor(x))
 
     def set_elem1(x, index, v):
         x[index] = v

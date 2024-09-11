@@ -250,7 +250,7 @@ def plot_2d_criterion_params(
     info,
     param_indices=(0, 1),
     param_names=None,
-    criterion_name="negative log restricted likelihood",
+    criterion_name='selection criterion',
 ):
     """
     Plot selection criterion profile for any two parameters in covparam.
@@ -268,10 +268,25 @@ def plot_2d_criterion_params(
     criterion_name : string, optional
         Name of the selection criterion to be displayed in the title
     """
-    print(f"  ***  Computing {criterion_name} profile for plotting...")
-
+    n = 180
     tic = time.time()
-    n = 200
+    
+    def print_progress(i):
+        elapsed_time = time.time() - tic
+        average_time_per_iteration = elapsed_time / (i + 1)
+        remaining_time = average_time_per_iteration * (n - (i + 1))
+        percentage = (i + 1) / n * 100
+        print(
+            f"       Progress: {percentage:.2f}% | time remaining: {remaining_time:.1f}s",
+            end="\r",
+        )
+    def print_final_time():
+        elapsed_time = time.time() - tic
+        print(f"       Progress: 100% complete | Total time: {elapsed_time:.3f}s")
+        print(f"       number of evaluations: {n * n}")
+
+    print(f"  ***  Computing {criterion_name} profile for plotting...")
+        
     param_1_idx, param_2_idx = param_indices
 
     # Initialize param1 and param2 based on their indices (standard deviation or scale parameter)
@@ -305,29 +320,16 @@ def plot_2d_criterion_params(
     selection_criterion = info.selection_criterion
     selection_criterion_values = np.zeros((n, n))
 
-    log_param_1 = gnp.expand_dims(gnp.asarray(log_param_1), axis=2)
-    log_param_2 = gnp.expand_dims(gnp.asarray(log_param_2), axis=2)
-    log_params = gnp.concatenate((log_param_1, log_param_2), axis=2)
-
+    covparam = gnp.copy(info.covparam)
     for i in range(n):
-        elapsed_time = time.time() - tic
-        average_time_per_iteration = elapsed_time / (i + 1)
-        remaining_time = average_time_per_iteration * (n - (i + 1))
-        percentage = (i + 1) / n * 100
-        print(
-            f"       Progress: {percentage:.2f}% | time remaining: {remaining_time:.1f}s",
-            end="\r",
-        )
-
+        print_progress(i)
         for j in range(n):
-            covparam = log_params[i, j]
+            covparam = gnp.set_elem1(covparam, param_1_idx, log_param_1[i, j])
+            covparam = gnp.set_elem1(covparam, param_2_idx, log_param_2[i, j])
             selection_criterion_values[i, j] = selection_criterion(covparam)
 
     selection_criterion_values = np.nan_to_num(selection_criterion_values, copy=False)
-
-    elapsed_time = time.time() - tic
-    print(f"       Progress: 100% complete | Total time: {elapsed_time:.3f}s")
-    print(f"       number of evaluations: {n * n}")
+    print_final_time()
 
     shift_criterion = True
     shift = -np.min(selection_criterion_values) if shift_criterion else 0
