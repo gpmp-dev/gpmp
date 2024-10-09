@@ -1,3 +1,4 @@
+- 0.9.18 small improvements in kernel.py and num.py
 - 0.9.17 refactor parameter selection procedures for more general selection criteria support
 - 0.9.16 changes in core.py, num.py about  Cholesky factorization
 - 0.9.15 mid-2024 version

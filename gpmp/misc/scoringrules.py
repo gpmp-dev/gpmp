@@ -1,9 +1,11 @@
 ## --------------------------------------------------------------
 # Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-# Copyright (c) 2023, CentraleSupelec
+# Copyright (c) 2023-2024, CentraleSupelec
 # License: GPLv3 (see LICENSE)
 ## --------------------------------------------------------------
 import gpmp.num as gnp
+
+
 
 
 def crps_gaussian(mu, sigma, z):
