@@ -16,6 +16,7 @@ Description:
     torch nor jax are found in the system, numpy is set as the default backend.
 
 """
+
 import os
 import numpy
 from importlib import util as importlib_util
@@ -495,9 +496,19 @@ elif _gpmp_backend_ == "torch":
             return d.cdf(x)
 
         @staticmethod
+        def logcdf(x, loc=0.0, scale=1.0):
+            d = Normal(loc, scale)
+            return log(d.cdf(x))
+
+        @staticmethod
         def pdf(x, loc=0.0, scale=1.0):
             t = (x - loc) / scale
             return 1 / sqrt(2 * pi) * exp(-0.5 * t**2)
+
+        @staticmethod
+        def logpdf(x, loc=0.0, scale=1.0):
+            d = Normal(loc, scale)
+            return d.logpdf(x)
 
     class multivariate_normal:
         @staticmethod
