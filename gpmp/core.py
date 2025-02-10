@@ -264,6 +264,50 @@ class Model:
 
         return lambda_t, zt_posterior_variance
 
+    def _prepare_data(self, xi, zi, xt, convert_in):
+        """Convert inputs to the proper shapes and types."""
+        return Model.ensure_shapes_and_type(xi=xi, zi=zi, xt=xt, convert=convert_in)
+
+    def _select_predictor(self, xi, zi, xt):
+        """
+        Select the appropriate kriging predictor based on meantype.
+
+        Returns
+        -------
+            lambda_t : kriging weights.
+            zt_posterior_variance : posterior variance.
+            adjusted_zi : possibly centered observations.
+            zt_prior_mean : prior mean adjustment for xt.
+        """
+        # Default: no mean adjustment.
+        zt_prior_mean = 0.0
+        zi_centered = zi
+
+        if self.meantype == "zero":
+            lambda_t, zt_posterior_variance = self.kriging_predictor_with_zero_mean(
+                xi, xt
+            )
+        elif self.meantype == "linear_predictor":
+            lambda_t, zt_posterior_variance = self.kriging_predictor(xi, xt)
+        elif self.meantype == "parameterized":
+            if self.meanparam is None:
+                raise ValueError(
+                    "For meantype 'parameterized', meanparam should not be None."
+                )
+            # Use the zero-mean predictor but center the data.
+            lambda_t, zt_posterior_variance = self.kriging_predictor_with_zero_mean(
+                xi, xt
+            )
+            zi_prior_mean = self.mean(xi, self.meanparam).reshape(-1)
+            zi_centered = zi - zi_prior_mean
+            zt_prior_mean = self.mean(xt, self.meanparam).reshape(-1)
+        else:
+            raise ValueError(
+                f"Invalid mean_type {self.mean_type}. Supported types are 'zero', 'parameterized', and 'linear_predictor'."
+            )
+
+        return zi_centered, zt_prior_mean, lambda_t, zt_posterior_variance
+
     def predict(
         self,
         xi,
@@ -319,58 +363,37 @@ class Model:
         Ensure to set the appropriate 'meantype' for the desired
         behavior. Supported types are 'zero', 'parameterized', and 'linear_predictor'.
         """
-        xi_, zi_, xt_ = Model.ensure_shapes_and_type(
-            xi=xi, zi=zi, xt=xt, convert=convert_in
+        # Step 1: Prepare the data.
+        xi, zi, xt = self._prepare_data(xi, zi, xt, convert_in)
+
+        # Step 2: Select the kriging predictor and adjust for mean.
+        zi_centered, zt_prior_mean, lambda_t, zt_posterior_variance = (
+            self._select_predictor(xi, zi, xt)
         )
 
-        # Decide which kriging predictor to use and if we need to adjust for mean
-        zt_prior_mean_ = 0.0
-        if self.meantype == "zero":
-            lambda_t, zt_posterior_variance_ = self.kriging_predictor_with_zero_mean(
-                xi_, xt_
-            )
-        elif self.meantype == "linear_predictor":
-            lambda_t, zt_posterior_variance_ = self.kriging_predictor(xi_, xt_)
-        elif self.meantype == "parameterized":
-            lambda_t, zt_posterior_variance_ = self.kriging_predictor_with_zero_mean(
-                xi_, xt_
-            )
-
-            if self.meanparam is None:
-                raise ValueError(
-                    "For meantype 'parameterized', meanparam *should not* be None."
-                )
-            zi_prior_mean_ = self.mean(xi_, self.meanparam).reshape(-1)
-            zi_ = zi_ - zi_prior_mean_
-            zt_prior_mean_ = self.mean(xt_, self.meanparam).reshape(-1)
-        else:
-            raise ValueError(
-                f"Invalid mean_type {self.mean_type}. Supported types are 'zero', 'parameterized', and 'linear_predictor'."
-            )
-
-        if gnp.any(zt_posterior_variance_ < 0.0):
+        # Step 3: Postprocessing: ensure nonnegative variances.
+        if gnp.any(zt_posterior_variance < 0.0):
             warnings.warn(
-                "In predict: negative variances detected. Consider using jitter.",
+                "Negative variances detected. Consider using jitter.",
                 RuntimeWarning,
             )
         if zero_neg_variances:
-            zt_posterior_variance_ = gnp.maximum(zt_posterior_variance_, 0.0)
+            zt_posterior_variance = gnp.maximum(zt_posterior_variance, 0.0)
 
-        # posterior mean
-        zt_posterior_mean_ = gnp.einsum("i..., i...", lambda_t, zi_) + zt_prior_mean_
+        # Step 4: Compute the posterior mean.
+        zt_posterior_mean = (
+            gnp.einsum("i..., i...", lambda_t, zi_centered) + zt_prior_mean
+        )
 
-        # outputs
+        # Optional: convert outputs to numpy arrays.
         if convert_out:
-            zt_posterior_mean = gnp.to_np(zt_posterior_mean_)
-            zt_posterior_variance = gnp.to_np(zt_posterior_variance_)
-        else:
-            zt_posterior_mean = zt_posterior_mean_
-            zt_posterior_variance = zt_posterior_variance_
+            zt_posterior_mean = gnp.to_np(zt_posterior_mean)
+            zt_posterior_variance = gnp.to_np(zt_posterior_variance)
 
-        if not return_lambdas:
-            return (zt_posterior_mean, zt_posterior_variance)
-        else:
+        if return_lambdas:
             return (zt_posterior_mean, zt_posterior_variance, lambda_t)
+
+        return (zt_posterior_mean, zt_posterior_variance)
 
     def loo(self, xi, zi, convert_in=True, convert_out=False):
         """Compute the leave-one-out (LOO) prediction error.
@@ -812,7 +835,9 @@ class Model:
 
         return zsim
 
-    def conditional_sample_paths(self, ztsim, xi_ind, zi, xt_ind, lambda_t, convert_out=True):
+    def conditional_sample_paths(
+        self, ztsim, xi_ind, zi, xt_ind, lambda_t, convert_out=True
+    ):
         """Generates conditional sample paths on xt from unconditional sample paths
         ztsim, using the matrix of kriging weights lambda_t, which is provided by
         kriging_predictor() or predict().
@@ -871,7 +896,7 @@ class Model:
         return ztsimc
 
     def conditional_sample_paths_parameterized_mean(
-            self, ztsim, xi, xi_ind, zi, xt, xt_ind, lambda_t, convert_out=True
+        self, ztsim, xi, xi_ind, zi, xt, xt_ind, lambda_t, convert_out=True
     ):
         """Generates conditional sample paths with a parameterized mean function.
 
