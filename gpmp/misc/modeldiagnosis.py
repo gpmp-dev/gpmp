@@ -250,10 +250,9 @@ def plot_2d_criterion_params(
     info,
     param_indices=(0, 1),
     param_names=None,
-    criterion_name='selection criterion',
+    criterion_name="selection criterion",
 ):
-    """
-    Plot selection criterion profile for any two parameters in covparam.
+    """Plot selection criterion profile for any two parameters in covparam.
 
     Parameters
     ----------
@@ -262,15 +261,19 @@ def plot_2d_criterion_params(
     info : object
         Information object containing the parameter selection process.
     param_indices : tuple, optional
-        Indices of the two parameters to plot (default is (0, 1)).
+        Indices of the two parameters to plot (default is (0,
+        1)). First parameter is assumed to be the log of the variance
+        parameter. Other parameters are the log of inverse
+        lengthscales. #FIXME
     param_names : list, optional
         Names of the two parameters for labeling the axes (default is None).
     criterion_name : string, optional
         Name of the selection criterion to be displayed in the title
+
     """
     n = 180
     tic = time.time()
-    
+
     def print_progress(i):
         elapsed_time = time.time() - tic
         average_time_per_iteration = elapsed_time / (i + 1)
@@ -280,13 +283,14 @@ def plot_2d_criterion_params(
             f"       Progress: {percentage:.2f}% | time remaining: {remaining_time:.1f}s",
             end="\r",
         )
+
     def print_final_time():
         elapsed_time = time.time() - tic
         print(f"       Progress: 100% complete | Total time: {elapsed_time:.3f}s")
         print(f"       number of evaluations: {n * n}")
 
     print(f"  ***  Computing {criterion_name} profile for plotting...")
-        
+
     param_1_idx, param_2_idx = param_indices
 
     # Initialize param1 and param2 based on their indices (standard deviation or scale parameter)
@@ -363,7 +367,9 @@ def plot_2d_criterion_params(
     plt.show()
 
 
-def plot_likelihood_sigma_rho(model, info, criterion_name="negative log restricted likelihood"):
+def plot_likelihood_sigma_rho(
+    model, info, criterion_name="negative log restricted likelihood"
+):
     """
     Specific case of likelihood plotting for sigma (param 0) and rho (param 1).
 

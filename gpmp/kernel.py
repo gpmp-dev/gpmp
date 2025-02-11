@@ -1,8 +1,8 @@
-## --------------------------------------------------------------
+# --------------------------------------------------------------
 # Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
 # Copyright (c) 2022-2024, CentraleSupelec
 # License: GPLv3 (see LICENSE)
-## --------------------------------------------------------------
+# --------------------------------------------------------------
 import time
 import numpy as np
 import gpmp.num as gnp
@@ -10,7 +10,7 @@ from scipy.optimize import minimize, OptimizeWarning
 from math import log, sqrt
 
 
-## -- kernels
+# -- kernels
 
 
 def exponential_kernel(h):
@@ -88,15 +88,21 @@ def maternp_kernel(p: int, h):
     - :math:`\\nu` is the regularity of the kernel.
     - :math:`K_\\nu` is the modified Bessel function of the second kind of order :math:`\\nu`.
 
-    The implementation provided in this function uses this half-integer simplification.
+    The implementation provided in this function uses this
+    half-integer simplification.
 
-    In the particular case of half-integer regularity (nu = p + 1/2), the Matérn kernel
-    simplifies to a product of an exponential term and a polynomial term (Watson 1922,
-    A treatise on the theory of Bessel functions, pp. 80, Abramowitz and Stegun 1965, pp. 374-379, 443-444):
+    In the particular case of half-integer regularity (nu = p + 1/2),
+    the Matérn kernel simplifies to a product of an exponential term
+    and a polynomial term (Watson 1922, A treatise on the theory of
+    Bessel functions, pp. 80, Abramowitz and Stegun 1965, pp. 374-379,
+    443-444):
 
     .. math::
 
-        K(h) = \\exp(-2\\sqrt{\\nu}h) \\frac{\\Gamma(p+1)}{\\Gamma(2p+1)} \\sum_{i=0}^{p} \\frac{(p+i)!}{i!(p-i)!} (4\\sqrt{\\nu}h)^{p-i}
+        K(h) = \\exp(-2\\sqrt{\\nu}h)
+        \\frac{\\Gamma(p+1)}{\\Gamma(2p+1)} \\sum_{i=0}^{p}
+        \\frac{(p+i)!}{i!(p-i)!} (4\\sqrt{\\nu}h)^{p-i}
+
     """
     global gln, pmax
 
@@ -129,8 +135,10 @@ def maternp_covariance_ii_or_tt(x, p, param, pairwise=False):
 
         K_{ij} = \\sigma^2  K(h_{ij}) + \\epsilon \\delta_{ij}
 
-    where `K(h_{ij})` is the Matérn kernel value for the distance `h_{ij}` between points `x_i` and `x_j`,
-    `sigma^2` is the variance, `delta_{ij}` is the Kronecker delta, and `epsilon` is a small positive constant.
+    where `K(h_{ij})` is the Matérn kernel value for the distance
+    `h_{ij}` between points `x_i` and `x_j`, `sigma^2` is the
+    variance, `delta_{ij}` is the Kronecker delta, and `epsilon` is a
+    small positive constant.
 
     Parameters
     ----------
@@ -149,6 +157,7 @@ def maternp_covariance_ii_or_tt(x, p, param, pairwise=False):
     -------
     K : gnp.array
         Covariance matrix (nx, nx) or covariance vector if pairwise is True.
+
     """
     sigma2 = gnp.exp(param[0])
     loginvrho = param[1:]
@@ -245,7 +254,7 @@ def maternp_covariance(x, y, p, param, pairwise=False):
         return maternp_covariance_it(x, y, p, param, pairwise)
 
 
-## -- parameters
+# -- parameters
 
 
 def anisotropic_parameters_initial_guess_zero_mean(model, xi, zi):
@@ -406,7 +415,7 @@ def make_selection_criterion_with_gradient(
 
     Returns
     -------
-    crit_jit : function
+    crit : function
         Selection criterion function with gradient.
     dcrit : function
         Gradient of the selection criterion function.
@@ -436,19 +445,16 @@ def make_selection_criterion_with_gradient(
         def crit_(param):
             meanparam = param[:meanparam_len]
             covparam = param[meanparam_len:]
-            l = selection_criterion(model, meanparam, covparam, xi_, zi_)
-            return l
+            return selection_criterion(model, meanparam, covparam, xi_, zi_)
 
     else:
         # make a selection criterion without mean parameter
         def crit_(covparam):
-            l = selection_criterion(model, covparam, xi_, zi_)
-            return l
+            return selection_criterion(model, covparam, xi_, zi_)
 
-    crit_jit = gnp.jax.jit(crit_)
-    dcrit = gnp.jax.jit(gnp.grad(crit_jit))
+    crit = gnp.DifferentiableFunction(crit_)
 
-    return crit_jit, dcrit
+    return crit.evaluate, crit.gradient
 
 
 def autoselect_parameters(
@@ -513,8 +519,8 @@ def autoselect_parameters(
     # Setup to record parameter and criterion history
     history_params = []
     history_criterion = []
-    best_criterion = float("inf")
     best_params = None
+    best_criterion = float("inf")
 
     def record_history(p, criterion_value):
         nonlocal best_criterion, best_params
@@ -525,42 +531,13 @@ def autoselect_parameters(
             best_criterion = criterion_value
             best_params = p.copy()
 
-    # Determine which backend to use and configure the criterion and gradient functions
-    if gnp._gpmp_backend_ == "jax":
-        # scipy.optimize.minimize cannot use jax arrays
-        def crit_asnumpy(p):
-            J = criterion(p).item()
-            record_history(p, J)
-            return J
-
-        gradient_asnumpy = lambda p: gnp.to_np(gradient(p))
-
-    elif gnp._gpmp_backend_ == "torch":
-
-        def crit_asnumpy(p):
-            v = criterion(gnp.asarray(p))
-            J = v.detach().item()
-            record_history(p, J)
-            return J
-
-        def gradient_asnumpy(p):
-            g = gradient(gnp.asarray(p))
-            if g is None:
-                return gnp.zeros(p.shape)
-            else:
-                return g
-
-    elif gnp._gpmp_backend_ == "numpy":
-
-        def crit_asnumpy(p):
-            try:
-                J = criterion(p)
-            except Exception as e:
-                J = np.Inf
-            record_history(p, J)
-            return J
-
-        gradient_asnumpy = None
+    def criterion_with_history_recording(p):
+        try:
+            J = criterion(p)
+        except Exception as e:
+            J = np.Inf
+        record_history(p, J)
+        return J
 
     # Set default optimization options and update with user-provided options
     options = {"disp": not silent}
@@ -575,7 +552,6 @@ def autoselect_parameters(
                 "maxiter": 15000,
                 "maxls": 40,
                 "iprint": -1,
-                "maxls": 40,
                 "finite_diff_rel_step": None,
             }
         )
@@ -590,11 +566,11 @@ def autoselect_parameters(
 
     # Perform the minimization
     r = minimize(
-        crit_asnumpy,
+        criterion_with_history_recording,
         p0,
         args=(),
         method=method,
-        jac=gradient_asnumpy,
+        jac=gradient,
         bounds=bounds,
         tol=None,
         callback=None,
@@ -621,8 +597,10 @@ def autoselect_parameters(
         print("Optimization completed. Best found criterion:", best_criterion)
         print("Gradient")
         print("--------")
-        if gradient_asnumpy is not None:
-            print(gradient_asnumpy(r.x))
+        if gradient is not None:
+            # must compute the gradient only once per forward pass, thus reevaluate criterion
+            J_best = criterion(r.x)
+            print(gradient(r.x))
         else:
             print("gradient not available")
         print(".")
@@ -658,35 +636,41 @@ def select_parameters_with_criterion(
     Parameters
     ----------
     model : object
-        Instance of a Gaussian process model that needs parameter optimization.
+        Instance of a Gaussian process model that needs parameter
+        optimization.
     criterion : function
-        The selection criterion function (e.g., ML, REML or REMAP). The function must follow one of two forms:
+        The selection criterion function (e.g., ML, REML or
+        REMAP). The function must follow one of two forms:
 
         - For models without a parameterized mean:
-          `criterion(model, covparam, xi, zi)` where `covparam` are the covariance parameters.
+          `criterion(model, covparam, xi, zi)` where `covparam` are
+          the covariance parameters.
 
         - For models with a parameterized mean:
-          `criterion(model, meanparam, covparam, xi, zi)` where both `meanparam` and
-          `covparam` are passed.
+          `criterion(model, meanparam, covparam, xi, zi)` where both
+          `meanparam` and `covparam` are passed.
     xi : ndarray, shape (n, d)
         Locations of the observed data points in the input space.
     zi : ndarray, shape (n,)
         Observed values corresponding to the data points `xi`.
     meanparam0 : ndarray, shape (meanparam_len,), optional
-        Initial guess for the mean parameters. Required if `parameterized_mean=True`. Default is None.
+        Initial guess for the mean parameters. Required if
+        `parameterized_mean=True`. Default is None.
     covparam0 : ndarray, shape (covparam_dim,), optional
-        Initial guess for the covariance parameters. If not provided, the function
-        defaults to the `anisotropic_parameters_initial_guess` method for initialization.
-        Default is None.
+        Initial guess for the covariance parameters. If not provided,
+        the function defaults to the
+        `anisotropic_parameters_initial_guess` method for
+        initialization.  Default is None.
     parameterized_mean : bool, optional
-        Whether the mean is parameterized and included in the selection criterion.
-        Default is False.
+        Whether the mean is parameterized and included in the
+        selection criterion.  Default is False.
     meanparam_len : int, optional
-        Length of the mean parameter vector if `parameterized_mean` is True. Default is 1.
+        Length of the mean parameter vector if `parameterized_mean` is
+        True. Default is 1.
     info : bool, optional
-        Controls the return of additional optimization information. If set to True, the
-        function returns an info dictionary with details about the optimization process.
-        Default is False.
+        Controls the return of additional optimization information. If
+        set to True, the function returns an info dictionary with
+        details about the optimization process.  Default is False.
     verbosity : int, optional, values in {0, 1, 2}
         Sets the verbosity level for the function.
         - 0: No output messages (default).
@@ -696,33 +680,41 @@ def select_parameters_with_criterion(
     Returns
     -------
     model : object
-        The input Gaussian process model object, updated with the optimized parameters.
+        The input Gaussian process model object, updated with the
+        optimized parameters.
     info_ret : dict, optional
-        A dictionary with additional details about the optimization process. It contains
-        fields like initial parameters (`covparam0`), final optimized parameters
-        (`covparam`), selection criterion used, and the total time taken for optimization.
-        This dictionary is only returned if `info` is set to True.
+        A dictionary with additional details about the optimization
+        process. It contains fields like initial parameters
+        (`covparam0`), final optimized parameters (`covparam`),
+        selection criterion used, and the total time taken for
+        optimization.  This dictionary is only returned if `info` is
+        set to True.
 
     Notes
     -----
     The `criterion` function should follow one of the following two forms:
 
     - For models without a parameterized mean:
-      `criterion(model, covparam, xi, zi)` where `covparam` are the covariance parameters.
+      `criterion(model, covparam, xi, zi)` where `covparam` are the
+      covariance parameters.
 
     - For models with a parameterized mean:
-      `criterion(model, meanparam, covparam, xi, zi)` where both `meanparam` and `covparam` are passed.
+      `criterion(model, meanparam, covparam, xi, zi)` where both
+      `meanparam` and `covparam` are passed.
+
     """
     tic = time.time()
 
     if covparam0 is None:
         covparam0 = anisotropic_parameters_initial_guess(model, xi, zi)
 
-    # If the model has a parameterized mean, we need an initial guess for the mean parameters
+    # If model has parameterized mean, we need an initial guess
+    # for the mean parameters
     if parameterized_mean:
         if meanparam0 is None:
             raise ValueError(
-                "meanparam0 must be provided when parameterized_mean is True. Use anisotropic_parameters_initial_guess_constant_mean if needed."
+                """meanparam0 must be provided when parameterized_mean is True.
+                Use anisotropic_parameters_initial_guess_constant_mean if needed."""
             )
         param0 = gnp.concatenate([meanparam0, covparam0])
     else:
@@ -887,7 +879,7 @@ def log_prior_jeffrey_variance(covparam, lbda=1.0):
     log_sigma2 = covparam[0]
 
     # Jeffrey's prior: p(sigma^2) \propto (1 / sigma^2)^lbda => log p(sigma^2) = - lbda * log(sigma^2)
-    log_prior_sigma2 = - lbda * log_sigma2
+    log_prior_sigma2 = -lbda * log_sigma2
 
     return log_prior_sigma2
 

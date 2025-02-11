@@ -155,13 +155,26 @@ if _gpmp_backend_ == "numpy":
         a = where(numpy.isinf(a), numpy.full_like(a, bigf), a)
         return a
 
-    def grad(f):
-        return None
-
     class jax:
         @staticmethod
         def jit(f, *args, **kwargs):
             return f
+
+    def grad(f):
+        return None
+
+    class DifferentiableFunction:
+        def __init__(self, f):
+            self.f = f
+            self.f_value = None
+            self.x_value = None
+            self.gradient = None
+
+        def __call__(self, x):
+            return self.f(x)
+
+        def evaluate(self, x):
+            return self.f(x)
 
     def scaled_distance(loginvrho, x, y):
         invrho = exp(loginvrho)
@@ -402,12 +415,6 @@ elif _gpmp_backend_ == "torch":
         a = torch.where(torch.isinf(a), torch.full_like(a, bigf), a)
         return a
 
-    def svd(A, full_matrices=True, hermitian=True):
-        return torch.linalg.svd(A, full_matrices)
-
-    def solve(A, B, overwrite_a=True, overwrite_b=True, assume_a="gen", sym_pos=False):
-        return torch.linalg.solve(A, B)
-
     def grad(f):
         def f_grad(x):
             if not torch.is_tensor(x):
@@ -425,6 +432,46 @@ elif _gpmp_backend_ == "torch":
         @staticmethod
         def jit(f, *args, **kwargs):
             return f
+
+    class DifferentiableFunction:
+        def __init__(self, f):
+            self.f = f
+            self.f_value = None
+            self.x_value = None
+
+        def __call__(self, x):
+            return self.evaluate(x)
+
+        def evaluate(self, x):
+            if not torch.is_tensor(x):
+                self.x_value = torch.tensor(x, requires_grad=True)
+            else:
+                self.x_value = x.detach().clone().requires_grad_(True)
+
+            self.f_value = self.f(self.x_value)
+            scalar_value = self.f_value.item()
+            return scalar_value
+
+        def gradient(self, x, retain=False):
+            if self.f_value is None:
+                raise ValueError("Call 'evaluate(x)' before 'gradient(x)'")
+
+            if not torch.equal(asarray(x), self.x_value):
+                raise ValueError(
+                    "The input 'x' in 'gradient' must be the same as in 'evaluate'")
+
+            gradients = torch.autograd.grad(
+                self.f_value, self.x_value, allow_unused=True, retain_graph=retain)[0]
+
+            if gradients is None:
+                raise RuntimeError("None gradient")
+
+            # if gradients is None:
+            #     return zeros(self.x_value.shape)
+            # else:
+            #     return gradients
+
+            return gradients
 
     def custom_sqrt(x):
         arbitrary_value = 1.0
@@ -448,7 +495,8 @@ elif _gpmp_backend_ == "torch":
         distances = custom_sqrt(distances.clamp(min=0.0))
 
         if zero_diagonal and x is y:
-            mask = torch.eye(distances.size(0), dtype=torch.bool, device=x.device)
+            mask = torch.eye(distances.size(
+                0), dtype=torch.bool, device=x.device)
             distances = distances.masked_fill(mask, 0.0)
 
         return distances
@@ -472,6 +520,12 @@ elif _gpmp_backend_ == "torch":
             invrho = exp(loginvrho)
             d = sqrt(sum(invrho * (xs - ys) ** 2, axis=1))
         return d
+
+    def svd(A, full_matrices=True, hermitian=True):
+        return torch.linalg.svd(A, full_matrices)
+
+    def solve(A, B, overwrite_a=True, overwrite_b=True, assume_a="gen", sym_pos=False):
+        return torch.linalg.solve(A, B)
 
     def cho_factor(A, lower=False, overwrite_a=False, check_finite=True):
         # torch.linalg does not have cho_factor(), use cholesky() instead.
@@ -525,7 +579,8 @@ elif _gpmp_backend_ == "torch":
             # For dxd covariance matrix, use MultivariateNormal
             d = cov.shape[0]  # Dimensionality from the covariance matrix
             mean_tensor = torch.full((d,), mean)  # Expand mean to a tensor
-            distribution = MultivariateNormal(mean_tensor, covariance_matrix=cov)
+            distribution = MultivariateNormal(
+                mean_tensor, covariance_matrix=cov)
             return distribution.sample((n,))
 
         @staticmethod
@@ -542,7 +597,8 @@ elif _gpmp_backend_ == "torch":
             # For dxd covariance matrix, use MultivariateNormal
             d = x.shape[-1]  # Infer dimensionality from x
             mean_tensor = torch.full((d,), mean)  # Expand mean to a tensor
-            distribution = MultivariateNormal(mean_tensor, covariance_matrix=cov)
+            distribution = MultivariateNormal(
+                mean_tensor, covariance_matrix=cov)
             return distribution.log_prob(x)
 
         @staticmethod
@@ -694,6 +750,34 @@ elif _gpmp_backend_ == "jax":
         return a
 
     from jax import grad
+
+    class DifferentiableFunction:
+        def __init__(self, f):
+            self.f = jax.jit(f)
+            self.f_grad = jax.jit(jax.grad(self.f))
+            self.f_value = None
+            self.x_value = None
+
+        def __call__(self, x):
+            return self.evaluate(x)
+
+        def evaluate(self, x):
+            if not isinstance(x, jax.numpy.ndarray):
+                x = jax.numpy.array(x)
+
+            self.x_value = x
+            self.f_value = self.f(x)
+            return self.f_value
+
+        def gradient(self, x):
+            if self.f_value is None:
+                raise ValueError("Call 'evaluate(x)' before 'gradient(x)'")
+
+            if not jax.numpy.array_equal(x, self.x_value):
+                raise ValueError(
+                    "The input 'x' in 'gradient' must be the same as in 'evaluate'")
+
+            return self.f_grad(self.x_value)
 
     def cdist(x, y):
         if y is None:
