@@ -83,7 +83,8 @@ class Model:
         Compute the kriging predictor considering a non-zero mean
         function. This method is essential in practical applications.
 
-    predict(xi, zi, xt, return_lambdas=False, zero_neg_variances=True, convert_in=True, convert_out=True)
+    predict(xi, zi, xt, return_lambdas=False, zero_neg_variances=True,
+            convert_in=True, convert_out=True)
         Performs prediction at target points `xt` given the data `(xi,
         zi)`. The treatment of the mean function is based on the
         `meantype` attribute.
@@ -175,19 +176,6 @@ class Model:
         output = str("<gpmp.core.Model object>")
         return output
 
-    def _validate_model_mean(self, meantype, mean, meanparam):
-        """Validate model initialization inputs."""
-        if meantype not in ["zero", "parameterized", "linear_predictor"]:
-            raise ValueError(
-                "meantype must be one of 'zero', 'parameterized', or 'linear_predictor'"
-            )
-        if meantype == "zero" and mean is not None:
-            raise ValueError("For meantype 'zero', mean must be None")
-        if meantype in ["parameterized", "linear_predictor"] and not callable(mean):
-            raise TypeError(
-                "For meantype 'parameterized' or 'linear_predictor', mean must be a callable function"
-            )
-
     def kriging_predictor_with_zero_mean(self, xi, xt, return_type=0):
         """Compute the kriging predictor with zero mean."""
         Kii = self.covariance(xi, xi, self.covparam)
@@ -195,16 +183,9 @@ class Model:
 
         lambda_t, _ = gnp.cholesky_solve(Kii, Kit)
 
-        if return_type == -1:
-            zt_posterior_variance = None
-        elif return_type == 0:
-            zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=True)
-            zt_posterior_variance = zt_prior_variance - gnp.einsum(
-                "i..., i...", lambda_t, Kit
-            )
-        elif return_type == 1:
-            zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=False)
-            zt_posterior_variance = zt_prior_variance - gnp.matmul(lambda_t.T, Kit)
+        zt_posterior_variance = self._compute_posterior_variance(
+            xt, lambda_t, Kit, return_type
+        )
 
         return lambda_t, zt_posterior_variance
 
@@ -247,66 +228,13 @@ class Model:
         lambdamu_t = gnp.solve(
             LHS, RHS, overwrite_a=True, overwrite_b=True, assume_a="sym"
         )
-
         lambda_t = lambdamu_t[0:ni, :]
 
-        # posterior variance
-        if return_type == -1:
-            zt_posterior_variance = None
-        elif return_type == 0:
-            zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=True)
-            zt_posterior_variance = zt_prior_variance - gnp.einsum(
-                "i..., i...", lambdamu_t, RHS
-            )
-        elif return_type == 1:
-            zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=False)
-            zt_posterior_variance = zt_prior_variance - gnp.matmul(lambdamu_t.T, RHS)
+        zt_posterior_variance = self._compute_posterior_variance(
+            xt, lambda_t, Kit, return_type
+        )
 
         return lambda_t, zt_posterior_variance
-
-    def _prepare_data(self, xi, zi, xt, convert_in):
-        """Convert inputs to the proper shapes and types."""
-        return Model.ensure_shapes_and_type(xi=xi, zi=zi, xt=xt, convert=convert_in)
-
-    def _select_predictor(self, xi, zi, xt):
-        """
-        Select the appropriate kriging predictor based on meantype.
-
-        Returns
-        -------
-            lambda_t : kriging weights.
-            zt_posterior_variance : posterior variance.
-            adjusted_zi : possibly centered observations.
-            zt_prior_mean : prior mean adjustment for xt.
-        """
-        # Default: no mean adjustment.
-        zt_prior_mean = 0.0
-        zi_centered = zi
-
-        if self.meantype == "zero":
-            lambda_t, zt_posterior_variance = self.kriging_predictor_with_zero_mean(
-                xi, xt
-            )
-        elif self.meantype == "linear_predictor":
-            lambda_t, zt_posterior_variance = self.kriging_predictor(xi, xt)
-        elif self.meantype == "parameterized":
-            if self.meanparam is None:
-                raise ValueError(
-                    "For meantype 'parameterized', meanparam should not be None."
-                )
-            # Use the zero-mean predictor but center the data.
-            lambda_t, zt_posterior_variance = self.kriging_predictor_with_zero_mean(
-                xi, xt
-            )
-            zi_prior_mean = self.mean(xi, self.meanparam).reshape(-1)
-            zi_centered = zi - zi_prior_mean
-            zt_prior_mean = self.mean(xt, self.meanparam).reshape(-1)
-        else:
-            raise ValueError(
-                f"Invalid mean_type {self.mean_type}. Supported types are 'zero', 'parameterized', and 'linear_predictor'."
-            )
-
-        return zi_centered, zt_prior_mean, lambda_t, zt_posterior_variance
 
     def predict(
         self,
@@ -365,12 +293,10 @@ class Model:
         """
         # Step 1: Prepare the data.
         xi, zi, xt = self._prepare_data(xi, zi, xt, convert_in)
-
         # Step 2: Select the kriging predictor and adjust for mean.
         zi_centered, zt_prior_mean, lambda_t, zt_posterior_variance = (
             self._select_predictor(xi, zi, xt)
         )
-
         # Step 3: Postprocessing: ensure nonnegative variances.
         if gnp.any(zt_posterior_variance < 0.0):
             warnings.warn(
@@ -379,20 +305,16 @@ class Model:
             )
         if zero_neg_variances:
             zt_posterior_variance = gnp.maximum(zt_posterior_variance, 0.0)
-
         # Step 4: Compute the posterior mean.
         zt_posterior_mean = (
             gnp.einsum("i..., i...", lambda_t, zi_centered) + zt_prior_mean
         )
-
         # Optional: convert outputs to numpy arrays.
         if convert_out:
             zt_posterior_mean = gnp.to_np(zt_posterior_mean)
             zt_posterior_variance = gnp.to_np(zt_posterior_variance)
-
         if return_lambdas:
             return (zt_posterior_mean, zt_posterior_variance, lambda_t)
-
         return (zt_posterior_mean, zt_posterior_variance)
 
     def loo(self, xi, zi, convert_in=True, convert_out=False):
@@ -430,7 +352,7 @@ class Model:
         >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
         >>> zloo, sigma2loo, eloo = model.loo(xi, zi)
         """
-        xi_, zi_, _ = Model.ensure_shapes_and_type(xi=xi, zi=zi, convert=convert_in)
+        xi_, zi_, _ = Model._ensure_shapes_and_type(xi=xi, zi=zi, convert=convert_in)
 
         if self.meantype == "zero":
             zloo, sigma2loo, eloo = self._loo_with_zero_mean(self.covparam, xi_, zi_)
@@ -449,62 +371,6 @@ class Model:
             zloo = gnp.to_np(zloo)
             sigma2loo = gnp.to_np(sigma2loo)
             eloo = gnp.to_np(eloo)
-
-        return zloo, sigma2loo, eloo
-
-    def _loo_with_zero_mean(self, covparam, xi, zi):
-        """Compute LOO prediction error for zero mean."""
-        K = self.covariance(xi, xi, covparam)  # shape (n, n)
-
-        # Use the "virtual cross-validation" formula
-        Kinv = gnp.cholesky_inv(K)
-
-        # e_loo,i  = 1 / Kinv_i,i ( Kinv  z )_i
-        Kinvzi = gnp.matmul(Kinv, zi)  # shape (n, )
-        Kinvdiag = gnp.diag(Kinv)  # shape (n, )
-        eloo = Kinvzi / Kinvdiag  # shape (n, )
-
-        # sigma2_loo,i = 1 / Kinv_i,i
-        sigma2loo = 1.0 / Kinvdiag  # shape (n, )
-
-        # zloo_i = z_i - e_loo,i
-        zloo = zi - eloo  # shape (n, )
-
-        return zloo, sigma2loo, eloo
-
-    def _loo_with_parameterized_mean(self, meanparam, covparam, xi, zi):
-        """Compute LOO prediction error for parameterized mean."""
-        zi_prior_mean = self.mean(xi, meanparam).reshape(-1)
-        centered_zi = zi - zi_prior_mean
-        zloo_centered, sigma2loo, eloo_centered = self._loo_with_zero_mean(
-            covparam, xi, centered_zi
-        )
-        zloo = zloo_centered + zi_prior_mean
-        return zloo, sigma2loo, eloo_centered
-
-    def _loo_with_linear_predictor_mean(self, meanparam, covparam, xi, zi):
-        """Compute LOO prediction error for linear_predictor mean."""
-        K = self.covariance(xi, xi, covparam)
-        P = self.mean(xi, meanparam)
-
-        # Use the "virtual cross-validation" formula
-        # Qinv = K^-1 - K^-1P (Pt K^-1 P)^-1 Pt K^-1
-        Kinv = gnp.inv(K)
-        KinvP = gnp.matmul(Kinv, P)
-        PtKinvP = gnp.einsum("ki, kj->ij", P, KinvP)
-        R = gnp.solve(PtKinvP, KinvP.T)
-        Qinv = Kinv - gnp.matmul(KinvP, R)
-
-        # e_loo,i  = 1 / Q_i,i ( Qinv  z )_i
-        Qinvzi = gnp.matmul(Qinv, zi)  # shape (n, )
-        Qinvdiag = gnp.diag(Qinv)  # shape (n, )
-        eloo = Qinvzi / Qinvdiag  # shape (n, )
-
-        # sigma2_loo,i = 1 / Qinv_i,i
-        sigma2loo = 1.0 / Qinvdiag  # shape (n, )
-
-        # z_loo
-        zloo = zi - eloo  # shape (n, )
 
         return zloo, sigma2loo, eloo
 
@@ -533,21 +399,13 @@ class Model:
         """
         K = self.covariance(xi, xi, covparam)
         n = K.shape[0]
-
         try:
             Kinv_zi, C = gnp.cholesky_solve(K, zi)
         except RuntimeError:
-            if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
-                return gnp.inf
-            elif gnp._gpmp_backend_ == "torch":
-                inf_tensor = gnp.tensor(float("inf"), requires_grad=True)
-                return inf_tensor  # returns inf with None gradient
-
+            self._return_inf()
         norm2 = gnp.einsum("i..., i...", zi, Kinv_zi)
         ldetK = 2.0 * gnp.sum(gnp.log(gnp.diag(C)))
-
         L = 0.5 * (n * gnp.log(2.0 * gnp.pi) + ldetK + norm2)
-
         return L.reshape(())
 
     def negative_log_likelihood(self, meanparam, covparam, xi, zi):
@@ -582,7 +440,6 @@ class Model:
         """
         zi_prior_mean = self.mean(xi, meanparam).reshape(-1)
         centered_zi = zi - zi_prior_mean
-
         # Call the zero mean version with the centered observations
         return self.negative_log_likelihood_zero_mean(covparam, xi, centered_zi)
 
@@ -607,54 +464,20 @@ class Model:
         -------
         L : float
             Negative log-restricted likelihood value.
-
-        Examples
-        --------
-        >>> xi = np.array([[1, 2], [3, 4], [5, 6]])
-        >>> zi = np.array([1.2, 2.5, 4.2])
-        >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
-        >>> covparam = np.array([1.0, 0.1])
-        >>> L = model.negative_log_restricted_likelihood(covparam, xi, zi)
         """
         K = self.covariance(xi, xi, covparam)
         P = self.mean(xi, self.meanparam)
-        n, q = P.shape
-
-        # Compute a matrix of contrasts
-        [Q, R] = gnp.qr(P, "complete")
-        W = Q[:, q:n]
-
-        # Contrasts (n-q) x 1
+        W = self._compute_contrast_matrix(P)
         Wzi = gnp.matmul(W.T, zi)
-
-        # Compute G = W' * (K * W), the covariance matrix of contrasts
-        G = gnp.matmul(W.T, gnp.matmul(K, W))
-
-        # Cholesky factorization: G = U' * U, with upper-triangular U
-        # Compute G^(-1) * (W' zi)
+        G = self._compute_contrast_covariance(W, K)
         try:
             WKWinv_Wzi, C = gnp.cholesky_solve(G, Wzi)
         except RuntimeError:
-            if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
-                return gnp.inf
-            elif gnp._gpmp_backend_ == "torch":
-                # Use LinAlgError instead of raising RuntimeError for linalg operations
-                # https://github.com/pytorch/pytorch/issues/64785
-                # https://stackoverflow.com/questions/242485/starting-python-debugger-automatically-on-error
-                # extype, value, tb = __import__("sys").exc_info()
-                # __import__("traceback").print_exc()
-                # __import__("pdb").post_mortem(tb)
-                inf_tensor = gnp.tensor(float("inf"), requires_grad=True)
-                return inf_tensor  # returns inf with None gradient
-
-        # Compute norm2 = (W' zi)' * G^(-1) * (W' zi)
+            return self._return_inf()
         norm2 = gnp.einsum("i..., i...", Wzi, WKWinv_Wzi)
-
-        # Compute log(det(G)) using the Cholesky factorization
         ldetWKW = 2.0 * gnp.sum(gnp.log(gnp.diag(C)))
-
+        n, q = P.shape
         L = 0.5 * ((n - q) * gnp.log(2.0 * gnp.pi) + ldetWKW + norm2)
-
         return L.reshape(())
 
     def norm_k_sqrd_with_zero_mean(self, xi, zi, covparam):
@@ -689,7 +512,6 @@ class Model:
         K = self.covariance(xi, xi, covparam)
         Kinv_zi, _ = gnp.cholesky_solve(K, zi)
         norm_sqrd = gnp.einsum("i..., i...", zi, Kinv_zi)
-
         return norm_sqrd
 
     def k_inverses(self, xi, zi, covparam):
@@ -728,13 +550,10 @@ class Model:
         """
         K = self.covariance(xi, xi, covparam)
         ones_vector = gnp.ones(zi.shape)
-
         Kinv = gnp.cholesky_inv(K)
         Kinv_zi = gnp.einsum("...i, i... ", Kinv, zi)
         Kinv_1 = gnp.einsum("...i, i... ", Kinv, ones_vector)
-
         zTKinvz = gnp.einsum("i..., i...", zi, Kinv_zi)
-
         return zTKinvz, Kinv_1, Kinv_zi
 
     def norm_k_sqrd(self, xi, zi, covparam):
@@ -763,24 +582,15 @@ class Model:
         """
         K = self.covariance(xi, xi, covparam)
         P = self.mean(xi, self.meanparam)
-        n, q = P.shape
-
-        # Compute a matrix of contrasts
-        [Q, R] = gnp.qr(P, "complete")
-        W = Q[:, q:n]
-
+        W = self._compute_contrast_matrix(P)
         # Contrasts (n-q) x 1
         Wzi = gnp.matmul(W.T, zi)
-
         # Compute G = W' * (K * W), the covariance matrix of contrasts
-        G = gnp.matmul(W.T, gnp.matmul(K, W))
-
+        G = self._compute_contrast_covariance(W, K)
         # Compute G^(-1) * (W' zi)
         WKWinv_Wzi, _ = gnp.cholesky_solve(G, Wzi)
-
         # Compute norm_2 = (W' zi)' * G^(-1) * (W' zi)
         norm_sqrd = gnp.einsum("i..., i...", Wzi, WKWinv_Wzi)
-
         return norm_sqrd
 
     def sample_paths(self, xt, nb_paths, method="chol", check_result=True):
@@ -815,9 +625,7 @@ class Model:
         >>> sample_paths = model.sample_paths(xt, nb_paths)
         """
         xt_ = gnp.asarray(xt)
-
         K = self.covariance(xt_, xt_, self.covparam)
-
         # Factorization of the covariance matrix
         if method == "chol":
             C = gnp.cholesky(K)
@@ -829,10 +637,8 @@ class Model:
         elif method == "svd":
             u, s, vt = gnp.svd(K, full_matrices=True, hermitian=True)
             C = gnp.matmul(u * gnp.sqrt(s), vt)
-
         # Generates samplepaths
         zsim = gnp.matmul(C, gnp.randn(K.shape[0], nb_paths))
-
         return zsim
 
     def conditional_sample_paths(
@@ -929,7 +735,7 @@ class Model:
         ztsimc : ndarray
             Conditional sample paths at prediction points xt, adjusted for a parameterized mean.
         """
-        xi_, zi_, xt_ = Model.ensure_shapes_and_type(xi=xi, zi=zi, xt=xt)
+        xi_, zi_, xt_ = Model._ensure_shapes_and_type(xi=xi, zi=zi, xt=xt)
         ztsim_ = gnp.asarray(ztsim)
 
         zi_prior_mean_ = self.mean(xi_, self.meanparam).reshape(-1)
@@ -951,7 +757,7 @@ class Model:
         return ztsimc
 
     @staticmethod
-    def ensure_shapes_and_type(xi=None, zi=None, xt=None, convert=True):
+    def _ensure_shapes_and_type(xi=None, zi=None, xt=None, convert=True):
         """Ensure correct shapes and types for provided arrays.
 
         Parameters
@@ -1004,3 +810,150 @@ class Model:
                 xt = gnp.asarray(xt)
 
         return xi, zi, xt
+
+    def _validate_model_mean(self, meantype, mean, meanparam):
+        """Validate model initialization inputs."""
+        if meantype not in ["zero", "parameterized", "linear_predictor"]:
+            raise ValueError(
+                "meantype must be one of 'zero', 'parameterized', or 'linear_predictor'"
+            )
+        if meantype == "zero" and mean is not None:
+            raise ValueError("For meantype 'zero', mean must be None")
+        if meantype in ["parameterized", "linear_predictor"] and not callable(mean):
+            raise TypeError(
+                "For meantype 'parameterized' or 'linear_predictor', mean must be a callable function"
+            )
+
+    def _return_inf(self):
+        if gnp._gpmp_backend_ == "jax" or gnp._gpmp_backend_ == "numpy":
+            return gnp.inf
+        elif gnp._gpmp_backend_ == "torch":
+            # Use LinAlgError instead of raising RuntimeError for linalg operations
+            # https://github.com/pytorch/pytorch/issues/64785
+            # https://stackoverflow.com/questions/242485/starting-python-debugger-automatically-on-error
+            # extype, value, tb = __import__("sys").exc_info()
+            # __import__("traceback").print_exc()
+            # __import__("pdb").post_mortem(tb)
+            inf_tensor = gnp.tensor(float("inf"), requires_grad=True)
+            return inf_tensor  # returns inf with None gradient
+
+    def _prepare_data(self, xi, zi, xt, convert_in):
+        """Convert inputs to the proper shapes and types."""
+        return Model._ensure_shapes_and_type(xi=xi, zi=zi, xt=xt, convert=convert_in)
+
+    def _select_predictor(self, xi, zi, xt):
+        """
+        Select the appropriate kriging predictor based on meantype.
+
+        Returns
+        -------
+            lambda_t : kriging weights.
+            zt_posterior_variance : posterior variance.
+            adjusted_zi : possibly centered observations.
+            zt_prior_mean : prior mean adjustment for xt.
+        """
+        # Default: no mean adjustment.
+        zt_prior_mean = 0.0
+        zi_centered = zi
+
+        if self.meantype == "zero":
+            lambda_t, zt_posterior_variance = self.kriging_predictor_with_zero_mean(
+                xi, xt
+            )
+        elif self.meantype == "linear_predictor":
+            lambda_t, zt_posterior_variance = self.kriging_predictor(xi, xt)
+        elif self.meantype == "parameterized":
+            if self.meanparam is None:
+                raise ValueError(
+                    "For meantype 'parameterized', meanparam should not be None."
+                )
+            # Use the zero-mean predictor but center the data.
+            lambda_t, zt_posterior_variance = self.kriging_predictor_with_zero_mean(
+                xi, xt
+            )
+            zi_prior_mean = self.mean(xi, self.meanparam).reshape(-1)
+            zi_centered = zi - zi_prior_mean
+            zt_prior_mean = self.mean(xt, self.meanparam).reshape(-1)
+        else:
+            raise ValueError(
+                f"Invalid mean_type {self.mean_type}. Supported types are 'zero', 'parameterized', and 'linear_predictor'."
+            )
+
+        return zi_centered, zt_prior_mean, lambda_t, zt_posterior_variance
+
+    def _compute_posterior_variance(self, xt, lambda_t, Kit, return_type=0):
+        """Compute posterior variance based on return type."""
+        if return_type == -1:
+            return None
+        elif return_type == 0:
+            zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=True)
+            return zt_prior_variance - gnp.einsum("i..., i...", lambda_t, Kit)
+        elif return_type == 1:
+            zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=False)
+            return zt_prior_variance - gnp.matmul(lambda_t.T, Kit)
+
+    def _loo_with_zero_mean(self, covparam, xi, zi):
+        """Compute LOO prediction error for zero mean."""
+        K = self.covariance(xi, xi, covparam)  # shape (n, n)
+
+        # Use the "virtual cross-validation" formula
+        Kinv = gnp.cholesky_inv(K)
+
+        # e_loo,i  = 1 / Kinv_i,i ( Kinv  z )_i
+        Kinvzi = gnp.matmul(Kinv, zi)  # shape (n, )
+        Kinvdiag = gnp.diag(Kinv)  # shape (n, )
+        eloo = Kinvzi / Kinvdiag  # shape (n, )
+
+        # sigma2_loo,i = 1 / Kinv_i,i
+        sigma2loo = 1.0 / Kinvdiag  # shape (n, )
+
+        # zloo_i = z_i - e_loo,i
+        zloo = zi - eloo  # shape (n, )
+
+        return zloo, sigma2loo, eloo
+
+    def _loo_with_parameterized_mean(self, meanparam, covparam, xi, zi):
+        """Compute LOO prediction error for parameterized mean."""
+        zi_prior_mean = self.mean(xi, meanparam).reshape(-1)
+        centered_zi = zi - zi_prior_mean
+        zloo_centered, sigma2loo, eloo_centered = self._loo_with_zero_mean(
+            covparam, xi, centered_zi
+        )
+        zloo = zloo_centered + zi_prior_mean
+        return zloo, sigma2loo, eloo_centered
+
+    def _loo_with_linear_predictor_mean(self, meanparam, covparam, xi, zi):
+        """Compute LOO prediction error for linear_predictor mean."""
+        K = self.covariance(xi, xi, covparam)
+        P = self.mean(xi, meanparam)
+
+        # Use the "virtual cross-validation" formula
+        # Qinv = K^-1 - K^-1P (Pt K^-1 P)^-1 Pt K^-1
+        Kinv = gnp.inv(K)
+        KinvP = gnp.matmul(Kinv, P)
+        PtKinvP = gnp.einsum("ki, kj->ij", P, KinvP)
+        R = gnp.solve(PtKinvP, KinvP.T)
+        Qinv = Kinv - gnp.matmul(KinvP, R)
+
+        # e_loo,i  = 1 / Q_i,i ( Qinv  z )_i
+        Qinvzi = gnp.matmul(Qinv, zi)  # shape (n, )
+        Qinvdiag = gnp.diag(Qinv)  # shape (n, )
+        eloo = Qinvzi / Qinvdiag  # shape (n, )
+
+        # sigma2_loo,i = 1 / Qinv_i,i
+        sigma2loo = 1.0 / Qinvdiag  # shape (n, )
+
+        # z_loo
+        zloo = zi - eloo  # shape (n, )
+
+        return zloo, sigma2loo, eloo
+
+    def _compute_contrast_matrix(self, P):
+        """Compute a matrix of contrasts from design matrix P."""
+        n, q = P.shape
+        [Q, R] = gnp.qr(P, "complete")
+        return Q[:, q:n]
+
+    def _compute_contrast_covariance(self, W, K):
+        """Compute covariance matrix of contrasts G = W' * (K * W)."""
+        return gnp.matmul(W.T, gnp.matmul(K, W))
