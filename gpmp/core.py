@@ -160,24 +160,11 @@ class Model:
             'parameterized' - Known mean function with parameterized parameters.
             'linear_predictor' - Linearly parameterized mean function with linear_predictor parameters.
         """
+        self._validate_model_mean(meantype, mean, meanparam)
         self.meantype = meantype
-
-        if meantype not in ["zero", "parameterized", "linear_predictor"]:
-            raise ValueError(
-                "meantype must be one of 'zero', 'parameterized', or 'linear_predictor'"
-            )
-
-        if meantype == "zero" and mean is not None:
-            raise ValueError("For meantype 'zero', mean must be None")
-
-        if meantype in ["parameterized", "linear_predictor"] and not callable(mean):
-            raise TypeError(
-                "For meantype 'parameterized' or 'linear_predictor', mean must be a callable function"
-            )
-
+        self.mean = mean
         self.meanparam = meanparam
         self.covparam = covparam
-        self.mean = mean
         self.covariance = covariance
 
     def __repr__(self):
@@ -187,6 +174,19 @@ class Model:
     def __str__(self):
         output = str("<gpmp.core.Model object>")
         return output
+
+    def _validate_model_mean(self, meantype, mean, meanparam):
+        """Validate model initialization inputs."""
+        if meantype not in ["zero", "parameterized", "linear_predictor"]:
+            raise ValueError(
+                "meantype must be one of 'zero', 'parameterized', or 'linear_predictor'"
+            )
+        if meantype == "zero" and mean is not None:
+            raise ValueError("For meantype 'zero', mean must be None")
+        if meantype in ["parameterized", "linear_predictor"] and not callable(mean):
+            raise TypeError(
+                "For meantype 'parameterized' or 'linear_predictor', mean must be a callable function"
+            )
 
     def kriging_predictor_with_zero_mean(self, xi, xt, return_type=0):
         """Compute the kriging predictor with zero mean."""
