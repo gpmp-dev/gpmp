@@ -1,6 +1,6 @@
 # --------------------------------------------------------------
 # Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-# Copyright (c) 2022-2024, CentraleSupelec
+# Copyright (c) 2022-2025, CentraleSupelec
 # License: GPLv3 (see LICENSE)
 # --------------------------------------------------------------
 import warnings
@@ -50,13 +50,13 @@ class Model:
         True) should be returned
 
     meanparam : array_like, optional
-        Parameters for the mean function, given as a one-dimensional
-        array. These parameters define the specific form and behavior
-        of the mean function used in the GP model.
+        Parameter for the mean function, given as a one-dimensional
+        array. This parameter is only used when meantype is set to
+        'parameterized'.
 
     covparam : array_like, optional
-        Parameters for the covariance function, given as a
-        one-dimensional array. These parameters determine the
+        Parameter for the covariance function, given as a
+        one-dimensional array. This parameter determines the
         characteristics of the covariance function, influencing
         aspects like length scale, variance, and smoothness of the GP.
 
@@ -68,20 +68,18 @@ class Model:
         - 'parameterized': A parameterized mean function with parameterized parameters. Useful
           when there's prior knowledge about the mean behavior of the
           function being modeled.
-        - 'linear_predictor': A linearly parameterized mean function with
-          linear_predictor parameters, suitable for situations where the mean
-          structure is to be learned from data.
+        - 'linear_predictor': A linearly parameterized mean function, corresponding to
+          the case of "universal" or intrinsic kriging.
 
     Methods
     -------
     kriging_predictor_with_zero_mean(xi, xt, return_type=0)
         Compute the kriging predictor assuming a zero mean
-        function. Useful for models where the mean is assumed to be
-        negligible.
+        function.
 
     kriging_predictor(xi, xt, return_type=0)
         Compute the kriging predictor considering a non-zero mean
-        function. This method is essential in practical applications.
+        function.
 
     predict(xi, zi, xt, return_lambdas=False, zero_neg_variances=True,
             convert_in=True, convert_out=True)
@@ -90,8 +88,8 @@ class Model:
         `meantype` attribute.
 
     loo(xi, zi, convert_in=True, convert_out=False)
-        Compute the leave-one-out (LOO) prediction error. This method
-        is valuable for model validation and hyperparameter tuning.
+        Compute the leave-one-out (LOO) prediction error, for model
+        validation and hyperparameter tuning.
 
     negative_log_likelihood_zero_mean(covparam, xi, zi)
         Computes the negative log-likelihood for a zero-mean GP model.
@@ -159,7 +157,7 @@ class Model:
             Type of mean used in the model. It can be:
             'zero' - Zero mean function.
             'parameterized' - Known mean function with parameterized parameters.
-            'linear_predictor' - Linearly parameterized mean function with linear_predictor parameters.
+            'linear_predictor' - Linearly parameterized mean function.
         """
         self._validate_model_mean(meantype, mean, meanparam)
         self.meantype = meantype
@@ -173,8 +171,25 @@ class Model:
         return output
 
     def __str__(self):
-        output = str("<gpmp.core.Model object>")
-        return output
+        if self.meantype == "zero":
+            mean_desc = "Zero Mean"
+        else:
+            try:
+                mean_desc = self.mean.__name__
+            except AttributeError:
+                mean_desc = str(self.mean)
+        try:
+            cov_desc = self.covariance.__name__
+        except AttributeError:
+            cov_desc = str(self.covariance)
+        return (
+            f"GP Model:\n"
+            f"  Mean Type: {self.meantype}\n"
+            f"  Mean Function: {mean_desc}\n"
+            f"  Mean Parameters: {self.meanparam}\n"
+            f"  Covariance Function: {cov_desc}\n"
+            f"  Covariance Parameters: {self.covparam}"
+        )
 
     def kriging_predictor_with_zero_mean(self, xi, xt, return_type=0):
         """Compute the kriging predictor with zero mean."""
@@ -190,27 +205,26 @@ class Model:
         return lambda_t, zt_posterior_variance
 
     def kriging_predictor(self, xi, xt, return_type=0):
-        """Compute the kriging predictor with non-zero mean.
+        """Compute the kriging predictor with a non-zero mean.
 
         Parameters
         ----------
-        xi : ndarray(ni, d)
-            Observation points
-        xt : ndarray(nt, d)
-            Prediction points
-        return_type : -1, 0 or 1
-            If -1, returned posterior variance is None. If 0
-            (default), return the posterior variance at points xt.
-            If 1, return the posterior covariance.
+        xi : array_like, shape (n, d)
+            Observation points.
+        xt : array_like, shape (m, d)
+            Prediction points.
+        return_type : int, optional
+            Indicator for posterior variance:
+              -1: return None,
+               0: return variance (default),
+               1: return full covariance.
 
-        Notes
-        -----
-        If return_type==1, then the covariance function k must be
-        built so that k(xi, xi, covparam) returns the covariance
-        matrix of observations, and k(xt, xt, covparam) returns the
-        covariance matrix of the predictands. This means that the
-        information of which are the observation points and which are
-        the prediction points must be coded in xi / xt
+        Returns
+        -------
+        lambda_t : array_like, shape (n, m)
+            Kriging weights.
+        zt_posterior_variance : array_like
+            Posterior variance (or covariance if return_type==1).
         """
         # LHS
         Kii = self.covariance(xi, xi, self.covparam)
@@ -251,28 +265,29 @@ class Model:
         Parameters
         ----------
         xi : ndarray or gnp.array of shape (ni, dim)
-            Observation points.
+            Observation points in input space.
         zi : ndarray or gnp.array of shape (ni,) or (ni, 1)
-            Observed values.
+            Observed values at the observation points.
         xt : ndarray or gnp.array of shape (nt, dim)
-            Prediction points.
+            Target points where predictions are to be made.
         return_lambdas : bool, optional
-            Set return_lambdas=True if lambdas should be returned, by default False.
+            Whether to return the kriging weights, by default False.
         zero_neg_variances : bool, optional
-            Whether to zero negative posterior variances (due to numerical errors), default=True.
+            Whether to replace negative posterior variances with zeros, by default True.
+            Negative variances can occur due to numerical errors.
         convert_in : bool, optional
-            Whether to convert input arrays to _gpmp_backend_ type or keep as-is.
+            Whether to convert input arrays to the backend's array type, by default True.
         convert_out : bool, optional
-            Whether to return numpy arrays or keep _gpmp_backend_ types.
+            Whether to convert output arrays to numpy arrays, by default True.
 
         Returns
         -------
-        z_posterior_mean : gnp.array or ndarray
-            1D array of shape nt representing the posterior mean.
-        z_posterior_variance : gnp.array or ndarray
-            1D array of shape nt representing the posterior variance.
-        lambda_t : gnp.array(ni, nt), optional
-            2D array of kriging weights, only returned if return_lambdas=True.
+        z_posterior_mean : gnp.array or ndarray of shape (nt,)
+            Posterior mean predictions at target points.
+        z_posterior_variance : gnp.array or ndarray of shape (nt,)
+            Posterior variance estimates at target points.
+        lambda_t : gnp.array or ndarray of shape (ni, nt), optional
+            Kriging weights, only returned if return_lambdas=True.
 
         Notes
         -----
@@ -288,8 +303,7 @@ class Model:
         back to the posterior mean prediction. 'meanparam' should
         be provided for this type.
 
-        Ensure to set the appropriate 'meantype' for the desired
-        behavior. Supported types are 'zero', 'parameterized', and 'linear_predictor'.
+        Ensure to set the appropriate 'meantype' for the desired behavior.
         """
         # Step 1: Prepare the data.
         xi, zi, xt = self._prepare_data(xi, zi, xt, convert_in)
@@ -321,8 +335,8 @@ class Model:
         """Compute the leave-one-out (LOO) prediction error.
 
         This method computes the LOO prediction error using the
-        "virtual cross-validation" formula, which allows for efficient
-        computation of LOO predictions without re-fitting the model.
+        "virtual cross-validation" formula, which allows for
+        computation of LOO predictions without looping on the data points.
 
         Parameters
         ----------
@@ -345,12 +359,6 @@ class Model:
         eloo : array_like, shape (n, )
             Leave-one-out prediction errors for each data point in xi.
 
-        Examples
-        --------
-        >>> xi = np.array([[1, 2], [3, 4], [5, 6]])
-        >>> zi = np.array([1.2, 2.5, 4.2])
-        >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
-        >>> zloo, sigma2loo, eloo = model.loo(xi, zi)
         """
         xi_, zi_, _ = Model._ensure_shapes_and_type(xi=xi, zi=zi, convert=convert_in)
 
@@ -440,7 +448,7 @@ class Model:
         """
         zi_prior_mean = self.mean(xi, meanparam).reshape(-1)
         centered_zi = zi - zi_prior_mean
-        # Call the zero mean version with the centered observations
+
         return self.negative_log_likelihood_zero_mean(covparam, xi, centered_zi)
 
     def negative_log_restricted_likelihood(self, covparam, xi, zi):
@@ -501,13 +509,6 @@ class Model:
         norm_sqrd : float
             Squared norm of the residual vector.
 
-        Examples
-        --------
-        >>> xi = np.array([[1, 2], [3, 4], [5, 6]])
-        >>> zi = np.array([1.2, 2.5, 4.2])
-        >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
-        >>> covparam = np.array([1.0, 0.1])
-        >>> norm_sqrd = model.norm_k_sqrd_with_zero_mean(xi, zi, covparam)
         """
         K = self.covariance(xi, xi, covparam)
         Kinv_zi, _ = gnp.cholesky_solve(K, zi)
@@ -540,13 +541,6 @@ class Model:
         Kinvz : array_like, shape (n, 1)
             K^-1 z
 
-        Examples
-        --------
-        >>> xi = np.array([[1, 2], [3, 4], [5, 6]])
-        >>> zi = np.array([[1.2], [2.5], [4.2]])
-        >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
-        >>> covparam = np.array([1.0, 0.1])
-        >>> zTKinvz, Kinv1, Kinvz = model.compute_k_inverses(xi, zi, covparam)
         """
         K = self.covariance(xi, xi, covparam)
         ones_vector = gnp.ones(zi.shape)
@@ -620,7 +614,6 @@ class Model:
         Examples
         --------
         >>> xt = np.array([[1, 2], [3, 4], [5, 6]])
-        >>> model = Model(mean, covariance, meanparam=[0.5, 0.2], covparam=[1.0, 0.1])
         >>> nb_paths = 10
         >>> sample_paths = model.sample_paths(xt, nb_paths)
         """
@@ -680,14 +673,6 @@ class Model:
         ztsimc : ndarray, shape (nt, nb_paths)
             Conditional sample paths at the prediction data points xt.
 
-        Examples
-        --------
-        >>> ztsim = np.random.randn(10, 5)
-        >>> zi = np.array([[1], [2], [3]])
-        >>> xi_ind = np.array([[0], [3], [7]])
-        >>> xt_ind = np.array([[1], [2], [4], [5], [6], [8], [9]])
-        >>> lambda_t = np.random.randn(3, 7)
-        >>> ztsimc = model.conditional_sample_paths(ztsim, xi_ind, zi, xt_ind, lambda_t)
         """
         zi_ = gnp.asarray(zi).reshape(-1, 1)
         ztsim_ = gnp.asarray(ztsim)
@@ -758,25 +743,24 @@ class Model:
 
     @staticmethod
     def _ensure_shapes_and_type(xi=None, zi=None, xt=None, convert=True):
-        """Ensure correct shapes and types for provided arrays.
+        """Validate and adjust shapes/types of input arrays.
 
         Parameters
         ----------
-        xi : ndarray or gnp.array(ni, dim), optional
-            Observation points.
-        zi : ndarray or gnp.array(ni,) or gnp.array(ni, 1), optional
-            Observed values.
-        xt : ndarray or gnp.array(nt, dim), optional
-            Prediction points.
+        xi : array_like, optional
+            Observation points (n, dim).
+        zi : array_like, optional
+            Observed values (n,) or (n, 1).
+        xt : array_like, optional
+            Prediction points (m, dim).
         convert : bool, optional
-            Whether to convert input arrays to _gpmp_backend_ type or keep as-is.
+            Convert arrays to backend type (default True).
 
         Returns
         -------
-        xi, zi, xt : tuple
-            Tuples containing arrays with ensured shapes and types.
+        tuple
+            (xi, zi, xt) with proper shapes and types.
         """
-
         if xi is not None:
             assert len(xi.shape) == 2, "xi should be a 2D array"
 
@@ -876,7 +860,7 @@ class Model:
             zt_prior_mean = self.mean(xt, self.meanparam).reshape(-1)
         else:
             raise ValueError(
-                f"Invalid mean_type {self.mean_type}. Supported types are 'zero', 'parameterized', and 'linear_predictor'."
+                f"Invalid meantype {self.meantype}. Supported types are 'zero', 'parameterized', and 'linear_predictor'."
             )
 
         return zi_centered, zt_prior_mean, lambda_t, zt_posterior_variance

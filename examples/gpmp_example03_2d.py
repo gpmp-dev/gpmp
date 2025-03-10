@@ -14,7 +14,7 @@ the data is assumed to be noiseless.
 
 ----
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2024, CentraleSupelec
+Copyright (c) 2022-2025, CentraleSupelec
 License: GPLv3 (see LICENSE)
 ----
 This example is based on the file stk_example_kb03.m from the STK at

@@ -13,7 +13,7 @@ the data is assumed to be noiseless.
 
 ----
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2024, CentraleSupelec
+Copyright (c) 2022-2025, CentraleSupelec
 License: GPLv3 (see LICENSE)
 """
 import gpmp.num as gnp

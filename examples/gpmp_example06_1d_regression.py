@@ -4,7 +4,7 @@ This example repeats example02 with a noisy dataset.
 
 ----
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2024, CentraleSupelec
+Copyright (c) 2022-2025, CentraleSupelec
 License: GPLv3 (see LICENSE)
 ----
 This example is based on the file stk_example_kb01.m from the STK at

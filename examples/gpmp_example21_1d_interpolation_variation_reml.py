@@ -2,7 +2,7 @@
 Plot and optimize the restricted negative log-likelihood
 
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2024, CentraleSupelec
+Copyright (c) 2022-2025, CentraleSupelec
 License: GPLv3 (see LICENSE)
 """
 
@@ -82,10 +82,12 @@ def main():
     covparam0 = gp.kernel.anisotropic_parameters_initial_guess(model, xi, zi)
 
     # selection criterion
+    selection_criterion = gp.kernel.negative_log_restricted_likelihood
     nlrl, dnlrl = gp.kernel.make_selection_criterion_with_gradient(
-        model, gp.kernel.negative_log_restricted_likelihood, xi, zi
+        model, selection_criterion, xi, zi
     )
 
+    # optimize parameters
     covparam_reml, info = gp.kernel.autoselect_parameters(
         covparam0, nlrl, dnlrl, silent=False, info=True
     )
