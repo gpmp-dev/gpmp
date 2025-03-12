@@ -1,3 +1,4 @@
+- 0.9.20 update num.py to implement functions needed in gpmp-contrib
 - 0.9.19 introduce 'DifferentiableFunction' to encapsulate gradient computation, code enhancement
 - 0.9.18 small improvements in kernel.py and num.py
 - 0.9.17 refactor parameter selection procedures for more general selection criteria support

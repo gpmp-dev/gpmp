@@ -78,6 +78,8 @@ if _gpmp_backend_ == "numpy":
         linspace,
         logspace,
         meshgrid,
+        floor,
+        ceil,
         abs,
         sqrt,
         exp,
@@ -141,6 +143,9 @@ if _gpmp_backend_ == "numpy":
 
     def asdouble(x):
         return x.astype(float64)
+
+    def asint(x):
+        return x.astype(int)
 
     def to_np(x):
         return x
@@ -276,6 +281,8 @@ elif _gpmp_backend_ == "torch":
         linspace,
         logspace,
         meshgrid,
+        floor,
+        ceil,
         abs,
         cov,
         argmax,
@@ -300,7 +307,10 @@ elif _gpmp_backend_ == "torch":
     fmax = finfo(float64).max
 
     def copy(x):
-        return torch.clone(tensor(x))
+        if isinstance(x, torch.Tensor):
+            return x.clone().detach()
+        else:
+            return torch.clone(tensor(x))
 
     def set_elem1(x, index, v):
         x[index] = v
@@ -334,6 +344,9 @@ elif _gpmp_backend_ == "torch":
 
     def asdouble(x):
         return x.to(torch.double)
+
+    def asint(x):
+        return x.to(torch.int)
 
     def to_np(x):
         return x.numpy()
@@ -458,10 +471,12 @@ elif _gpmp_backend_ == "torch":
 
             if not torch.equal(asarray(x), self.x_value):
                 raise ValueError(
-                    "The input 'x' in 'gradient' must be the same as in 'evaluate'")
+                    "The input 'x' in 'gradient' must be the same as in 'evaluate'"
+                )
 
             gradients = torch.autograd.grad(
-                self.f_value, self.x_value, allow_unused=True, retain_graph=retain)[0]
+                self.f_value, self.x_value, allow_unused=True, retain_graph=retain
+            )[0]
 
             if gradients is None:
                 raise RuntimeError("None gradient")
@@ -670,6 +685,8 @@ elif _gpmp_backend_ == "jax":
         linspace,
         logspace,
         meshgrid,
+        floor,
+        ceil,
         abs,
         sqrt,
         exp,
@@ -736,6 +753,9 @@ elif _gpmp_backend_ == "jax":
     def asdouble(x):
         return x.astype(float64)
 
+    def asint(x):
+        return x.astype(int)
+
     def to_np(x):
         return numpy.array(x)
 
@@ -775,7 +795,8 @@ elif _gpmp_backend_ == "jax":
 
             if not jax.numpy.array_equal(x, self.x_value):
                 raise ValueError(
-                    "The input 'x' in 'gradient' must be the same as in 'evaluate'")
+                    "The input 'x' in 'gradient' must be the same as in 'evaluate'"
+                )
 
             return self.f_grad(self.x_value)
 
