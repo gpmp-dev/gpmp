@@ -240,12 +240,12 @@ class Model:
 
         # lambdamu_t = RHS^(-1) LHS
         lambdamu_t = gnp.solve(
-            LHS, RHS, overwrite_a=True, overwrite_b=True, assume_a="sym"
+            LHS, RHS, overwrite_a=True, overwrite_b=False, assume_a="sym"
         )
         lambda_t = lambdamu_t[0:ni, :]
 
         zt_posterior_variance = self._compute_posterior_variance(
-            xt, lambda_t, Kit, return_type
+            xt, lambdamu_t, RHS, return_type
         )
 
         return lambda_t, zt_posterior_variance
@@ -865,16 +865,16 @@ class Model:
 
         return zi_centered, zt_prior_mean, lambda_t, zt_posterior_variance
 
-    def _compute_posterior_variance(self, xt, lambda_t, Kit, return_type=0):
+    def _compute_posterior_variance(self, xt, lambdamu_t, RHS, return_type=0):
         """Compute posterior variance based on return type."""
         if return_type == -1:
             return None
         elif return_type == 0:
             zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=True)
-            return zt_prior_variance - gnp.einsum("i..., i...", lambda_t, Kit)
+            return zt_prior_variance - gnp.einsum("i..., i...", lambdamu_t, RHS)
         elif return_type == 1:
             zt_prior_variance = self.covariance(xt, None, self.covparam, pairwise=False)
-            return zt_prior_variance - gnp.matmul(lambda_t.T, Kit)
+            return zt_prior_variance - gnp.matmul(lambdamu_t.T, RHS)
 
     def _loo_with_zero_mean(self, covparam, xi, zi):
         """Compute LOO prediction error for zero mean."""
