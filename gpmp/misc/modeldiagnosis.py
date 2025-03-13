@@ -324,7 +324,7 @@ def plot_criterion_crossections(
         ax.set_ylabel("Criterion value")
         ax.legend()
 
-    fig.suptitle("Selection criterion cross sections", fontsize=16)
+    fig.suptitle("Cross sections for selection criterion", fontsize=14)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.show()
 

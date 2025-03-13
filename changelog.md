@@ -1,3 +1,4 @@
+- 0.9.21 bug correction introduced in v0.9.20 about computation of posterior variance
 - 0.9.20 update num.py to implement functions needed in gpmp-contrib
 - 0.9.19 introduce 'DifferentiableFunction' to encapsulate gradient computation, code enhancement
 - 0.9.18 small improvements in kernel.py and num.py

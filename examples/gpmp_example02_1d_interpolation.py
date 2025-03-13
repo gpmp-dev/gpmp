@@ -86,11 +86,13 @@ def main():
     # Visualization
     print("\nVisualization")
     print("-------------")
-    plot_likelihood = True
-    if plot_likelihood:
+    plot_likelihood_cross_sections = True
+    plot_likelihood_2d_profile = False
+    if plot_likelihood_cross_sections:
         gp.misc.modeldiagnosis.plot_criterion_crossections(
             model, delta=0.6, info=info, param_names=["sigma^2 (log)", "rho (log)"]
         )
+    if plot_likelihood_2d_profile:
         gp.misc.modeldiagnosis.plot_likelihood_sigma_rho(model, info)
 
     visualize_results(xt, zt, xi, zi, zpm, zpv)
