@@ -535,7 +535,7 @@ def autoselect_parameters(
         try:
             J = criterion(p)
         except Exception as e:
-            J = np.Inf
+            J = np.inf
         record_history(p, J)
         return J
 

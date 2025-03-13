@@ -245,7 +245,7 @@ def model_diagnosis_disp(md, xi, zi):
     print(df_zi.concat(df_xi))
 
 
-def plot_criterion_crossections(
+def plot_selection_criterion_crossections(
     model,
     info,
     delta,
@@ -329,7 +329,7 @@ def plot_criterion_crossections(
     plt.show()
 
 
-def plot_2d_criterion_params(
+def plot_selection_criterion_2d(
     model,
     info,
     param_indices=(0, 1),
@@ -467,7 +467,7 @@ def plot_likelihood_sigma_rho(
         Name of the selection criterion to be displayed in the title
     """
     # Use the generalized function to plot sigma and rho with custom names
-    plot_2d_criterion_params(
+    plot_selection_criterion_2d(
         model,
         info,
         param_indices=(0, 1),
