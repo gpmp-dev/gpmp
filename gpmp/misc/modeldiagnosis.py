@@ -1,6 +1,6 @@
 # --------------------------------------------------------------
 # Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-# Copyright (c) 2023, CentraleSupelec
+# Copyright (c) 2023-2025, CentraleSupelec
 # License: GPLv3 (see LICENSE)
 # --------------------------------------------------------------
 import time
@@ -243,6 +243,90 @@ def model_diagnosis_disp(md, xi, zi):
 
     # zi + xi
     print(df_zi.concat(df_xi))
+
+
+def plot_criterion_crossections(
+    model,
+    info,
+    delta,
+    n_points=100,
+    param_names=None,
+    criterion_name="selection criterion",
+):
+    """Plot cross sections of the selection criterion for all parameters.
+
+    For each parameter in the optimal parameter vector
+    (info.covparam), this function varies that entry linearly over
+    [p_opt - delta, p_opt + delta] while keeping the other parameters
+    fixed. The selection criterion (info.selection_criterion) is
+    computed for each value and the resulting curve is plotted.
+
+    Parameters
+    ----------
+    model : object
+        The Gaussian process model.
+    info : object
+        Information object containing the parameter selection results.
+        Must include:
+          - covparam: optimal covariance parameters.
+          - selection_criterion: a callable that accepts a parameter
+            vector and returns the criterion value.
+    delta : float
+        The variation range for each parameter (p_opt ± delta).
+    n_points : int, optional
+        Number of points in the linspace for each parameter. Default is 100.
+    param_names : list of str, optional
+        Names for the parameters. If not provided, parameters are
+        labeled by index.
+    criterion_name : str, optional
+        Name of the selection criterion to be displayed in plot
+        titles.
+
+    Returns
+    -------
+    None
+        The function displays the plots.
+
+    """
+    # Ensure optimal parameters are in a numpy array and flattened.
+    param_opt = gnp.asarray(info.covparam)
+    n_params = param_opt.shape[0]
+
+    # Create subplots: one row per parameter.
+    fig, axes = plt.subplots(n_params, 1, figsize=(8, 3 * n_params))
+    if n_params == 1:
+        axes = [axes]
+
+    # Loop over each parameter to create its cross-section.
+    for i in range(n_params):
+        opt_value = param_opt[i]
+        # Generate linspace for the i-th parameter.
+        x_values = gnp.linspace(opt_value - delta, opt_value + delta, n_points)
+        crit_values = gnp.zeros(n_points)
+
+        # Evaluate the selection criterion for each modified parameter vector.
+        for j, x_val in enumerate(x_values):
+            param = gnp.copy(param_opt)
+            param = gnp.set_elem1(param, i, x_val)
+            crit_values = gnp.set_elem1(crit_values, j, info.selection_criterion(param))
+
+        ax = axes[i]
+        ax.plot(x_values, crit_values, label=criterion_name)
+        ax.axvline(opt_value, color="red", linestyle="--", label="Optimal")
+        # Use provided parameter name if available.
+        name = (
+            param_names[i]
+            if (param_names is not None and i < len(param_names))
+            else f"Parameter {i}"
+        )
+        ax.set_title(f"Cross Section for {name}")
+        ax.set_xlabel("Parameter value")
+        ax.set_ylabel("Criterion value")
+        ax.legend()
+
+    fig.suptitle("Selection criterion cross sections", fontsize=16)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.show()
 
 
 def plot_2d_criterion_params(

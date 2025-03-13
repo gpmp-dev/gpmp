@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 def generate_data():
     """
     Data generation.
-    
+
     Returns
     -------
     tuple
@@ -30,7 +30,7 @@ def generate_data():
     ni = 6
     xi = gp.misc.designs.ldrandunif(dim, ni, box)
     zi = gp.misc.testfunctions.twobumps(xi)
-   
+
     return xt, zt, xi, zi
 
 
@@ -46,7 +46,7 @@ def kernel(x, y, covparam, pairwise=False):
 def visualize_results(xt, zt, xi, zi, zpm, zpv):
     """
     Visualize the results using gp.misc.plotutils (a matplotlib wrapper).
-    
+
     Parameters
     ----------
     xt : numpy.ndarray
@@ -63,11 +63,11 @@ def visualize_results(xt, zt, xi, zi, zpm, zpv):
         Posterior variance
     """
     fig = gp.misc.plotutils.Figure(isinteractive=True)
-    fig.plot(xt, zt, 'k', linewidth=1, linestyle=(0, (5, 5)))
+    fig.plot(xt, zt, "k", linewidth=1, linestyle=(0, (5, 5)))
     fig.plotdata(xi, zi)
-    fig.plotgp(xt, zpm, zpv, colorscheme='simple')
-    fig.xylabels('$x$', '$z$')
-    fig.title('Posterior GP with parameters selected by ReML')
+    fig.plotgp(xt, zpm, zpv, colorscheme="simple")
+    fig.xylabels("$x$", "$z$")
+    fig.title("Posterior GP with parameters selected by ReML")
     fig.show(grid=True, xlim=[-1.0, 1.0], legend=True, legend_fontsize=9)
 
 
@@ -84,14 +84,17 @@ def main():
     zpm, zpv = model.predict(xi, zi, xt)
 
     # Visualization
-    print('\nVisualization')
-    print('-------------')
+    print("\nVisualization")
+    print("-------------")
     plot_likelihood = True
     if plot_likelihood:
+        gp.misc.modeldiagnosis.plot_criterion_crossections(
+            model, delta=0.6, info=info, param_names=["sigma^2 (log)", "rho (log)"]
+        )
         gp.misc.modeldiagnosis.plot_likelihood_sigma_rho(model, info)
-        
+
     visualize_results(xt, zt, xi, zi, zpm, zpv)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
