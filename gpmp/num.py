@@ -52,6 +52,7 @@ if _gpmp_backend_ == "numpy":
 
     from numpy import (
         copy,
+        array_equal,
         reshape,
         where,
         any,
@@ -312,6 +313,9 @@ elif _gpmp_backend_ == "torch":
         else:
             return torch.clone(tensor(x))
 
+    def array_equal(x, y):
+        return torch.equal(x, y)
+
     def set_elem1(x, index, v):
         x[index] = v
         return x
@@ -510,8 +514,7 @@ elif _gpmp_backend_ == "torch":
         distances = custom_sqrt(distances.clamp(min=0.0))
 
         if zero_diagonal and x is y:
-            mask = torch.eye(distances.size(
-                0), dtype=torch.bool, device=x.device)
+            mask = torch.eye(distances.size(0), dtype=torch.bool, device=x.device)
             distances = distances.masked_fill(mask, 0.0)
 
         return distances
@@ -594,8 +597,7 @@ elif _gpmp_backend_ == "torch":
             # For dxd covariance matrix, use MultivariateNormal
             d = cov.shape[0]  # Dimensionality from the covariance matrix
             mean_tensor = torch.full((d,), mean)  # Expand mean to a tensor
-            distribution = MultivariateNormal(
-                mean_tensor, covariance_matrix=cov)
+            distribution = MultivariateNormal(mean_tensor, covariance_matrix=cov)
             return distribution.sample((n,))
 
         @staticmethod
@@ -612,8 +614,7 @@ elif _gpmp_backend_ == "torch":
             # For dxd covariance matrix, use MultivariateNormal
             d = x.shape[-1]  # Infer dimensionality from x
             mean_tensor = torch.full((d,), mean)  # Expand mean to a tensor
-            distribution = MultivariateNormal(
-                mean_tensor, covariance_matrix=cov)
+            distribution = MultivariateNormal(mean_tensor, covariance_matrix=cov)
             return distribution.log_prob(x)
 
         @staticmethod
@@ -659,6 +660,7 @@ elif _gpmp_backend_ == "jax":
     from jax.numpy import array, empty
 
     from jax.numpy import (
+        array_equal,
         reshape,
         where,
         any,
