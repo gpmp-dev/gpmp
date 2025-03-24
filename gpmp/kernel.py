@@ -853,7 +853,7 @@ def update_parameters_with_reml(model, xi, zi, info=False):
     )
 
 
-def log_prior_jeffrey_variance(covparam, lbda=1.0):
+def log_prior_jeffrey_variance(covparam, lambda_var=1.0):
     """Compute a log prior using Jeffrey's prior on the variance parameter.
 
     This function assumes a Jeffrey's prior on the variance parameter:
@@ -867,7 +867,7 @@ def log_prior_jeffrey_variance(covparam, lbda=1.0):
         Parameter array, where the first element is the
         log(variance) (i.e., log(sigma^2)), and the remaining elements
         are the log of the length-scale parameters (log(1/rho)).
-    lbda : float, optional
+    lambda_var : float, optional
         Scaling factor for the log prior. Default is 1.0.
 
     Returns
@@ -879,12 +879,45 @@ def log_prior_jeffrey_variance(covparam, lbda=1.0):
     log_sigma2 = covparam[0]
 
     # Jeffrey's prior: p(sigma^2) \propto (1 / sigma^2)^lbda => log p(sigma^2) = - lbda * log(sigma^2)
-    log_prior_sigma2 = -lbda * log_sigma2
+    log_prior_sigma2 = -lambda_var * log_sigma2
 
     return log_prior_sigma2
 
 
-def neg_log_restricted_posterior_with_jeffreys_prior(model, covparam, xi, zi):
+def log_prior_jeffrey_variance_and_lengthscales(
+    covparam, lambda_var=1.0, lambda_len=1.0
+):
+    """
+    Compute a log prior with Jeffreys' prior on the variance (sigma^2)
+    and on the inverse length scales.
+
+    Parameters
+    ----------
+    covparam : ndarray
+        Parameter array of size D+1:
+          - covparam[0] = log(sigma^2)
+          - covparam[1:] = log(1/rho) for each dimension
+    lambda_var : float, optional
+        Scaling factor for the variance prior. Default is 1.0.
+    lambda_len : float, optional
+        Scaling factor for the length-scale prior. Default is 1.0.
+
+    Returns
+    -------
+    log_p : float
+        The sum of the log prior contributions from variance and
+        from all length scales.
+    """
+    log_sigma2 = covparam[0]
+    log_prior_sigma2 = -lambda_var * log_sigma2
+    log_prior_lens = -lambda_len * gnp.sum(covparam[1:])
+
+    return log_prior_sigma2 + log_prior_lens
+
+
+def neg_log_restricted_posterior_with_jeffreys_prior(
+    model, covparam, xi, zi, lambda_var=1.0
+):
     """Compute the negative log restricted posterior using Jeffrey's
     prior on the variance parameter.
 
@@ -917,12 +950,53 @@ def neg_log_restricted_posterior_with_jeffreys_prior(model, covparam, xi, zi):
     nlrl = model.negative_log_restricted_likelihood(covparam, xi, zi)
 
     # Compute the log prior using Jeffrey's prior on the variance
-    log_prior = log_prior_jeffrey_variance(covparam)
+    log_prior = log_prior_jeffrey_variance(covparam, lambda_var)
 
     # Posterior
     neg_log_posterior = nlrl - log_prior
 
     return neg_log_posterior
+
+
+def neg_log_restricted_posterior_with_jeffreys_prior_all(
+    model, covparam, xi, zi, lambda_var=1.0, lambda_len=1.0
+):
+    """
+    Compute the negative log restricted posterior that includes
+    Jeffreys' priors on both the variance and the length scales.
+
+    Parameters
+    ----------
+    model : object
+        Gaussian process model object.
+    covparam : ndarray
+        The covariance parameter array, where:
+          - covparam[0] = log(sigma^2)
+          - covparam[1:] = log(1/rho) (i.e., -log(length_scale))
+    xi : ndarray
+        The input data points.
+    zi : ndarray
+        The observed values at the input data points.
+    lambda_var : float, optional
+        Scaling factor for the variance prior term. Default is 1.0.
+    lambda_len : float, optional
+        Scaling factor for the length-scale prior term. Default is 1.0.
+
+    Returns
+    -------
+    float
+        The value of the negative log restricted posterior.
+    """
+    # Negative log restricted likelihood
+    nlrl = model.negative_log_restricted_likelihood(covparam, xi, zi)
+
+    # Log prior (variance + length-scales)
+    log_prior = log_prior_jeffrey_variance_and_lengthscales(
+        covparam, lambda_var=lambda_var, lambda_len=lambda_len
+    )
+
+    # Posterior = Likelihood * Prior, so negative log-posterior = nlrl - log_prior
+    return nlrl - log_prior
 
 
 def select_parameters_with_remap(
@@ -931,7 +1005,7 @@ def select_parameters_with_remap(
     """Optimize Gaussian process model parameters using Restricted Maximum A Posteriori (REMAP)."""
     return select_parameters_with_criterion(
         model,
-        neg_log_restricted_posterior_with_jeffreys_prior,
+        neg_log_restricted_posterior_with_jeffreys_prior_all,
         xi,
         zi,
         covparam0=covparam0,
@@ -943,5 +1017,5 @@ def select_parameters_with_remap(
 def update_parameters_with_remap(model, xi, zi, info=False):
     """Update model parameters using Restricted Maximum A Posteriori (REMAP)."""
     return update_parameters_with_criterion(
-        model, neg_log_restricted_posterior_with_jeffreys_prior, xi, zi, info=info
+        model, neg_log_restricted_posterior_with_jeffreys_prior_all, xi, zi, info=info
     )

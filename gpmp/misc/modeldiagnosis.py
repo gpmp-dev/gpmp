@@ -355,7 +355,7 @@ def plot_selection_criterion_2d(
         Name of the selection criterion to be displayed in the title
 
     """
-    n = 180
+    n = 130
     tic = time.time()
 
     def print_progress(i):
@@ -451,11 +451,11 @@ def plot_selection_criterion_2d(
     plt.show()
 
 
-def plot_likelihood_sigma_rho(
+def plot_selection_criterion_sigma_rho(
     model, info, criterion_name="negative log restricted likelihood"
 ):
     """
-    Specific case of likelihood plotting for sigma (param 0) and rho (param 1).
+    Specific case of selection criterion plotting for sigma (param 0) and rho (param 1).
 
     Parameters
     ----------

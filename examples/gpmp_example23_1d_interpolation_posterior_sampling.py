@@ -1,5 +1,6 @@
 """
-Plot and optimize the restricted negative log-likelihood
+Demonstrates ReMAP-based GP parameter selection, posterior sampling, 
+and visualization of a 1D Gaussian process model.
 
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
 Copyright (c) 2022-2025, CentraleSupelec
@@ -8,7 +9,9 @@ License: GPLv3 (see LICENSE)
 
 import gpmp.num as gnp
 import gpmp as gp
+from gpmp.misc.posterior import sample_from_selection_criterion
 import matplotlib.pyplot as plt
+from matplotlib import interactive
 
 
 def generate_data():
@@ -67,7 +70,7 @@ def visualize_results(xt, zt, xi, zi, zpm, zpv):
     fig.plotdata(xi, zi)
     fig.plotgp(xt, zpm, zpv, colorscheme="simple")
     fig.xylabels("$x$", "$z$")
-    fig.title("Posterior GP with parameters selected by ReML")
+    fig.title("Posterior GP with parameters selected by ReMAP")
     fig.show(grid=True, xlim=[-1.0, 1.0], legend=True, legend_fontsize=9)
 
 
@@ -76,24 +79,41 @@ def main():
 
     model = gp.core.Model(constant_mean, kernel)
 
-    # Automatic selection of parameters using REML
-    model, info = gp.kernel.select_parameters_with_reml(model, xi, zi, info=True)
+    # Automatic selection of parameters using ReMAP
+    model, info = gp.kernel.select_parameters_with_remap(model, xi, zi, info=True)
     gp.misc.modeldiagnosis.diag(model, info, xi, zi)
 
     # Prediction
     zpm, zpv = model.predict(xi, zi, xt)
 
+    samples, mh = sample_from_selection_criterion(
+        info,
+        n_steps_total=10_000,
+        burnin_period=5_000,
+        n_chains=2,
+        show_progress=True,
+    )
+
     # Visualization
     print("\nVisualization")
     print("-------------")
+    interactive(True)
     plot_likelihood_cross_sections = True
-    plot_likelihood_2d_profile = False
+    plot_likelihood_2d_profile = True
     if plot_likelihood_cross_sections:
         gp.misc.modeldiagnosis.plot_selection_criterion_crossections(
             model, delta=0.6, info=info, param_names=["sigma^2 (log)", "rho (log)"]
         )
     if plot_likelihood_2d_profile:
-        gp.misc.modeldiagnosis.plot_selection_criterion_sigma_rho(model, info)
+        gp.misc.modeldiagnosis.plot_selection_criterion_sigma_rho(
+            model, info, criterion_name="log posterior"
+        )
+
+    plt.scatter(
+        gnp.log10(gnp.exp(samples[0, :, 0] / 2)),
+        gnp.log10(gnp.exp(-samples[0, :, 1])),
+        alpha=0.2,
+    )
 
     visualize_results(xt, zt, xi, zi, zpm, zpv)
 
