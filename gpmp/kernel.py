@@ -884,33 +884,41 @@ def log_prior_jeffrey_variance(covparam, lambda_var=1.0):
     return log_prior_sigma2
 
 
-def log_prior_jeffrey_variance_and_lengthscales(
-    covparam, lambda_var=1.0, lambda_len=1.0
+def log_prior_power_law(
+    covparam, lambda_var=1.0, lambda_len=1.0, cut=-20.0, penalty_factor=10.0
 ):
     """
-    Compute a log prior with Jeffreys' prior on the variance (sigma^2)
-    and on the inverse length scales.
+    Compute a log prior with power-law forms on the variance and inverse
+    length scales, with extra penalty if the log inverse length-scale
+    falls below a cutoff (rho is too large).
 
     Parameters
     ----------
     covparam : ndarray
         Parameter array of size D+1:
           - covparam[0] = log(sigma^2)
-          - covparam[1:] = log(1/rho) for each dimension
+          - covparam[1:] = log(1/rho) for each dimension.
     lambda_var : float, optional
-        Scaling factor for the variance prior. Default is 1.0.
+        Scaling factor for the variance prior term. Default is 1.0.
     lambda_len : float, optional
-        Scaling factor for the length-scale prior. Default is 1.0.
+        Scaling factor for the length-scale prior term. Default is 1.0.
+    cut : float, optional
+        Threshold for log(1/rho). For example, cut=-20 means that if log(1/rho)
+        is below -20 (i.e. rho > exp(20)), extra penalty is applied.
+    penalty_factor : float, optional
+        Additional penalty per unit below p_cut. Default is 10.0.
 
     Returns
     -------
     log_p : float
-        The sum of the log prior contributions from variance and
-        from all length scales.
+        The sum of the log prior contributions from the variance and
+        the length scales, including extra penalties for large rhos.
     """
     log_sigma2 = covparam[0]
     log_prior_sigma2 = -lambda_var * log_sigma2
-    log_prior_lens = -lambda_len * gnp.sum(covparam[1:])
+    p = covparam[1:]
+    extra_penalty = penalty_factor * gnp.maximum(cut - p, 0)
+    log_prior_lens = -lambda_len * gnp.sum(p) - gnp.sum(extra_penalty)
 
     return log_prior_sigma2 + log_prior_lens
 
@@ -958,12 +966,12 @@ def neg_log_restricted_posterior_with_jeffreys_prior(
     return neg_log_posterior
 
 
-def neg_log_restricted_posterior_with_jeffreys_prior_all(
+def neg_log_restricted_posterior_with_power_law_prior(
     model, covparam, xi, zi, lambda_var=1.0, lambda_len=1.0
 ):
     """
     Compute the negative log restricted posterior that includes
-    Jeffreys' priors on both the variance and the length scales.
+    power-law priors on both the variance and the length scales.
 
     Parameters
     ----------
@@ -991,7 +999,7 @@ def neg_log_restricted_posterior_with_jeffreys_prior_all(
     nlrl = model.negative_log_restricted_likelihood(covparam, xi, zi)
 
     # Log prior (variance + length-scales)
-    log_prior = log_prior_jeffrey_variance_and_lengthscales(
+    log_prior = log_prior_power_law(
         covparam, lambda_var=lambda_var, lambda_len=lambda_len
     )
 
@@ -1005,7 +1013,7 @@ def select_parameters_with_remap(
     """Optimize Gaussian process model parameters using Restricted Maximum A Posteriori (REMAP)."""
     return select_parameters_with_criterion(
         model,
-        neg_log_restricted_posterior_with_jeffreys_prior_all,
+        neg_log_restricted_posterior_with_power_law_prior,
         xi,
         zi,
         covparam0=covparam0,
@@ -1017,5 +1025,5 @@ def select_parameters_with_remap(
 def update_parameters_with_remap(model, xi, zi, info=False):
     """Update model parameters using Restricted Maximum A Posteriori (REMAP)."""
     return update_parameters_with_criterion(
-        model, neg_log_restricted_posterior_with_jeffreys_prior_all, xi, zi, info=info
+        model, neg_log_restricted_posterior_with_power_law_prior, xi, zi, info=info
     )

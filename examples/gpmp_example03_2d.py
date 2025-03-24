@@ -4,7 +4,7 @@ Gaussian processes in 2D
 An anisotropic Matern covariance function is used for the Gaussian
 Process (GP) prior. The parameters of this covariance function
 (variance and ranges) are estimated using the Restricted Maximum
-Likelihood (ReML) method.
+A Posteriori (ReMAP) method.
 
 The mean function of the GP prior is assumed to be constant and
 unknown.
@@ -61,7 +61,7 @@ def create_model():
 
 
 def main():
-    case_num = 2
+    case_num = 1
     f, dim, box, ni = select_test_function(case_num)
 
     # Compute the function on a 80 x 80 regular grid
@@ -69,10 +69,10 @@ def main():
     xt = gp.misc.designs.regulargrid(dim, nt, box)
     zt = f(xt)
 
-    design_type = 'ld'
-    if design_type == 'lhs':
+    design_type = "ld"
+    if design_type == "lhs":
         xi = gp.misc.designs.maximinlhs(dim, ni, box)
-    elif design_type == 'ld':
+    elif design_type == "ld":
         xi = gp.misc.designs.ldrandunif(dim, ni, box)
     zi = f(xi)
 
@@ -81,11 +81,11 @@ def main():
     # Parameter selection
     covparam0 = gp.kernel.anisotropic_parameters_initial_guess(model, xi, zi)
     nlrl, dnlrl = gp.kernel.make_selection_criterion_with_gradient(
-        model,
-        gp.kernel.negative_log_restricted_likelihood,
-        xi,
-        zi)
-    covparam_reml, info = gp.kernel.autoselect_parameters(covparam0, nlrl, dnlrl, info=True)
+        model, gp.kernel.neg_log_restricted_posterior_with_power_law_prior, xi, zi
+    )
+    covparam_reml, info = gp.kernel.autoselect_parameters(
+        covparam0, nlrl, dnlrl, info=True
+    )
     model.covparam = gnp.asarray(covparam_reml)
     gp.misc.modeldiagnosis.diag(model, info, xi, zi)
 
@@ -93,28 +93,30 @@ def main():
     (zpm, zpv) = model.predict(xi, zi, xt)
 
     # Visualization
-    cmap = plt.get_cmap('PiYG')
+    cmap = plt.get_cmap("PiYG")
     contour_lines = 30
 
     fig, axes = plt.subplots(nrows=2, ncols=2)
     data = [zt, zpm, np.abs(zpm - zt), np.sqrt(zpv)]
     titles = [
-        'function to be approximated',
-        f'approximation from {ni} points',
-        'true approx error',
-        'posterior std'
+        "function to be approximated",
+        f"approximation from {ni} points",
+        "true approx error",
+        "posterior std",
     ]
 
     for ax, z, title in zip(axes.flat, data, titles):
-        cs = ax.contourf(xt[:, 0].reshape(nt),
-                         xt[:, 1].reshape(nt),
-                         z.reshape(nt),
-                         levels=contour_lines,
-                         cmap=cmap)
-        ax.plot(xi[:, 0], xi[:, 1], 'ro', label='data')
+        cs = ax.contourf(
+            xt[:, 0].reshape(nt),
+            xt[:, 1].reshape(nt),
+            z.reshape(nt),
+            levels=contour_lines,
+            cmap=cmap,
+        )
+        ax.plot(xi[:, 0], xi[:, 1], "ro", label="data")
         ax.set_title(title)
-        ax.set_xlabel('$x_1$')
-        ax.set_ylabel('$x_2$')
+        ax.set_xlabel("$x_1$")
+        ax.set_ylabel("$x_2$")
         ax.legend()
         fig.colorbar(cs, ax=ax, shrink=0.9)
 
@@ -122,20 +124,21 @@ def main():
 
     # Predictions vs truth
     plt.figure()
-    plt.plot(zt, zpm, 'ko')
+    plt.plot(zt, zpm, "ko")
     (xmin, xmax), (ymin, ymax) = plt.xlim(), plt.ylim()
     xmin = min(xmin, ymin)
     xmax = max(xmax, ymax)
-    plt.plot([xmin, xmax], [xmin, xmax], '--')
-    plt.xlabel('true values')
-    plt.ylabel('predictions')
+    plt.plot([xmin, xmax], [xmin, xmax], "--")
+    plt.xlabel("true values")
+    plt.ylabel("predictions")
     plt.show()
 
     # LOO predictions
     zloom, zloov, eloo = model.loo(xi, zi)
     gp.misc.plotutils.plot_loo(zi, zloom, zloov)
 
-    gp.misc.plotutils.crosssections(model, xi, zi, box, [0, 20], [0, 1])
+    gp.misc.plotutils.crosssections(model, xi, zi, box, ind_i=[0, 10], ind_dim=[0, 1])
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

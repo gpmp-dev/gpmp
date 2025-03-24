@@ -771,7 +771,7 @@ class MetropolisHastings:
 
     def compute_gelman_rubin_rhat(self, n_block_size: int) -> np.ndarray:
         """
-        Compute the Gelman–Rubin R-hat statistic for each parameter dimension
+        Compute the Gelman-Rubin R-hat statistic for each parameter dimension
         using the last n_block_size samples of each chain.
 
         Parameters
@@ -1132,7 +1132,6 @@ def test_chi2():
         print("Gelman-Rubin indicates convergence.")
     else:
         print("Chains may not be converged.")
-    __import__("pdb").set_trace()
 
     # -------------------------------
     # 5) Plot chain traces & hist
@@ -1150,13 +1149,13 @@ def test_chi2():
         # Histogram of MCMC samples
         ax.hist(x_1d, bins=50, density=True, alpha=0.5, label="MCMC samples")
 
-        # Overlay the *true* marginal PDF in red
+        # Overlay the true marginal pdf
         xs = np.linspace(0.01, 15.0, 300) * scale[i]
         # dimension i's scale
         scale_i = scale[0] if i == 0 else scale[1]
         pdf_vals = pdf_1d(xs, df=dof, scale=scale_i)
 
-        ax.plot(xs, pdf_vals, "r-", label="True marginal PDF")
+        ax.plot(xs, pdf_vals, "r-", label="True marginal pdf")
         ax.set_xlabel(f"Dimension {i}")
         ax.set_ylabel("Density")
         ax.legend()
@@ -1166,7 +1165,7 @@ def test_chi2():
     plt.show()
 
     # -------------------------------
-    # 6) 2D contour of joint PDF + scatter
+    # 6) 2D contour of joint pdf + scatter
     # -------------------------------
     grid_pts = 60
     max_val = 15.0
@@ -1192,7 +1191,7 @@ def test_chi2():
 
 
 if __name__ == "__main__":
-    #  case = "linear_regression"
+    # case = "linear_regression"
     case = "chi2"
 
     if case == "linear_regression":

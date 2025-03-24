@@ -41,8 +41,7 @@ def perf(model, xi, zi, loo=True, loo_res=None, xtzt=None, zpmzpv=None):
         perf_disp.pop("test_pit")
     except:
         pass
-    print("Prediction performances")
-    print("-----------------------")
+    print("[Prediction performances]\n")
     pretty_print_dictionnary(perf_disp)
 
 
@@ -215,17 +214,16 @@ def model_diagnosis_disp(md, xi, zi):
     zi : array-like
         Output data matrix.
     """
-    print("Model diagnosis")
-    print("----------------")
-    print("  ***  Parameter selection")
+    print("[Model diagnosis]\n")
+    print("  * Parameter selection")
     pretty_print_dictionnary(md["param_selection"])
 
-    print("  ***  Parameters")
+    print("  * Parameters")
     pretty_print_dictionnary(md["parameters"])
 
-    print("  ***  Data")
-    print("   {:>0}: {:d}".format("count", zi.shape[0]))
-    print("   ----")
+    print("  * Data")
+    print("    {:>0}: {:d}".format("count", zi.shape[0]))
+    print("    -----")
 
     param_values = np.array(list(md["parameters"].values()))
 
@@ -522,16 +520,16 @@ def describe_array(x, rownames, normalizing_factor=None):
         colnames = ["mean", "std", "min", "max", "delta"]
     else:
         n_descriptors = 6
-        colnames = ["mean", "std", "min", "max", "delta", "delta_norm"]
+        colnames = ["min", "max", "delta", "mean", "std", "delta_norm"]
     dim = 1 if x.ndim == 1 else x.shape[1]
 
     data = np.empty((dim, n_descriptors))
 
-    data[:, 0] = np.mean(x, axis=0)
-    data[:, 1] = np.std(x, axis=0)
-    data[:, 2] = np.min(x, axis=0)
-    data[:, 3] = np.max(x, axis=0)
-    data[:, 4] = data[:, 3] - data[:, 2]
+    data[:, 0] = np.min(x, axis=0)
+    data[:, 1] = np.max(x, axis=0)
+    data[:, 2] = data[:, 3] - data[:, 2]
+    data[:, 3] = np.mean(x, axis=0)
+    data[:, 4] = np.std(x, axis=0)
 
     if normalizing_factor is not None:
         data[:, 5] = data[:, 4] * normalizing_factor

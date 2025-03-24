@@ -3,7 +3,7 @@
 An anisotropic Matern covariance function is used for the Gaussian
 Process (GP) prior. The parameters of this covariance function
 (variance and ranges) are estimated using the Restricted Maximum
-Likelihood (ReML).
+A Posteriori (ReMAP).
 
 The mean function of the GP prior is assumed to be constant and
 unknown.
@@ -16,6 +16,7 @@ Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
 Copyright (c) 2022-2025, CentraleSupelec
 License: GPLv3 (see LICENSE)
 """
+
 import gpmp.num as gnp
 import gpmp as gp
 import matplotlib.pyplot as plt
@@ -37,7 +38,7 @@ def choose_test_case(problem):
         f = gp.misc.testfunctions.hartmann6
         dim = 6
         box = [[0.0] * 6, [1.0] * 6]
-        ni = 500
+        ni = 200
         xi = gp.misc.designs.ldrandunif(dim, ni, box)
         nt = 1000
         xt = gp.misc.designs.ldrandunif(dim, nt, box)
@@ -97,7 +98,7 @@ def main():
 
     model = gp.core.Model(constant_mean, kernel)
 
-    model, info = gp.kernel.select_parameters_with_reml(model, xi, zi, info=True)
+    model, info = gp.kernel.select_parameters_with_remap(model, xi, zi, info=True)
     gp.misc.modeldiagnosis.diag(model, info, xi, zi)
 
     (zpm, zpv) = model.predict(xi, zi, xt)
@@ -107,10 +108,12 @@ def main():
     zloom, zloov, eloo = model.loo(xi, zi)
     gp.misc.plotutils.plot_loo(zi, zloom, zloov)
 
-    gp.misc.plotutils.crosssections(model, xi, zi, box, [0, 1], list(range(dim)))
+    gp.misc.plotutils.crosssections(
+        model, xi, zi, box, ind_i=[0, 1], ind_dim=list(range(dim))
+    )
 
-    print('')
-    
+    print("")
+
     gp.misc.modeldiagnosis.perf(
         model,
         xi,
