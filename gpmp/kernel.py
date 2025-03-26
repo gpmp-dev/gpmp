@@ -885,7 +885,7 @@ def log_prior_jeffrey_variance(covparam, lambda_var=1.0):
 
 
 def log_prior_power_law(
-    covparam, lambda_var=1.0, lambda_len=1.0, cut=-20.0, penalty_factor=10.0
+    covparam, lambda_var=1.0, lambda_lengthscales=1.0, cut=-20.0, penalty_factor=10.0
 ):
     """
     Compute a log prior with power-law forms on the variance and inverse
@@ -918,9 +918,9 @@ def log_prior_power_law(
     log_prior_sigma2 = -lambda_var * log_sigma2
     p = covparam[1:]
     extra_penalty = penalty_factor * gnp.maximum(cut - p, 0)
-    log_prior_lens = -lambda_len * gnp.sum(p) - gnp.sum(extra_penalty)
+    log_prior_lengthscales = -lambda_lengthscales * gnp.sum(p) - gnp.sum(extra_penalty)
 
-    return log_prior_sigma2 + log_prior_lens
+    return log_prior_sigma2 + log_prior_lengthscales
 
 
 def neg_log_restricted_posterior_with_jeffreys_prior(
@@ -1000,7 +1000,7 @@ def neg_log_restricted_posterior_with_power_law_prior(
 
     # Log prior (variance + length-scales)
     log_prior = log_prior_power_law(
-        covparam, lambda_var=lambda_var, lambda_len=lambda_len
+        covparam, lambda_var=lambda_var, lambda_lengthscales=lambda_len
     )
 
     # Posterior = Likelihood * Prior, so negative log-posterior = nlrl - log_prior

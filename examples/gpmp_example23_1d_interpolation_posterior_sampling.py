@@ -9,7 +9,7 @@ License: GPLv3 (see LICENSE)
 
 import gpmp.num as gnp
 import gpmp as gp
-from gpmp.misc.posterior import sample_from_selection_criterion
+from gpmp.misc.param_posterior import sample_from_selection_criterion
 import matplotlib.pyplot as plt
 from matplotlib import interactive
 

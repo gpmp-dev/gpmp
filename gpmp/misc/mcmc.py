@@ -11,7 +11,7 @@ import math
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import multivariate_normal, gaussian_kde, ks_2samp
-from typing import Callable, Tuple, Union
+from typing import Callable, Tuple, Dict, Any, Union, Optional
 from dataclasses import dataclass, field
 
 
@@ -25,23 +25,29 @@ class MHOptions:
     n_chains: int = 1
     symmetric: bool = True
     target_acceptance: float = 0.3
+    acceptance_tol: float = 0.15
     adaptation_method: str = "Haario"
-    proposal_param_init: Union[np.ndarray, None] = field(default=None)
+    proposal_distribution_param_init: Union[np.ndarray, None] = field(default=None)
     adaptation_interval: int = 50
     freeze_adaptation: bool = True
     discard_burnin: bool = False
     n_pool: int = 1
     RM_adapt_factor: float = 1.0
-    haario_adapt_factor: float = 1.0
+    RM_diminishing: bool = True
+    haario_adapt_factor_burnin_phase: float = 1.0
+    haario_adapt_factor_sampling_phase: float = 0.5
     haario_initial_scaling_factor: float = 1.0
+    sliding_rate_width: int = 200
     show_global_progress: bool = False
     progress_interval: int = 200  # Print every 200 iterations
     init_msg: Union[str, None] = field(default="Sampling from target distribution...")
 
     def __post_init__(self):
         # If user didn’t supply a proposal_param_init, default to np.ones(dim)
-        if self.proposal_param_init is None:
-            self.proposal_param_init = np.ones(self.dim, dtype=float)
+        if self.proposal_distribution_param_init is None:
+            self.proposal_distribution_param_init = np.ones(self.dim, dtype=float)
+        self.acceptance_min = self.target_acceptance - self.acceptance_tol
+        self.acceptance_max = self.target_acceptance + self.acceptance_tol
 
 
 class MetropolisHastings:
@@ -81,9 +87,10 @@ class MetropolisHastings:
         self.target_acceptance = self.options.target_acceptance
 
         # Proposal params for each chain
-        self.proposal_params = None
+        self.proposal_distribution_params = None
 
         # Full-cov scaling factor for Haario policy
+        self.haario_adapt_factor = None
         if self.options.haario_initial_scaling_factor is not None:
             # Use user-supplied initial scale
             self.haario_scaling_factors = [
@@ -96,12 +103,15 @@ class MetropolisHastings:
             ]
         # chain history: shape(n_chains, n_steps, dim)
         self.x = None
-        self.rates = []  # acceptance rates per block
+        self.accept = None
+        self.rates = None
 
-        # Counters
-        self._global_iter = 0  # Overall iteration across blocks
-        self._global_total = 0  # Total iterations for the entire run
-        self._start_time = None  # When we began the entire run
+        # States & Counters
+        self.sampling_mode = "init"
+        self.burnin_period = 0
+        self.global_iter = 0  # Overall iteration across blocks
+        self.global_total = 0  # Total iterations for the entire run
+        self.start_time = None  # When we began the entire run
 
     def _log_prop(self, x: np.ndarray, x_new: np.ndarray, chain_idx: int) -> float:
         """
@@ -113,9 +123,9 @@ class MetropolisHastings:
 
     def _get_cov_parameter(self, chain_idx: int) -> np.ndarray:
         """
-        Retrieve the covariance matrix for chain chain_idx from self.proposal_params.
+        Build a covariance matrix for chain chain_idx from self.proposal_params.
         """
-        p = self.proposal_params[chain_idx]
+        p = self.proposal_distribution_params[chain_idx]
         if np.isscalar(p):
             return p * np.eye(self.dim)
         elif p.ndim == 1:
@@ -125,7 +135,7 @@ class MetropolisHastings:
         else:
             raise ValueError("proposal_params must be scalar, 1D, or 2D per chain.")
 
-    def _initialize_proposal_params(self, p_init: np.ndarray) -> list:
+    def _initialize_proposal_distribution_params(self, p_init: np.ndarray) -> list:
         """
         Convert user-supplied proposal_param_init into a list, one per chain.
         """
@@ -174,13 +184,19 @@ class MetropolisHastings:
         return covs
 
     def _diminishing_adaptation_schedule(
-        self, n_blocks: int, base: float, final_frac=0.1
-    ) -> np.ndarray:
+        self,
+        n: int,
+        n_total: int,
+        base: float,
+        final_frac: float = 0.1,
+    ) -> float:
+        """Compute an adaptation factor for the current step based on
+        a cosine schedule.  At step 0, returns base; at step n,
+        returns base * final_frac.
+
         """
-        Cosine schedule: from base to final_frac*base over n_blocks.
-        """
-        cosvals = 0.5 * (1 + np.cos(np.linspace(0, np.pi, n_blocks)))
-        return base * (final_frac + (1 - final_frac) * cosvals)
+        cosine_component = math.cos(math.pi * n / n_total)
+        return base * (final_frac + (1 - final_frac) * cosine_component)
 
     def _validate_scheduler_args(self, n_steps_total: int, burnin: int):
         if n_steps_total < burnin:
@@ -190,7 +206,7 @@ class MetropolisHastings:
         self, iteration: int, total_steps: int, start_time: float
     ) -> None:
         """
-        Print progress info on a single line, including % complete and
+        Print progress info on a line, including % complete and
         estimated remaining time.
         """
         elapsed_time = time.time() - start_time
@@ -202,12 +218,18 @@ class MetropolisHastings:
 
     def _print_final_time(self, total_steps: int, start_time: float) -> None:
         """
-        Print final summary of total elapsed time and possibly
-        # of function evaluations or other info if desired.
+        Print final summary of total elapsed time and number of steps
         """
         elapsed_time = time.time() - start_time
         print(f"  Progress: 100.00% complete | Total time: {elapsed_time:.3f}s")
         print(f"  Total proposals: {total_steps * self.n_chains}")
+
+    def set_mode(self, mode: str):
+        self.sampling_mode = mode
+        if mode == "burnin":
+            self.haario_adapt_factor = self.options.haario_adapt_factor_burnin_phase
+        elif mode == "sampling_adaptation":
+            self.haario_adapt_factor = self.options.haario_adapt_factor_sampling_phase
 
     def default_prop_rnd(self, x: np.ndarray, chain_idx: int) -> np.ndarray:
         """
@@ -225,7 +247,7 @@ class MetropolisHastings:
         epsilon: float = 1e-6,
     ) -> np.ndarray:
         """
-        Builds a proposal covariance matrix according to Haario’s formula:
+        Build a proposal covariance matrix according to Haario’s formula:
           new_cov = scaling * raw_cov + epsilon * I
         Either supply x_chain (from which raw_cov is computed) or raw_cov directly.
 
@@ -254,6 +276,43 @@ class MetropolisHastings:
 
         return scaling * used_cov + epsilon * np.eye(self.dim)
 
+    def compute_sliding_rates(self, n_block_size: int) -> np.ndarray:
+        """
+        Compute the sliding mean of the acceptance rate for each chain
+        using a   averages of size n_block_size over iterations 0 to self.global_iter.
+        For early iterations (t < n_block_size), the mean is computed over t+1 samples.
+
+        Parameters
+        ----------
+        n_block_size : int
+            Size of the sliding   averages.
+
+        Returns
+        -------
+        np.ndarray
+            Array of shape (self.n_chains, self.global_iter) with sliding mean acceptance rates.
+        """
+        if self.accept is None:
+            raise ValueError("No acceptance data available to compute sliding rates.")
+
+        n_chains = self.n_chains
+        n_max = self.global_iter
+        rates = np.empty((n_chains, n_max))
+
+        for c in range(n_chains):
+            acc = self.accept[c, :n_max].astype(float)
+            cumsum = np.cumsum(acc)
+            # For the first n_block_size samples, average over available samples.
+            rates[c, :n_block_size] = cumsum[:n_block_size] / (
+                np.arange(n_block_size) + 1
+            )
+            # For samples t >= n_block_size, average over the last n_block_size samples.
+            rates[c, n_block_size:] = (
+                cumsum[n_block_size:] - cumsum[:-n_block_size]
+            ) / n_block_size
+
+        return rates
+
     def mhstep(self, x_current: np.ndarray, chain_idx: int) -> Tuple[np.ndarray, bool]:
         """
         Single Metropolis–Hastings update for chain chain_idx.
@@ -271,270 +330,410 @@ class MetropolisHastings:
     def run_samples(
         self,
         n_steps: int,
-        initial_states: np.ndarray,
-        return_rates: bool = False,
         show_global_progress: bool = False,
-    ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
-
-        x_init = np.atleast_2d(initial_states)
-        if x_init.shape != (self.n_chains, self.dim):
-            raise ValueError("initial_states dimension mismatch.")
-        x = np.empty((self.n_chains, n_steps, self.dim))
-        x[:, 0] = x_init
-        accept_counts = np.zeros(self.n_chains, dtype=int)
-
-        for t in range(1, n_steps):
+    ) -> np.ndarray:
+        """
+        Run n_steps of MCMC sampling and return acceptation rate.
+        """
+        i0 = self.global_iter + 1
+        i1 = self.global_iter + 1 + n_steps
+        for t in range(i0, i1):
             for c in range(self.n_chains):
-                x_new, acc = self.mhstep(x[c, t - 1], c)
-                x[c, t] = x_new
-                accept_counts[c] += acc
-
+                self.x[c, t], self.accept[c, t] = self.mhstep(self.x[c, t - 1], c)
+            self.global_iter += 1
             if show_global_progress:
-                if (self._global_iter + 1) % self.options.progress_interval == 0:
+                if self.global_iter % self.options.progress_interval == 0:
                     self._print_progress(
-                        self._global_iter, self._global_total, self._start_time
+                        self.global_iter, self.global_total, self.start_time
                     )
-                self._global_iter += 1
+        block_rates = np.mean(self.accept[:, i0:i1], axis=1)
+        return block_rates
 
-        block_rates = accept_counts / (n_steps - 1)
-        self.rates.append(block_rates)
-        if return_rates:
-            return x, block_rates
-        return x
-
-    def run_adaptive_RM(
-        self, n_samples: int, init: np.ndarray, diminishing=True
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def run_adaptive_RM(self, n_block_size: int, diminishing: bool = True):
         """
-        Robbins–Monro adaptation. Each block:
-          gamma = schedule[block]
-          proposal_params[i] *= exp(gamma*(rate[i] - target))
-        If diminishing=True, use a cosine-based schedule. Otherwise, constant base=update_factor.
-        """
-        interval = self.options.adaptation_interval
-        if interval < 2:
-            raise ValueError("adaptation_interval < 2")
-        if n_samples % interval != 0:
-            raise ValueError("n_samples not multiple of adaptation_interval")
+        Run one block of Robbins–Monro adaptation.
 
-        n_blocks = n_samples // interval
-        base = self.options.RM_adapt_factor
-        gamma_seq = (
-            self._diminishing_adaptation_schedule(n_blocks, base)
-            if diminishing
-            else np.full(n_blocks, base)
+        Parameters:
+          n_block_size : int
+              Number of steps in this block.
+          diminishing : bool, optional
+              Whether to use a diminishing adaptation schedule (default: True).
+        """
+        gamma_base = self.options.RM_adapt_factor
+        rates = self.run_samples(
+            n_block_size,
+            show_global_progress=self.options.show_global_progress,
         )
-
-        x_blocks = []
-        x_curr = init
-        for b in range(n_blocks):
-            x_blk, rates = self.run_samples(
-                interval,
-                x_curr,
-                return_rates=True,
-                show_global_progress=self.options.show_global_progress,
+        if diminishing:
+            gamma = self._diminishing_adaptation_schedule(
+                self.global_iter, self.burnin_period, gamma_base, final_frac=0.1
             )
-            gamma = gamma_seq[b]
-            for c in range(self.n_chains):
-                self.proposal_params[c] *= np.exp(
-                    gamma * (rates[c] - self.target_acceptance)
-                )
-            x_blocks.append(x_blk)
-            x_curr = x_blk[:, -1, :]
-        return np.concatenate(x_blocks, axis=1), x_curr
-
-    def run_adaptive_Haario(
-        self,
-        n_samples: int,
-        init: np.ndarray,
-        epsilon=1e-6,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Haario adaptation in blocks. For each block:
-          - partial-pool covariance by group of n_pool
-          - scale_factors[c] updated by a Robbins–Monro step
-          - proposal_params[c] updated via update_proposal_covariance_from_samples(..., raw_cov=..., scaling=...)
-        """
-        n_interval = self.options.adaptation_interval
-        if n_interval < 2:
-            raise ValueError("adaptation_interval < 2")
-        if n_samples % n_interval != 0:
-            raise ValueError("n_samples not multiple of adaptation_interval")
-        if self.n_chains % self.options.n_pool != 0:
-            raise ValueError("n_chains not divisible by n_pool")
-
-        n_blocks = n_samples // n_interval
-        x_blocks = []
-        x_curr = init
-
-        for _ in range(n_blocks):
-            x_blk, rates = self.run_samples(
-                n_interval,
-                x_curr,
-                return_rates=True,
-                show_global_progress=self.options.show_global_progress,
+        else:
+            gamma = gamma_base
+        for c in range(self.n_chains):
+            self.proposal_distribution_params[c] *= np.exp(
+                gamma * (rates[c] - self.target_acceptance)
             )
-            # Compute partial-pooled covariances
-            covs = self._compute_covariances_for_block(x_blk, self.options.n_pool)
 
-            for c in range(self.n_chains):
-                grp = c // self.options.n_pool
-                # Update the scaling factor by RM
-                self.haario_scaling_factors[c] *= np.exp(
-                    self.options.haario_adapt_factor
-                    * (rates[c] - self.target_acceptance)
-                )
-                # Rebuild the proposal covariance using the unified method
-                self.proposal_params[c] = self.update_proposal_covariance_from_samples(
+    def run_adaptive_Haario(self, n_block_size: int, epsilon: float = 1e-6):
+        """
+        Run one block of Haario adaptation.
+
+        Parameters:
+          n_block_size : int
+              Number of steps in this block.
+          init : np.ndarray
+              The initial state for the block.
+          epsilon : float, optional
+              Small diagonal shift for stability (default: 1e-6).
+        """
+        block_rates = self.run_samples(
+            n_block_size,
+            show_global_progress=self.options.show_global_progress,
+        )
+        # Compute pooled covariances for groups of chains.
+        i0 = self.global_iter - n_block_size + 1
+        i1 = self.global_iter + 1
+        covs = self._compute_covariances_for_block(
+            self.x[:, i0:i1, :], self.options.n_pool
+        )
+        for c in range(self.n_chains):
+            grp = c // self.options.n_pool
+            self.haario_scaling_factors[c] *= np.exp(
+                self.haario_adapt_factor * (block_rates[c] - self.target_acceptance)
+            )
+            self.proposal_distribution_params[c] = (
+                self.update_proposal_covariance_from_samples(
                     raw_cov=covs[grp],
                     scaling=self.haario_scaling_factors[c],
                     epsilon=epsilon,
                 )
+            )
 
-            x_blocks.append(x_blk)
-            x_curr = x_blk[:, -1, :]
+    def run_adaptive(self, n_samples: int):
+        """
+        Runs the chain for n_samples samples using phase block by block adpation.
 
-        return np.concatenate(x_blocks, axis=1), x_curr
+        Parameters
+        ----------
+        n_samples : int
+            Total number of steps.
+        """
+        n_blocks = n_samples // self.options.adaptation_interval
+        method = self.options.adaptation_method.lower()
+        for _ in range(n_blocks):
+            if method == "rm":
+                self.run_adaptive_RM(
+                    self.options.adaptation_interval,
+                    diminishing=None,
+                )
+            elif method == "haario":
+                self.run_adaptive_Haario(self.options.adaptation_interval)
+            else:
+                raise ValueError("adaptation_method must be 'RM' or 'Haario'.")
+
+    def run_burnin(
+        self,
+        burnin_period: int,
+        diag: bool = True,
+        n_blocks_convergence_diag: int = 20,
+    ) -> None:
+        """
+        Run the burn-in phase block by block with optional early stopping based on convergence diagnostics.
+
+        Parameters
+        ----------
+        burnin_period : int
+            Total number of burn-in steps.
+        diag : bool, optional
+            If True, run diagnostics (sliding acceptance rates and Gelman–Rubin) after each block (default: True).
+        n_blocks_convergence_diag : int, optional
+            Number of burn-in blocks to use for diagnostics; each block is self.options.adaptation_interval steps (default: 4).
+        """
+        n_blocks = burnin_period // self.options.adaptation_interval
+        method = self.options.adaptation_method.lower()
+        # Diagnostic sample count (used for early stopping)
+        n_diag_samples = n_blocks_convergence_diag * self.options.adaptation_interval
+
+        for block in range(n_blocks):
+            if method == "rm":
+                self.run_adaptive_RM(
+                    self.options.adaptation_interval,
+                    diminishing=self.options.RM_diminishing,
+                )
+            elif method == "haario":
+                self.run_adaptive_Haario(self.options.adaptation_interval)
+            else:
+                raise ValueError("adaptation_method must be 'RM' or 'Haario'.")
+            # Early stopping diagnostics: check if we have enough samples and convergence is achieved
+            if diag and self.global_iter >= n_diag_samples:
+                rates = self.compute_sliding_rates(self.options.sliding_rate_width)
+                i0 = max(0, self.global_iter - n_diag_samples)
+                i1 = self.global_iter
+                rates = rates[:, i0:i1]
+                min_ar = np.min(rates, axis=1)
+                max_ar = np.max(rates, axis=1)
+                gr_results = self.check_convergence_gelman_rubin(
+                    last_n_samples=n_diag_samples, verbose=False
+                )
+                if (
+                    np.all(min_ar > self.options.acceptance_min)
+                    and np.all(max_ar < self.options.acceptance_max)
+                ) and gr_results.get("ok", False):
+                    print(
+                        f"\nEarly stopping: convergence detected during burn-in at iter = {self.global_iter}."
+                    )
+                    print(
+                        f"  Min / Max acceptance rate: {np.min(min_ar):.3f} / {np.max(max_ar):.3f}"
+                    )
+                    print(f"  Gelman-Rubin: {gr_results}")
+                    self.burnin_period = self.global_iter
+                    break
+
+        if diag:
+            print("\nConvergence Diagnostics after burn-in:")
+            rates = self.compute_sliding_rates(self.options.sliding_rate_width)
+            self.check_acceptance_rates(
+                last_n_samples=n_diag_samples,
+                rates=rates,
+                low_threshold=self.options.acceptance_min,
+                high_threshold=self.options.acceptance_max,
+            )
+            self.check_convergence_gelman_rubin(last_n_samples=n_diag_samples)
 
     def scheduler(
         self,
-        initial_states: np.ndarray,
+        chains_state_initial: np.ndarray,
         n_steps_total: int,
         burnin_period: int,
         replicate_initial_state: bool = True,
     ) -> np.ndarray:
         """
-        Orchestrates adaptation (burnin) then sampling, as per MHOptions.
+        Run the full MCMC process:
+          - Runs the burn-in phase.
+          - Runs the sampling phase.
         """
-        initial_states = np.atleast_2d(initial_states)  # ensures at least 2D shape
-        # If user gave a 1D array, x_init.shape will be (1, dim).
-        # If replicate_init_state=True, replicate for n_chains.
+        chains_state_initial = np.atleast_2d(chains_state_initial)
         if (
-            initial_states.shape == (1, self.dim)
+            chains_state_initial.shape == (1, self.dim)
             and replicate_initial_state
             and self.n_chains > 1
         ):
-            # replicate the single init across all n_chains
-            initial_states = np.tile(initial_states, (self.n_chains, 1))
-        if initial_states.shape != (self.n_chains, self.dim):
+            chains_state_initial = np.tile(chains_state_initial, (self.n_chains, 1))
+        if chains_state_initial.shape != (self.n_chains, self.dim):
             raise ValueError(
-                f"initial_states must have shape ({self.n_chains}, {self.dim}) or be 1D if replicate_init_state=True. "
-                f"Got {initial_states.shape}."
+                f"chains_state_initial must have shape ({self.n_chains}, {self.dim})"
+                + f" or be 1D if replicate_initial_state=True. Got {chains_state_initial.shape}."
             )
         self._validate_scheduler_args(n_steps_total, burnin_period)
-        self.proposal_params = self._initialize_proposal_params(
-            self.options.proposal_param_init
+        self.proposal_distribution_params = (
+            self._initialize_proposal_distribution_params(
+                self.options.proposal_distribution_param_init
+            )
         )
+        # Set up iteration tracking.
+        self.x = np.empty((self.n_chains, 1 + n_steps_total, self.dim), dtype=float)
+        self.accept = np.empty((self.n_chains, 1 + n_steps_total), dtype=bool)
+        self.burnin_period = burnin_period
+        self.global_iter = 0
+        self.global_total = 1 + n_steps_total
+        self.start_time = time.time()
+        self.x[:, 0, :] = chains_state_initial
+        self.accept[:, 0] = True
 
-        # We'll track iteration from 1..n_steps_total
-        self._global_iter = 0
-        self._global_total = n_steps_total
-        self._start_time = time.time()
-
-        method = self.options.adaptation_method.lower()
-        freeze = self.options.freeze_adaptation
-        discard = self.options.discard_burnin
-
-        # Adaptive burn-in
         print(self.options.init_msg)
         print(f"  Dimension: {self.dim}")
         print(f"  Total steps: {n_steps_total}")
         print(f"  Burn-in: {burnin_period}")
         print(f"  Chains: {self.n_chains}")
 
-        if method == "rm":
-            x_burnin, x_curr = self.run_adaptive_RM(burnin_period, initial_states)
-        elif method == "haario":
-            x_burnin, x_curr = self.run_adaptive_Haario(burnin_period, initial_states)
-        else:
-            raise ValueError("adaptation_method must be 'RM' or 'Haario'.")
+        # Run burn-in.
+        self.set_mode("burnin")
+        self.run_burnin(burnin_period)
 
-        # Run with optional freeze
-        remain = n_steps_total - burnin_period
-        if freeze:
-            x_sampling = self.run_samples(
-                remain, x_curr, show_global_progress=self.options.show_global_progress
+        # Run sampling phase.
+        n_remain = n_steps_total - burnin_period
+        if self.options.freeze_adaptation:
+            self.set_mode("sampling_freeze_adaptation")
+            self.run_samples(
+                n_remain,
+                show_global_progress=self.options.show_global_progress,
             )
         else:
-            if method == "rm":
-                x_sampling, x_curr = self.run_adaptive_RM(remain, x_curr)
-            else:
-                x_sampling, x_curr = self.run_adaptive_Haario(remain, x_curr)
+            self.set_mode("sampling_adaptation")
+            self.run_adaptive(n_remain)
 
+        self.global_total = self.global_iter
         if self.options.show_global_progress:
-            self._print_final_time(self._global_total, self._start_time)
+            self._print_final_time(self.global_total, self.start_time)
 
-        self.x = np.concatenate([x_burnin, x_sampling], axis=1)
-        return self.x[:, burnin_period:] if discard else self.x
+        # Compute acceptance rates
+        self.rates = self.compute_sliding_rates(self.options.sliding_rate_width)
+
+        return (
+            self.x[:, self.burnin_period : self.global_total]
+            if self.options.discard_burnin
+            else self.x[:, : self.global_total]
+        )
 
     def check_acceptance_rates(
-        self, burnin_period=0, low_threshold=0.15, high_threshold=0.40
-    ):
+        self,
+        burnin_period: Optional[int] = None,
+        last_n_samples: Optional[int] = None,
+        low_threshold: float = 0.15,
+        high_threshold: float = 0.40,
+        rates: Optional[np.ndarray] = None,
+        verbose: bool = True,
+    ) -> Dict[str, Union[float, bool]]:
         """
-        Check acceptance rates after `burnin` steps and print warnings if they
-        fall below `low_threshold` or exceed `high_threshold`.
+        Check acceptance rates using a provided 'rates' array or self.rates.
+
+        Uses samples from burnin_period to self.global_iter (or only the last n samples if specified).
+        Prints warnings if the min rate is below low_threshold or the max rate is above high_threshold.
+
+        Returns
+        -------
+        Dict[str, Union[float, bool]]
+            Dictionary with keys:
+              - "min_ar": minimum acceptance rate
+              - "max_ar": maximum acceptance rate
+              - "ok": True if min_ar >= low_threshold and max_ar <= high_threshold, else False.
+        """
+        if burnin_period is None:
+            burnin_period = self.burnin_period
+        if rates is None:
+            if self.rates is None:
+                if verbose:
+                    print(
+                        "No sliding acceptance rates available. Please compute self.rates first."
+                    )
+                return {}
+            rates_data = self.rates
+        else:
+            rates_data = rates
+
+        i0 = (
+            burnin_period
+            if last_n_samples is None
+            else max(0, self.global_iter - last_n_samples)
+        )
+        i1 = self.global_iter
+        if (n_block_size := i1 - i0) <= 1:
+            raise ValueError("Not enough samples to compute acceptance rates.")
+
+        data = rates_data[:, i0:i1]
+        min_ar = data.min()
+        max_ar = data.max()
+        ok = (min_ar >= low_threshold) and (max_ar <= high_threshold)
+
+        if verbose:
+            print("[check_acceptance_rates]")
+            if not ok:
+                if min_ar < low_threshold:
+                    print(
+                        f"WARNING: Min acceptance rate ({min_ar:.3f}) is below the threshold of {low_threshold:.2f}."
+                    )
+                if max_ar > high_threshold:
+                    print(
+                        f"WARNING: Max acceptance rate ({max_ar:.3f}) is above the threshold of {high_threshold:.2f}."
+                    )
+            else:
+                print("PASS: Acceptance rates within tolerance bounds")
+            print(f"  Min = {min_ar:.3f},  Max = {max_ar:.3f}")
+
+        return {"min_ar": min_ar, "max_ar": max_ar, "ok": ok}
+
+    def compute_gelman_rubin_rhat(
+        self,
+        burnin_period: Optional[int] = None,
+        last_n_samples: Optional[int] = None,
+    ) -> np.ndarray:
+        """
+        Compute the Gelman-Rubin R-hat statistic using a slice of self.x.
 
         Parameters
         ----------
         burnin_period : int, optional
-            Number of initial samples to ignore. Default=0.
-        low_threshold : float, optional
-            Warning if mean acceptance is below this. Default=0.15.
-        high_threshold : float, optional
-            Warning if mean acceptance is above this. Default=0.40.
+            Number of initial iterations to ignore.
+        last_n_samples : Optional[int], optional
+            Use only the last n samples (from self.global_iter); if None, use samples from burnin_period to self.global_iter.
+
+        Returns
+        -------
+        np.ndarray
+            R-hat values for each parameter (shape: (dim,)).
         """
+        if burnin_period is None:
+            burnin_period = self.burnin_period
         if self.x is None:
-            print("No chain data available to compute acceptance rates.")
-            return
+            raise ValueError("No chain data available.")
+        n_chains, n_steps, dim = self.x.shape
+        if n_chains < 2:
+            raise ValueError("At least 2 chains are required.")
 
-        n_chains, n_steps, _ = self.x.shape
-        if burnin_period >= n_steps - 1:
-            print("Burn-in period is too long; cannot compute acceptance rates.")
-            return
+        i0 = (
+            burnin_period
+            if last_n_samples is None
+            else max(0, self.global_iter - last_n_samples)
+        )
+        i1 = self.global_iter
+        n_block = i1 - i0
+        if n_block <= 1:
+            raise ValueError("Not enough samples to compute Gelman-Rubin diagnostic.")
 
-        acceptance_rates = np.zeros(n_chains, dtype=float)
+        block = self.x[:, i0:i1, :]  # shape: (n_chains, n_block, dim)
+        chain_means = np.mean(block, axis=1)  # shape: (n_chains, dim)
+        chain_vars = np.var(block, axis=1, ddof=1)  # shape: (n_chains, dim)
+        W = np.mean(chain_vars, axis=0)  # within-chain variance
+        # between-chain variance
+        B = n_block * np.var(chain_means, axis=0, ddof=1)
+        var_post = ((n_block - 1) / n_block) * W + (1.0 / n_block) * B
+        rhat = np.sqrt(var_post / W)
+        return rhat
 
-        # For each chain, check how often x[i] != x[i-1] after burnin
-        for c in range(n_chains):
-            chain = self.x[c]
-            # We consider transitions from (burnin -> burnin+1, ..., n_steps-1)
-            n_accepted = 0
-            n_transitions = n_steps - burnin_period - 1
-            for i in range(burnin_period + 1, n_steps):
-                # If the new sample differs from the old sample, it indicates acceptance.
-                # For a high-dimensional chain, check if they differ in at least one dimension.
-                if not np.array_equal(chain[i], chain[i - 1]):
-                    n_accepted += 1
+    def check_convergence_gelman_rubin(
+        self,
+        burnin_period: int = 0,
+        last_n_samples: Optional[int] = None,
+        threshold: float = 1.1,
+        verbose: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Check convergence via Gelman-Rubin diagnostic by calling compute_gelman_rubin_rhat.
 
-            acceptance_rates[c] = n_accepted / n_transitions
+        Parameters
+        ----------
+        burnin_period : int, optional
+            Number of initial iterations to ignore.
+        last_n_samples : Optional[int], optional
+            Use only the last n samples; if None, use samples from burnin_period to self.global_iter.
+        threshold : float, optional
+            Convergence threshold for R-hat (default: 1.1).
+        verbose : bool, optional
+            If True, print the diagnostic result.
 
-        mean_ar = acceptance_rates.mean()
-        min_ar = acceptance_rates.min()
-        max_ar = acceptance_rates.max()
-
-        print("[check_acceptance_rates]")
-        if mean_ar < low_threshold:
-            print(
-                f"WARNING: Mean acceptance rate ({mean_ar:.3f}) is below "
-                f"the low threshold of {low_threshold:.2f}. "
-                "You may want to increase the proposal variance."
-            )
-        elif mean_ar > high_threshold:
-            print(
-                f"WARNING: Mean acceptance rate ({mean_ar:.3f}) is above "
-                f"the high threshold of {high_threshold:.2f}. "
-                "You may want to decrease the proposal variance."
-            )
-        else:
-            print("PASS: Acceptance rates within tolerance bounds")
-        print(f"  Acceptance rates after burn-in = {acceptance_rates}")
-        print(f"  Mean = {mean_ar:.3f},  Min = {min_ar:.3f},  Max = {max_ar:.3f}")
+        Returns
+        -------
+        Dict[str, Any]
+            Dictionary with keys 'rhat' (np.ndarray) and 'ok' (bool).
+        """
+        rhat = self.compute_gelman_rubin_rhat(
+            burnin_period=burnin_period, last_n_samples=last_n_samples
+        )
+        ok = np.all(rhat < threshold)
+        if verbose:
+            if ok:
+                print(f"[check_gelman_rubin_rhat]\nPASS: All R-hat < {threshold}.")
+            else:
+                print(f"[check_gelman_rubin_rhat]\nWARNING: Some R-hat ≥ {threshold}.")
+            print(f"  R-hat values: {rhat}")
+        return {"rhat": rhat, "ok": ok}
 
     def ks_statistics(
         self,
         n_blocks: int,
         n_block_size: int,
-        alpha: float = 0.1,
+        alpha: float = 0.01,
         return_significance: bool = True,
         return_statistic: bool = False,
     ):
@@ -549,7 +748,7 @@ class MetropolisHastings:
         n_block_size : int
             Number of samples in each block.
         alpha : float, optional
-            Significance level (default=0.1). If return_significance=True,
+            Significance level (default=0.01). If return_significance=True,
             we also produce a boolean mask where p < alpha.
         return_significance : bool, optional
             If True (default), return a boolean mask indicating which comparisons
@@ -618,12 +817,9 @@ class MetropolisHastings:
                         blocks[i][:, d], blocks[j][:, d], alternative="two-sided"
                     )
                     stat, pval = result.statistic, result.pvalue
-
-                    # Fill either or both
                     if return_statistic:
                         ks_matrix[d, i, j] = stat
                         ks_matrix[d, j, i] = stat
-
                     pvalue_matrix[d, i, j] = pval
                     pvalue_matrix[d, j, i] = pval
 
@@ -644,31 +840,32 @@ class MetropolisHastings:
         multi_block_n_blocks: int = 5,
         multi_block_size: int = 100,
         single_block_size: int = None,
-        alpha: float = 0.05,
+        alpha: float = 0.01,
         fraction_threshold: float = 0.5,
         verbose: bool = True,
     ) -> dict:
         """
         Perform two KS-diagnosis checks to assess convergence:
-          1) "multi_block":  multiple blocks per chain
-          2) "single_block": just one block per chain
+          1) Multi-block: multiple blocks per chain.
+          2) Single-block: one block per chain (lumping samples).
+
+        The KS test compares the empirical distributions of blocks.
+        A low fraction of significant tests (p < alpha) indicates convergence.
 
         Parameters
         ----------
         multi_block_n_blocks : int, optional
-            Number of sub-blocks to use (default=5).
+            Number of sub-blocks to use per chain (default: 5).
         multi_block_size : int, optional
-            Size of each sub-block (default=100).
+            Size of each sub-block (default: 100).
         single_block_size : int, optional
-            Size of the single block. If None (default), equals
-            multi_block_n_blocks * multi_block_size.
+            Size of the single block. If None, defaults to multi_block_n_blocks * multi_block_size.
         alpha : float, optional
-            Significance level for the KS test (default=0.05).
+            Significance level for the KS test (default: 0.05).
         fraction_threshold : float, optional
-            If the fraction of significantly similar comparisons
-            is < this threshold, we consider it a convergence warning.
+            Convergence is assumed if the fraction of significant comparisons is below this threshold (default: 0.5).
         verbose : bool, optional
-            If True, print a short summary (default=True).
+            If True, prints a summary.
 
         Returns
         -------
@@ -684,28 +881,20 @@ class MetropolisHastings:
                     "block_size": int,
                     "frac_significant": float
                 },
-                "converged": bool
+                "ok": bool
             }
-
-        Notes
-        -----
-        - The 'multi_block' check is more sensitive to time variation within chains.
-        - The 'single_block' check (with n_blocks=1) lumps the same or more samples
-          to test cross-chain consistency.
         """
-
         if self.x is None:
             raise ValueError("No chain data. Please run or load the sampler first.")
 
         n_chains, n_steps, dim = self.x.shape
 
-        # -- Multi-block check --
+        # Multi-block check.
         needed_multi = multi_block_n_blocks * multi_block_size
         if n_steps < needed_multi:
             raise ValueError(
                 f"Need at least {needed_multi} samples for multi-block check."
             )
-
         ks_matA, pval_matA, sigA = self.ks_statistics(
             n_blocks=multi_block_n_blocks,
             n_block_size=multi_block_size,
@@ -713,16 +902,15 @@ class MetropolisHastings:
             return_significance=True,
             return_statistic=True,
         )
-        frac_sig_multi = sigA.mean()
+        frac_sig_multi = np.mean(sigA)
 
-        # -- Single-block check (n_blocks=1) --
+        # Single-block check.
         if single_block_size is None:
             single_block_size = needed_multi  # default lumps the same samples
         if n_steps < single_block_size:
             raise ValueError(
                 f"Need at least {single_block_size} samples for single-block check."
             )
-
         ks_matB, pval_matB, sigB = self.ks_statistics(
             n_blocks=1,
             n_block_size=single_block_size,
@@ -730,14 +918,13 @@ class MetropolisHastings:
             return_significance=True,
             return_statistic=True,
         )
-        frac_sig_single = sigB.mean()
+        frac_sig_single = np.mean(sigB)
 
-        # Decide convergence => require both checks below threshold
-        converged = (frac_sig_multi > fraction_threshold) and (
-            frac_sig_single > fraction_threshold
+        # Convergence is declared if the fraction of significant comparisons is low.
+        ok = (frac_sig_multi < fraction_threshold) and (
+            frac_sig_single < fraction_threshold
         )
 
-        # Prepare result dictionary
         results = {
             "multi_block": {
                 "n_blocks": multi_block_n_blocks,
@@ -749,126 +936,29 @@ class MetropolisHastings:
                 "block_size": single_block_size,
                 "frac_significant": frac_sig_single,
             },
-            "converged": converged,
+            "ok": ok,
         }
 
-        # Optional console output
         if verbose:
             print("[check_convergence_ks]")
-            if converged:
+            if ok:
                 print("PASS: Both KS checks below threshold.")
             else:
                 print("WARNING: At least one KS check exceeded threshold.")
             print(
-                f"  Multi-block: frac_significant={frac_sig_multi:.2%}  (blocks={multi_block_n_blocks}×{multi_block_size})"
+                f"  Multi-block: frac_significant = {frac_sig_multi:.2%} (blocks = {multi_block_n_blocks} x {multi_block_size})"
             )
             print(
-                f"  Single-block: frac_significant={frac_sig_single:.2%} (1×{single_block_size})"
+                f"  Single-block: frac_significant = {frac_sig_single:.2%} (1 x {single_block_size})"
             )
-            print(f"  Threshold={fraction_threshold:.2%}, alpha={alpha}")
+            print(f"  Threshold = {fraction_threshold:.2%}, alpha = {alpha}")
 
         return results
 
-    def compute_gelman_rubin_rhat(self, n_block_size: int) -> np.ndarray:
-        """
-        Compute the Gelman-Rubin R-hat statistic for each parameter dimension
-        using the last n_block_size samples of each chain.
-
-        Parameters
-        ----------
-        n_block_size : int
-            Number of final samples in each chain to consider.
-
-        Returns
-        -------
-        rhat : np.ndarray, shape (dim,)
-            Gelman–Rubin R-hat for each parameter dimension.
-
-        Notes
-        -----
-        - Requires at least 2 chains.
-        - Standard formula:
-             Let m = number of chains, n = n_block_size (samples per chain),
-                 chain_means[i, :] = mean of chain i’s last n_block_size samples
-                 chain_vars[i, :]  = variance of chain i’s last n_block_size samples
-             W = mean(chain_vars)
-             B = n * var(chain_means)
-             var_post = ((n-1)/n)*W + (1/n)*B
-             R-hat = sqrt(var_post / W)
-        """
-        if self.x is None:
-            raise ValueError("No chain data available. Run or load sampler first.")
-
-        n_chains, n_steps, dim = self.x.shape
-        if n_chains < 2:
-            raise ValueError("Gelman–Rubin diagnostic requires at least 2 chains.")
-        if n_block_size > n_steps:
-            raise ValueError(
-                f"Requested block size {n_block_size} exceeds chain length {n_steps}."
-            )
-
-        # Extract the last n_block_size samples per chain
-        # shape (n_chains, n_block_size, dim)
-        block = self.x[:, n_steps - n_block_size :, :]
-
-        # Compute chain means & variances
-        chain_means = np.mean(block, axis=1)  # shape (n_chains, dim)
-        chain_vars = np.var(block, axis=1, ddof=1)  # shape (n_chains, dim)
-
-        # Within-chain variance: W
-        W = np.mean(chain_vars, axis=0)  # shape (dim,)
-
-        # Between-chain variance: B
-        B = n_block_size * np.var(chain_means, axis=0, ddof=1)  # shape (dim,)
-
-        # Posterior variance estimate
-        var_post = ((n_block_size - 1) / n_block_size) * W + (1.0 / n_block_size) * B
-
-        rhat = np.sqrt(var_post / W)  # shape (dim,)
-        return rhat
-
-    def check_convergence_gelman_rubin(
-        self, n_block_size: int, threshold: float = 1.1, verbose: bool = True
-    ) -> dict:
-        """
-        Check Gelman–Rubin R-hat using the last n_block_size samples from each chain.
-
-        Parameters
-        ----------
-        n_block_size : int
-            Number of final samples in each chain to consider.
-        threshold : float, optional
-            Convergence criterion. If R-hat < threshold for all dimensions,
-            we say it's converged (default=1.1).
-        verbose : bool, optional
-            If True, prints a short message (default=True).
-
-        Returns
-        -------
-        results : dict
-            {
-              "rhat": np.ndarray of shape (dim,),
-              "converged": bool
-            }
-        """
-        rhat = self.compute_gelman_rubin_rhat(n_block_size)
-        converged = np.all(rhat < threshold)
-
-        if verbose:
-            if converged:
-                print(
-                    f"[check_gelman_rubin_rhat_block]\nPASS: All R-hat < {threshold}."
-                )
-            else:
-                print(
-                    f"[check_gelman_rubin_rhat_block]\nWARNING: Some R-hat ≥ {threshold}."
-                )
-            print(f"  R-hat values: {rhat}")
-
-        return {"rhat": rhat, "converged": converged}
-
-    def plot_chains(self, burnin=0, parameter_indices=None, show_rate=True):
+    def plot_chains(self, burnin=None, parameter_indices=None, show_rate=True):
         """Trace plots of each dimension, optional acceptance-rate subplot."""
+        if burnin is None:
+            burnin = self.burnin_period
         if self.x is None:
             raise ValueError("No chain data.")
         n_chains, n_steps, _ = self.x.shape
@@ -880,11 +970,10 @@ class MetropolisHastings:
         )
         if total_plots == 1:
             axes = [axes]
-
         # Param traces
         for i, param in enumerate(pidx):
             for c in range(n_chains):
-                axes[i].plot(self.x[c, :, param], label=f"Chain {c+1}")
+                axes[i].plot(self.x[c, : self.global_iter, param], label=f"Chain {c+1}")
             axes[i].set_ylabel(f"x_{param}")
             if burnin > 0:
                 axes[i].axvline(
@@ -894,15 +983,18 @@ class MetropolisHastings:
                     label="End Burn-in" if i == 0 else None,
                 )
             axes[i].legend(loc="best")
-
         if show_rate:
             axr = axes[-1]
-            if self.rates:
-                arr = np.array(self.rates)  # shape(blocks, n_chains)
-                blocks = arr.shape[0]
-                t = np.linspace(1, n_steps, blocks)
+            if self.rates is not None:
                 for c in range(n_chains):
-                    axr.plot(t, arr[:, c], marker="o", label=f"Chain {c+1}")
+                    axr.plot(self.rates[c, : self.global_iter], label=f"Chain {c+1}")
+                    if burnin > 0:
+                        axr.axvline(
+                            burnin,
+                            color="red",
+                            linestyle="--",
+                            label="End Burn-in" if i == 0 else None,
+                        )
             else:
                 print("No acceptance data to display.")
             axr.set_ylabel("Acceptance")
@@ -910,14 +1002,15 @@ class MetropolisHastings:
             axr.set_xlabel("Iteration")
         else:
             axes[-1].set_xlabel("Iteration")
-
         plt.tight_layout()
         plt.show()
 
     def plot_empirical_distributions(
-        self, burnin=0, parameter_indices=None, bins=50, smooth=True
+        self, burnin=None, parameter_indices=None, bins=50, smooth=True
     ):
         """Plot either histogram or KDE for each parameter dimension, chain by chain."""
+        if burnin is None:
+            burnin = self.burnin_period
         if self.x is None:
             raise ValueError("No chain data.")
         n_chains, n_steps, _ = self.x.shape
@@ -926,11 +1019,10 @@ class MetropolisHastings:
         fig, axes = plt.subplots(n_plots, 1, figsize=(10, 3 * n_plots), sharex=False)
         if n_plots == 1:
             axes = [axes]
-
         for i, param in enumerate(pidx):
             ax = axes[i]
             for c in range(n_chains):
-                vals = self.x[c, burnin:, param]
+                vals = self.x[c, burnin : self.global_iter, param]
                 if not smooth:
                     ax.hist(
                         vals,
@@ -947,29 +1039,32 @@ class MetropolisHastings:
             ax.set_xlabel(rf"$\theta_{{{param+1}}}$")
             ax.set_ylabel("Density")
             ax.legend(loc="best")
-
         plt.tight_layout()
         plt.show()
 
     def recompute_all_chains_full_covariance(
-        self, burnin=0, scaling=None, epsilon=1e-6
+        self, burnin=None, scaling=None, epsilon=1e-6
     ):
         """Recompute each chain's param from post-burnin samples (Haario approach)."""
+        if burnin is None:
+            burnin = self.burnin_period
         if self.x is None:
             raise ValueError("No chain data available.")
         for c in range(self.n_chains):
             x = self.x[c, burnin:]
-            self.proposal_params[c] = self.update_proposal_covariance_from_samples(
-                x, scaling, epsilon
+            self.proposal_distribution_params[c] = (
+                self.update_proposal_covariance_from_samples(x, scaling, epsilon)
             )
 
     def compute_empirical_covariance_whole_chain(
-        self, burnin=0, pooled=False, n_pool=1
+        self, burnin=None, pooled=False, n_pool=1
     ) -> Union[np.ndarray, list]:
         """
         If pooled=True, single covariance from all chains post-burnin.
         Otherwise, group in n_pool lumps. Return list of cov per group.
         """
+        if burnin is None:
+            burnin = self.burnin_period
         if self.x is None:
             raise ValueError("No samples yet.")
         if pooled:
@@ -1012,7 +1107,8 @@ def test_linear_regression():
         freeze_adaptation=True,
         discard_burnin=True,
         n_pool=2,
-        haario_adapt_factor=1.0,
+        haario_adapt_factor_burnin_phase=1.0,
+        haario_adapt_factor_sampling_phase=0.5,
         haario_initial_scaling_factor=1.0,
         show_global_progress=True,
     )
@@ -1028,14 +1124,14 @@ def test_linear_regression():
 
     # Adaptation + sampling
     x = mh.scheduler(
-        initial_states=init_states,
+        chains_state_initial=init_states,
         n_steps_total=n_steps_total,
         burnin_period=burnin_period,
     )
 
     # Plot
-    mh.plot_chains(burnin=burnin_period)
-    mh.plot_empirical_distributions(burnin=burnin_period, smooth=False)
+    mh.plot_chains()
+    mh.plot_empirical_distributions(smooth=False)
 
     # Posterior means
     post_mean = np.mean(x, axis=(0, 1))
@@ -1082,11 +1178,12 @@ def test_chi2():
         n_chains=2,
         target_acceptance=0.3,
         adaptation_method="Haario",
-        adaptation_interval=100,
-        freeze_adaptation=True,
+        adaptation_interval=50,
+        freeze_adaptation=False,
         discard_burnin=False,
         n_pool=2,
-        haario_adapt_factor=1.0,
+        haario_adapt_factor_burnin_phase=1.0,
+        haario_adapt_factor_sampling_phase=0.5,
         haario_initial_scaling_factor=1.0,
         show_global_progress=True,
     )
@@ -1101,10 +1198,10 @@ def test_chi2():
     # 3) Run the sampler
     # -------------------------------
     n_steps_total = 10_000
-    burnin_period = 2_000
+    burnin_period = 5_000
 
     x = mh.scheduler(
-        initial_states=init_states,
+        chains_state_initial=init_states,
         n_steps_total=n_steps_total,
         burnin_period=burnin_period,
     )
@@ -1114,32 +1211,16 @@ def test_chi2():
     # ------------------------------
     # 4) Convergence diagnosis
     # ------------------------------
-    mh.check_acceptance_rates(burnin_period=burnin_period)
-    results = mh.check_convergence_ks(
-        multi_block_n_blocks=5,
-        multi_block_size=100,
-        single_block_size=None,
-        alpha=0.1,
-        fraction_threshold=0.5,
-        verbose=True,
-    )
-    if results["converged"]:
-        print("The sampler appears to have converged (KS-based check).")
-    else:
-        print("Non-convergence indicated by KS-based test.")
-    res = mh.check_convergence_gelman_rubin(n_block_size=1000, threshold=1.1)
-    if res["converged"]:
-        print("Gelman-Rubin indicates convergence.")
-    else:
-        print("Chains may not be converged.")
+    mh.check_acceptance_rates()
+    res = mh.check_convergence_gelman_rubin(last_n_samples=1000, threshold=1.1)
 
     # -------------------------------
     # 5) Plot chain traces & hist
     # -------------------------------
-    mh.plot_chains(burnin=burnin_period)
+    mh.plot_chains()
 
     # Merge chains (post-burnin) for dimension-by-dimension hist
-    x = x[:, burnin_period:, :].reshape(-1, 2)
+    x = x[:, mh.burnin_period :, :].reshape(-1, 2)
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
     for i in range(dim):
@@ -1160,7 +1241,7 @@ def test_chi2():
         ax.set_ylabel("Density")
         ax.legend()
 
-    fig.suptitle(f"2D chi^2(ν={dof}) – Marginal Distributions", fontsize=14)
+    fig.suptitle(f"2D chi2 (nu={dof}) – Marginal Distributions", fontsize=14)
     plt.tight_layout()
     plt.show()
 
@@ -1182,7 +1263,7 @@ def test_chi2():
     plt.contour(XX, YY, ZZ, levels=12)
     plt.scatter(x[:, 0], x[:, 1], alpha=0.2, label="MCMC samples")
     plt.title(
-        f"2D chi^2(ν={dof}): PDF Contour + Samples\n(scale0={scale[0]}, scale1={scale[1]})"
+        f"2D chi2 (nu={dof}): PDF Contour + Samples\n(scale0={scale[0]}, scale1={scale[1]})"
     )
     plt.xlabel("x1")
     plt.ylabel("x2")
