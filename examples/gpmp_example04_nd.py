@@ -112,8 +112,6 @@ def main():
         model, xi, zi, box, ind_i=[0, 1], ind_dim=list(range(dim))
     )
 
-    print("")
-
     gp.misc.modeldiagnosis.perf(
         model,
         xi,

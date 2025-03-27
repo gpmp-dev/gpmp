@@ -41,7 +41,7 @@ def perf(model, xi, zi, loo=True, loo_res=None, xtzt=None, zpmzpv=None):
         perf_disp.pop("test_pit")
     except:
         pass
-    print("[Prediction performances]\n")
+    print("[Prediction performances]")
     pretty_print_dictionnary(perf_disp)
 
 
@@ -214,7 +214,7 @@ def model_diagnosis_disp(md, xi, zi):
     zi : array-like
         Output data matrix.
     """
-    print("[Model diagnosis]\n")
+    print("[Model diagnosis]")
     print("  * Parameter selection")
     pretty_print_dictionnary(md["param_selection"])
 

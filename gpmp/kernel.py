@@ -885,7 +885,7 @@ def log_prior_jeffrey_variance(covparam, lambda_var=1.0):
 
 
 def log_prior_power_law(
-    covparam, lambda_var=1.0, lambda_lengthscales=1.0, cut=-20.0, penalty_factor=10.0
+    covparam, lambda_var=1.0, lambda_lengthscales=1.0, cut=-9.2, penalty_factor=10.0
 ):
     """
     Compute a log prior with power-law forms on the variance and inverse
@@ -903,8 +903,8 @@ def log_prior_power_law(
     lambda_len : float, optional
         Scaling factor for the length-scale prior term. Default is 1.0.
     cut : float, optional
-        Threshold for log(1/rho). For example, cut=-20 means that if log(1/rho)
-        is below -20 (i.e. rho > exp(20)), extra penalty is applied.
+        Threshold for log(1/rho). For example, cut = -log(1e4) = 9.2  means that if log(1/rho)
+        is below -9.2 (i.e. rho > 1e4), extra penalty is applied.
     penalty_factor : float, optional
         Additional penalty per unit below p_cut. Default is 10.0.
 
