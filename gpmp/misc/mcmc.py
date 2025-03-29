@@ -27,8 +27,7 @@ class MHOptions:
     target_acceptance: float = 0.3
     acceptance_tol: float = 0.15
     adaptation_method: str = "Haario"
-    proposal_distribution_param_init: Union[np.ndarray, None] = field(
-        default=None)
+    proposal_distribution_param_init: Union[np.ndarray, None] = field(default=None)
     adaptation_interval: int = 50
     freeze_adaptation: bool = True
     discard_burnin: bool = False
@@ -41,14 +40,12 @@ class MHOptions:
     sliding_rate_width: int = 200
     show_global_progress: bool = False
     progress_interval: int = 200  # Print every 200 iterations
-    init_msg: Union[str, None] = field(
-        default="Sampling from target distribution...")
+    init_msg: Union[str, None] = field(default="Sampling from target distribution...")
 
     def __post_init__(self):
         # If user didn’t supply a proposal_param_init, default to np.ones(dim)
         if self.proposal_distribution_param_init is None:
-            self.proposal_distribution_param_init = np.ones(
-                self.dim, dtype=float)
+            self.proposal_distribution_param_init = np.ones(self.dim, dtype=float)
         self.acceptance_min = self.target_acceptance - self.acceptance_tol
         self.acceptance_max = self.target_acceptance + self.acceptance_tol
 
@@ -136,8 +133,7 @@ class MetropolisHastings:
         elif p.ndim == 2:
             return p
         else:
-            raise ValueError(
-                "proposal_params must be scalar, 1D, or 2D per chain.")
+            raise ValueError("proposal_params must be scalar, 1D, or 2D per chain.")
 
     def _initialize_proposal_distribution_params(self, p_init: np.ndarray) -> list:
         """
@@ -158,7 +154,7 @@ class MetropolisHastings:
             raise ValueError("n_pool must divide n_chains")
         x_pooled = []
         for i in range(0, self.n_chains, n_pool):
-            chunk = self.x[i: i + n_pool, burnin:].reshape(-1, self.dim)
+            chunk = self.x[i : i + n_pool, burnin:].reshape(-1, self.dim)
             x_pooled.append(chunk)
         return x_pooled
 
@@ -182,7 +178,7 @@ class MetropolisHastings:
         start_indices = range(0, n_chains, n_pool)
 
         for i, start in enumerate(start_indices):
-            x_group = x_block[start: start + n_pool].reshape(-1, self.dim)
+            x_group = x_block[start : start + n_pool].reshape(-1, self.dim)
             covs[i] = np.cov(x_group.T, ddof=1)
 
         return covs
@@ -225,8 +221,7 @@ class MetropolisHastings:
         Print final summary of total elapsed time and number of steps
         """
         elapsed_time = time.time() - start_time
-        print(
-            f"  Progress: 100.00% complete | Total time: {elapsed_time:.3f}s")
+        print(f"  Progress: 100.00% complete | Total time: {elapsed_time:.3f}s")
         print(f"  Total proposals: {total_steps * self.n_chains}")
 
     def set_mode(self, mode: str):
@@ -241,7 +236,9 @@ class MetropolisHastings:
         Default random-walk: draw from N(x, Cov) where Cov depends on proposal_params.
         """
         cov = self._get_cov_parameter(chain_idx)
-        perturbation = self.rng.multivariate_normal(np.zeros(self.dim), cov)
+        perturbation = self.rng.multivariate_normal(
+            np.zeros(self.dim), cov, method="cholesky"
+        )
         return x + perturbation
 
     def update_proposal_covariance_from_samples(
@@ -298,8 +295,7 @@ class MetropolisHastings:
             Array of shape (self.n_chains, self.global_iter) with sliding mean acceptance rates.
         """
         if self.accept is None:
-            raise ValueError(
-                "No acceptance data available to compute sliding rates.")
+            raise ValueError("No acceptance data available to compute sliding rates.")
 
         n_chains = self.n_chains
         n_max = self.global_iter
@@ -345,8 +341,7 @@ class MetropolisHastings:
         i1 = self.global_iter + 1 + n_steps
         for t in range(i0, i1):
             for c in range(self.n_chains):
-                self.x[c, t], self.accept[c, t] = self.mhstep(
-                    self.x[c, t - 1], c)
+                self.x[c, t], self.accept[c, t] = self.mhstep(self.x[c, t - 1], c)
             self.global_iter += 1
             if show_global_progress:
                 if self.global_iter % self.options.progress_interval == 0:
@@ -407,8 +402,7 @@ class MetropolisHastings:
         for c in range(self.n_chains):
             grp = c // self.options.n_pool
             self.haario_scaling_factors[c] *= np.exp(
-                self.haario_adapt_factor *
-                (block_rates[c] - self.target_acceptance)
+                self.haario_adapt_factor * (block_rates[c] - self.target_acceptance)
             )
             self.proposal_distribution_params[c] = (
                 self.update_proposal_covariance_from_samples(
@@ -475,8 +469,7 @@ class MetropolisHastings:
                 raise ValueError("adaptation_method must be 'RM' or 'Haario'.")
             # Early stopping diagnostics: check if we have enough samples and convergence is achieved
             if diag and self.global_iter >= n_diag_samples:
-                rates = self.compute_sliding_rates(
-                    self.options.sliding_rate_width)
+                rates = self.compute_sliding_rates(self.options.sliding_rate_width)
                 i0 = max(0, self.global_iter - n_diag_samples)
                 i1 = self.global_iter
                 rates = rates[:, i0:i1]
@@ -528,8 +521,7 @@ class MetropolisHastings:
             and replicate_initial_state
             and self.n_chains > 1
         ):
-            chains_state_initial = np.tile(
-                chains_state_initial, (self.n_chains, 1))
+            chains_state_initial = np.tile(chains_state_initial, (self.n_chains, 1))
         if chains_state_initial.shape != (self.n_chains, self.dim):
             raise ValueError(
                 f"chains_state_initial must have shape ({self.n_chains}, {self.dim})"
@@ -542,8 +534,7 @@ class MetropolisHastings:
             )
         )
         # Set up iteration tracking.
-        self.x = np.empty(
-            (self.n_chains, 1 + n_steps_total, self.dim), dtype=float)
+        self.x = np.empty((self.n_chains, 1 + n_steps_total, self.dim), dtype=float)
         self.accept = np.empty((self.n_chains, 1 + n_steps_total), dtype=bool)
         self.burnin_period = burnin_period
         self.global_iter = 0
@@ -579,11 +570,10 @@ class MetropolisHastings:
             self._print_final_time(self.global_total, self.start_time)
 
         # Compute acceptance rates
-        self.rates = self.compute_sliding_rates(
-            self.options.sliding_rate_width)
+        self.rates = self.compute_sliding_rates(self.options.sliding_rate_width)
 
         return (
-            self.x[:, self.burnin_period: self.global_total]
+            self.x[:, self.burnin_period : self.global_total]
             if self.options.discard_burnin
             else self.x[:, : self.global_total]
         )
@@ -691,8 +681,7 @@ class MetropolisHastings:
         i1 = self.global_iter
         n_block = i1 - i0
         if n_block <= 1:
-            raise ValueError(
-                "Not enough samples to compute Gelman-Rubin diagnostic.")
+            raise ValueError("Not enough samples to compute Gelman-Rubin diagnostic.")
 
         block = self.x[:, i0:i1, :]  # shape: (n_chains, n_block, dim)
         chain_means = np.mean(block, axis=1)  # shape: (n_chains, dim)
@@ -736,11 +725,9 @@ class MetropolisHastings:
         ok = np.all(rhat < threshold)
         if verbose:
             if ok:
-                print(
-                    f"[check_gelman_rubin_rhat]\nPASS: All R-hat < {threshold}.")
+                print(f"[check_gelman_rubin_rhat]\nPASS: All R-hat < {threshold}.")
             else:
-                print(
-                    f"[check_gelman_rubin_rhat]\nWARNING: Some R-hat ≥ {threshold}.")
+                print(f"[check_gelman_rubin_rhat]\nWARNING: Some R-hat ≥ {threshold}.")
             print(f"  R-hat values: {rhat}")
         return {"rhat": rhat, "ok": ok}
 
@@ -821,8 +808,7 @@ class MetropolisHastings:
         pvalue_matrix = np.zeros((dim, B, B), dtype=float)
 
         # Optionally store KS statistics in a separate matrix
-        ks_matrix = np.zeros(
-            (dim, B, B), dtype=float) if return_statistic else None
+        ks_matrix = np.zeros((dim, B, B), dtype=float) if return_statistic else None
 
         # Fill pairwise results dimension-by-dimension
         for d in range(dim):
@@ -830,8 +816,7 @@ class MetropolisHastings:
                 # the diagonal remains zero
                 for j in range(i + 1, B):
                     result = ks_2samp(
-                        blocks[i][:, d], blocks[j][:,
-                                                   d], alternative="two-sided"
+                        blocks[i][:, d], blocks[j][:, d], alternative="two-sided"
                     )
                     stat, pval = result.statistic, result.pvalue
                     if return_statistic:
@@ -902,8 +887,7 @@ class MetropolisHastings:
             }
         """
         if self.x is None:
-            raise ValueError(
-                "No chain data. Please run or load the sampler first.")
+            raise ValueError("No chain data. Please run or load the sampler first.")
 
         n_chains, n_steps, dim = self.x.shape
 
@@ -991,8 +975,7 @@ class MetropolisHastings:
         # Param traces
         for i, param in enumerate(pidx):
             for c in range(n_chains):
-                axes[i].plot(self.x[c, : self.global_iter, param],
-                             label=f"Chain {c+1}")
+                axes[i].plot(self.x[c, : self.global_iter, param], label=f"Chain {c+1}")
             axes[i].set_ylabel(f"x_{param}")
             if burnin > 0:
                 axes[i].axvline(
@@ -1006,8 +989,7 @@ class MetropolisHastings:
             axr = axes[-1]
             if self.rates is not None:
                 for c in range(n_chains):
-                    axr.plot(self.rates[c, : self.global_iter],
-                             label=f"Chain {c+1}")
+                    axr.plot(self.rates[c, : self.global_iter], label=f"Chain {c+1}")
                     if burnin > 0:
                         axr.axvline(
                             burnin,
@@ -1036,14 +1018,13 @@ class MetropolisHastings:
         n_chains, n_steps, _ = self.x.shape
         pidx = parameter_indices or list(range(self.dim))
         n_plots = len(pidx)
-        fig, axes = plt.subplots(
-            n_plots, 1, figsize=(10, 3 * n_plots), sharex=False)
+        fig, axes = plt.subplots(n_plots, 1, figsize=(10, 3 * n_plots), sharex=False)
         if n_plots == 1:
             axes = [axes]
         for i, param in enumerate(pidx):
             ax = axes[i]
             for c in range(n_chains):
-                vals = self.x[c, burnin: self.global_iter, param]
+                vals = self.x[c, burnin : self.global_iter, param]
                 if not smooth:
                     ax.hist(
                         vals,
@@ -1054,8 +1035,7 @@ class MetropolisHastings:
                     )
                 else:
                     lo, hi = vals.min(), vals.max()
-                    xx = np.linspace(lo - 0.1 * (hi - lo),
-                                     hi + 0.1 * (hi - lo), 100)
+                    xx = np.linspace(lo - 0.1 * (hi - lo), hi + 0.1 * (hi - lo), 100)
                     kde = gaussian_kde(vals)
                     ax.plot(xx, kde(xx), label=f"Chain {c+1}")
             ax.set_xlabel(rf"$\theta_{{{param+1}}}$")
@@ -1075,8 +1055,7 @@ class MetropolisHastings:
         for c in range(self.n_chains):
             x = self.x[c, burnin:]
             self.proposal_distribution_params[c] = (
-                self.update_proposal_covariance_from_samples(
-                    x, scaling, epsilon)
+                self.update_proposal_covariance_from_samples(x, scaling, epsilon)
             )
 
     def compute_empirical_covariance_whole_chain(
@@ -1243,7 +1222,7 @@ def test_chi2():
     mh.plot_chains()
 
     # Merge chains (post-burnin) for dimension-by-dimension hist
-    x = x[:, mh.burnin_period:, :].reshape(-1, 2)
+    x = x[:, mh.burnin_period :, :].reshape(-1, 2)
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
     for i in range(dim):

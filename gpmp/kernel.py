@@ -885,7 +885,12 @@ def log_prior_jeffrey_variance(covparam, lambda_var=1.0):
 
 
 def log_prior_power_law(
-    covparam, lambda_var=1.0, lambda_lengthscales=1.0, cut=-9.2, penalty_factor=10.0
+    covparam,
+    lambda_var=1.0,
+    lambda_lengthscales=1.0,
+    cut_low=-9.2,
+    cut_high=9.2,
+    penalty_factor=10.0,
 ):
     """
     Compute a log prior with power-law forms on the variance and inverse
@@ -902,9 +907,12 @@ def log_prior_power_law(
         Scaling factor for the variance prior term. Default is 1.0.
     lambda_len : float, optional
         Scaling factor for the length-scale prior term. Default is 1.0.
-    cut : float, optional
-        Threshold for log(1/rho). For example, cut = -log(1e4) = 9.2  means that if log(1/rho)
-        is below -9.2 (i.e. rho > 1e4), extra penalty is applied.
+    cut_low : float, optional
+        Low threshold for log(1/rho). If log(1/rho) is below cut_low
+        (i.e. rho > exp(cut_low)), extra penalty is applied.
+    cut_high : float, optional
+        High threshold for log(1/rho). If log(1/rho) is above cut_high
+        (i.e. rho < exp(cut_high), extra penalty is applied.
     penalty_factor : float, optional
         Additional penalty per unit below p_cut. Default is 10.0.
 
@@ -917,8 +925,13 @@ def log_prior_power_law(
     log_sigma2 = covparam[0]
     log_prior_sigma2 = -lambda_var * log_sigma2
     p = covparam[1:]
-    extra_penalty = penalty_factor * gnp.maximum(cut - p, 0)
-    log_prior_lengthscales = -lambda_lengthscales * gnp.sum(p) - gnp.sum(extra_penalty)
+    extra_penalty_low_invrhos = penalty_factor * gnp.maximum(cut_low - p, 0)
+    extra_penalty_high_invrhos = penalty_factor * gnp.maximum(p - cut_high, 0)
+    log_prior_lengthscales = (
+        -lambda_lengthscales * gnp.sum(p)
+        - gnp.sum(extra_penalty_low_invrhos)
+        - gnp.sum(extra_penalty_high_invrhos)
+    )
 
     return log_prior_sigma2 + log_prior_lengthscales
 
