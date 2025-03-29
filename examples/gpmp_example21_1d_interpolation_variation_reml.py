@@ -83,7 +83,7 @@ def main():
 
     # selection criterion
     selection_criterion = gp.kernel.negative_log_restricted_likelihood
-    nlrl, dnlrl = gp.kernel.make_selection_criterion_with_gradient(
+    nlrl, dnlrl, nlrl_nograd = gp.kernel.make_selection_criterion_with_gradient(
         model, selection_criterion, xi, zi
     )
 

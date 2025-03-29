@@ -306,7 +306,7 @@ def plot_selection_criterion_crossections(
         for j, x_val in enumerate(x_values):
             param = gnp.copy(param_opt)
             param = gnp.set_elem1(param, i, x_val)
-            crit_values = gnp.set_elem1(crit_values, j, info.selection_criterion(param))
+            crit_values = gnp.set_elem1(crit_values, j, info.selection_criterion_nograd(param))
 
         ax = axes[i]
         ax.plot(x_values, crit_values, label=criterion_name)
@@ -403,7 +403,7 @@ def plot_selection_criterion_2d(
         np.log(param_2_mesh**2) if param_2_idx == 0 else np.log(1 / param_2_mesh)
     )
 
-    selection_criterion = info.selection_criterion
+    selection_criterion = info.selection_criterion_nograd
     selection_criterion_values = np.zeros((n, n))
 
     covparam = gnp.copy(info.covparam)

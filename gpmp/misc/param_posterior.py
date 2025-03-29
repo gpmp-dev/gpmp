@@ -79,9 +79,9 @@ def sample_from_selection_criterion(
         raise AttributeError(
             "The 'info' object must have a 'selection_criterion' attribute."
         )
-    if info.selection_criterion is None:
+    if info.selection_criterion_nograd is None:
         raise ValueError("info.selection_criterion is None.")
-    if not callable(info.selection_criterion):
+    if not callable(info.selection_criterion_nograd):
         raise TypeError("info.selection_criterion must be callable.")
     if n_steps_total < burnin_period:
         raise ValueError("n_steps_total must be greater than burnin_period.")
@@ -91,7 +91,7 @@ def sample_from_selection_criterion(
 
     # Define log_target (posterior log-density)
     def log_target(p):
-        return -info.selection_criterion(p)
+        return -info.selection_criterion_nograd(p)
 
     # Set up options for the MH sampler.
     show_prog = show_progress and (not silent)

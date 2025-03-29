@@ -49,7 +49,8 @@ print(f"Using backend: {_gpmp_backend_}")
 # -----------------------------------------------------
 if _gpmp_backend_ == "numpy":
     from numpy import array, empty
-
+    from numpy.typing import NDArray
+    ndarray = NDArray[numpy.float64]
     from numpy import (
         copy,
         array_equal,
@@ -183,6 +184,9 @@ if _gpmp_backend_ == "numpy":
         def evaluate(self, x):
             return self.f(x)
 
+        def evaluate_no_grad(self, x):
+            return self.f(x)
+        
     def scaled_distance(loginvrho, x, y):
         invrho = exp(loginvrho)
         xs = invrho * x
@@ -255,10 +259,9 @@ if _gpmp_backend_ == "numpy":
 # -----------------------------------------------------
 elif _gpmp_backend_ == "torch":
     import torch
-
     torch.set_default_dtype(torch.float64)
-
     from torch import tensor, is_tensor
+    ndarray = torch.Tensor
 
     from torch import (
         reshape,
@@ -453,45 +456,48 @@ elif _gpmp_backend_ == "torch":
             return f
 
     class DifferentiableFunction:
+        """Wraps a function f(x) -> scalar, allowing optional gradient computation."""
         def __init__(self, f):
             self.f = f
-            self.f_value = None
-            self.x_value = None
+            self._x_value = None
+            self._f_value = None
 
         def __call__(self, x):
-            return self.evaluate(x)
-
+            return self.evaluate_no_grad(x)
+            
         def evaluate(self, x):
             if not torch.is_tensor(x):
-                self.x_value = torch.tensor(x, requires_grad=True)
+                self._x_value = torch.tensor(x, requires_grad=True)
             else:
-                self.x_value = x.detach().clone().requires_grad_(True)
+                self._x_value = x.detach().clone().requires_grad_(True)
 
-            self.f_value = self.f(self.x_value)
-            scalar_value = self.f_value.item()
-            return scalar_value
+            self._f_value = self.f(self._x_value)
+            return self._f_value.item()
 
-        def gradient(self, x, retain=False):
-            if self.f_value is None:
+        def evaluate_no_grad(self, x):
+            if not torch.is_tensor(x):
+                x = torch.tensor(x)
+            with torch.no_grad():
+                y = self.f(x)
+            return y.item()
+            
+        def gradient(self, x, retain=False, allow_unused=True):
+            if self._f_value is None:
                 raise ValueError("Call 'evaluate(x)' before 'gradient(x)'")
 
-            if not torch.equal(asarray(x), self.x_value):
+            if  not torch.equal(asarray(x), self._x_value):
                 raise ValueError(
                     "The input 'x' in 'gradient' must be the same as in 'evaluate'"
                 )
 
             gradients = torch.autograd.grad(
-                self.f_value, self.x_value, allow_unused=True, retain_graph=retain
+                self._f_value,
+                self._x_value,
+                retain_graph=retain,
+                allow_unused=allow_unused
             )[0]
-
             if gradients is None:
-                raise RuntimeError("None gradient")
-
-            # if gradients is None:
-            #     return zeros(self.x_value.shape)
-            # else:
-            #     return gradients
-
+                raise RuntimeError("Gradient is None.")
             return gradients
 
     def custom_sqrt(x):
@@ -658,8 +664,8 @@ elif _gpmp_backend_ == "jax":
 
     # set double precision for floats
     jax.config.update("jax_enable_x64", True)
-
     from jax.numpy import array, empty
+    ndarray = jax.numpy.ndarray
 
     from jax.numpy import (
         array_equal,
@@ -784,7 +790,7 @@ elif _gpmp_backend_ == "jax":
             self.x_value = None
 
         def __call__(self, x):
-            return self.evaluate(x)
+            return self.evaluate_no_grad(x)
 
         def evaluate(self, x):
             if not isinstance(x, jax.numpy.ndarray):
@@ -793,6 +799,12 @@ elif _gpmp_backend_ == "jax":
             self.x_value = x
             self.f_value = self.f(x)
             return self.f_value
+
+        def evaluate_no_grad(self, x):
+            if not isinstance(x, jax.numpy.ndarray):
+                x = jax.numpy.array(x)
+
+            return self.f(x)
 
         def gradient(self, x):
             if self.f_value is None:

@@ -90,7 +90,7 @@ def main():
     param0 = gnp.concatenate((meanparam0, covparam0))
 
     # selection criterion
-    nll, dnll = gp.kernel.make_selection_criterion_with_gradient(
+    nll, dnll, nll_nograd = gp.kernel.make_selection_criterion_with_gradient(
         model,
         gp.kernel.negative_log_likelihood,
         xi,

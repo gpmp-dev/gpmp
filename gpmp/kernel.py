@@ -454,7 +454,7 @@ def make_selection_criterion_with_gradient(
 
     crit = gnp.DifferentiableFunction(crit_)
 
-    return crit.evaluate, crit.gradient
+    return crit.evaluate, crit.gradient, crit.evaluate_no_grad
 
 
 def autoselect_parameters(
@@ -721,13 +721,15 @@ def select_parameters_with_criterion(
         param0 = covparam0
 
     # Create the criterion and its gradient using the passed criterion function
-    criterion_func, criterion_grad = make_selection_criterion_with_gradient(
-        model,
-        criterion,
-        xi,
-        zi,
-        parameterized_mean=parameterized_mean,
-        meanparam_len=meanparam_len,
+    (criterion_func, criterion_grad, criterion_func_nograd) = (
+        make_selection_criterion_with_gradient(
+            model,
+            criterion,
+            xi,
+            zi,
+            parameterized_mean=parameterized_mean,
+            meanparam_len=meanparam_len,
+        )
     )
 
     # Optimize parameters using the provided criterion
@@ -762,6 +764,7 @@ def select_parameters_with_criterion(
         info_ret["meanparam"] = meanparam_opt
         info_ret["covparam"] = covparam_opt
         info_ret["selection_criterion"] = criterion_func
+        info_ret["selection_criterion_nograd"] = criterion_func_nograd
         info_ret["time"] = time.time() - tic
         return model, info_ret
     else:
