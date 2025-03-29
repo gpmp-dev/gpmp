@@ -301,16 +301,16 @@ class MetropolisHastings:
         n_max = self.global_iter
         rates = np.empty((n_chains, n_max))
 
+        acc = self.accept[:, :n_max].astype(float)
+        cumsum = np.cumsum(acc, axis=1)
         for c in range(n_chains):
-            acc = self.accept[c, :n_max].astype(float)
-            cumsum = np.cumsum(acc)
             # For the first n_block_size samples, average over available samples.
-            rates[c, :n_block_size] = cumsum[:n_block_size] / (
+            rates[c, :n_block_size] = cumsum[c, :n_block_size] / (
                 np.arange(n_block_size) + 1
             )
             # For samples t >= n_block_size, average over the last n_block_size samples.
             rates[c, n_block_size:] = (
-                cumsum[n_block_size:] - cumsum[:-n_block_size]
+                cumsum[c, n_block_size:] - cumsum[c, :-n_block_size]
             ) / n_block_size
 
         return rates
@@ -967,8 +967,11 @@ class MetropolisHastings:
         pidx = parameter_indices or list(range(self.dim))
         n_plots = len(pidx)
         total_plots = n_plots + 1 if show_rate else n_plots
+        desired_height_in = 2.5 * total_plots
+        if total_plots > 4:
+            desired_height_in = 9
         fig, axes = plt.subplots(
-            total_plots, 1, figsize=(10, 3 * total_plots), sharex=True
+            total_plots, 1, figsize=(10, desired_height_in), sharex=True
         )
         if total_plots == 1:
             axes = [axes]
@@ -1018,7 +1021,13 @@ class MetropolisHastings:
         n_chains, n_steps, _ = self.x.shape
         pidx = parameter_indices or list(range(self.dim))
         n_plots = len(pidx)
-        fig, axes = plt.subplots(n_plots, 1, figsize=(10, 3 * n_plots), sharex=False)
+        desired_height_in = 2.5 * n_plots
+        if n_plots > 4:
+            desired_height_in = 9
+
+        fig, axes = plt.subplots(
+            n_plots, 1, figsize=(10, desired_height_in), sharex=False
+        )
         if n_plots == 1:
             axes = [axes]
         for i, param in enumerate(pidx):
