@@ -15,6 +15,28 @@ from typing import Callable, Tuple, Dict, Any, Union, Optional
 from dataclasses import dataclass, field
 
 
+def sample_multivariate_normal_with_jitter(
+    rng, mean, cov, initial_jitter=1e-8, max_attempts=5
+):
+    try:
+        return rng.multivariate_normal(mean, cov, method="cholesky")
+    except np.linalg.LinAlgError:
+        jitter = initial_jitter
+        dim = cov.shape[0]
+        cov += jitter * np.eye(dim)
+        for _ in range(max_attempts):
+            try:
+                return rng.multivariate_normal(mean, cov, method="cholesky")
+            except  np.linalg.LinAlgError:
+                jitter *= 10
+                cov += jitter * np.eye(dim)
+        __import__("pdb").set_trace()
+
+        raise LinAlgError(
+            "Covariance matrix is not positive definite even after adding jitter."
+        )
+
+
 @dataclass
 class MHOptions:
     """
@@ -236,8 +258,8 @@ class MetropolisHastings:
         Default random-walk: draw from N(x, Cov) where Cov depends on proposal_params.
         """
         cov = self._get_cov_parameter(chain_idx)
-        perturbation = self.rng.multivariate_normal(
-            np.zeros(self.dim), cov, method="cholesky"
+        perturbation = sample_multivariate_normal_with_jitter(
+            self.rng, np.zeros(self.dim), cov
         )
         return x + perturbation
 
@@ -321,7 +343,11 @@ class MetropolisHastings:
         If symmetric=False, includes reverse-proposal terms in acceptance.
         """
         y = self.prop_rnd(x_current, chain_idx)
-        log_a = self.log_target(y) - self.log_target(x_current)
+        try:
+            log_target_y = self.log_target(y)
+        except:
+            log_target_y = -np.inf
+        log_a = log_target_y - self.log_target(x_current)
         if not self.symmetric:
             log_a += self._log_prop(y, x_current, chain_idx) - self._log_prop(
                 x_current, y, chain_idx
@@ -987,7 +1013,7 @@ class MetropolisHastings:
                     linestyle="--",
                     label="End Burn-in" if i == 0 else None,
                 )
-            axes[i].legend(loc="best")
+            # axes[i].legend(loc="best")
         if show_rate:
             axr = axes[-1]
             if self.rates is not None:
@@ -1003,7 +1029,7 @@ class MetropolisHastings:
             else:
                 print("No acceptance data to display.")
             axr.set_ylabel("Acceptance")
-            axr.legend(loc="best")
+            # axr.legend(loc="best")
             axr.set_xlabel("Iteration")
         else:
             axes[-1].set_xlabel("Iteration")
@@ -1049,7 +1075,7 @@ class MetropolisHastings:
                     ax.plot(xx, kde(xx), label=f"Chain {c+1}")
             ax.set_xlabel(rf"$\theta_{{{param+1}}}$")
             ax.set_ylabel("Density")
-            ax.legend(loc="best")
+            # ax.legend(loc="best")
         plt.tight_layout()
         plt.show()
 
