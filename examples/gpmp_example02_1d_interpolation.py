@@ -90,7 +90,7 @@ def main():
     plot_likelihood_2d_profile = False
     if plot_likelihood_cross_sections:
         gp.misc.modeldiagnosis.plot_selection_criterion_crossections(
-            model, delta=0.6, info=info, param_names=["sigma^2 (log)", "rho (log)"]
+            info=info, delta=0.8, param_names=["sigma^2 (log)", "rho (log)"]
         )
     if plot_likelihood_2d_profile:
         gp.misc.modeldiagnosis.plot_selection_criterion_sigma_rho(model, info)
