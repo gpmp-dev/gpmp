@@ -101,6 +101,7 @@ if _gpmp_backend_ == "numpy":
         maximum,
         einsum,
         matmul,
+        trace,
         inner,
         all,
         logical_not,
@@ -120,19 +121,23 @@ if _gpmp_backend_ == "numpy":
     eps = finfo(float64).eps
     fmax = numpy.finfo(numpy.float64).max
 
-    def set_elem1(x, index, v):
+    def set_elem_1d(x, index, v):
         x[index] = v
         return x
 
-    def set_row2(A, index, x):
+    def set_elem_2d(x, i, j, v):
+        x[i, j] = v
+        return x
+
+    def set_row_2d(A, index, x):
         A[index, :] = x
         return A
 
-    def set_col2(A, index, x):
+    def set_col_2d(A, index, x):
         A[:, index] = x
         return A
 
-    def set_col3(A, index, x):
+    def set_col_3d(A, index, x):
         A[:, :, index] = x
         return A
 
@@ -201,6 +206,12 @@ if _gpmp_backend_ == "numpy":
             d = sqrt(sum(invrho * (xs - ys) ** 2, axis=1))
         return d
 
+    def logdet(A):
+        sign, logabsdet = numpy.linalg.slogdet(A)
+        if sign <= 0:
+            raise ValueError("Matrix is not positive definite (or has non-positive determinant).")
+        return logabsdet
+    
     def cholesky_inv(A):
         # FIXME: slow!
         # n = A.shape[0]
@@ -291,10 +302,13 @@ elif _gpmp_backend_ == "torch":
         ceil,
         abs,
         cov,
+        det,
+        logdet,
         argmax,
         argmin,
         einsum,
         matmul,
+        trace,
         inner,
         logical_not,
         logical_and,
@@ -321,19 +335,23 @@ elif _gpmp_backend_ == "torch":
     def array_equal(x, y):
         return torch.equal(x, y)
 
-    def set_elem1(x, index, v):
+    def set_elem_1d(x, index, v):
         x[index] = v
         return x
 
-    def set_row2(A, index, x):
+    def set_elem_2d(x, i, j, v):
+        x[i, j] = v
+        return x
+
+    def set_row_2d(A, index, x):
         A[index, :] = x
         return A
 
-    def set_col2(A, index, x):
+    def set_col_2d(A, index, x):
         A[:, index] = x
         return A
 
-    def set_col3(A, index, x):
+    def set_col_3d(A, index, x):
         A[:, :, index] = x
         return A
 
@@ -499,6 +517,70 @@ elif _gpmp_backend_ == "torch":
             if gradients is None:
                 raise RuntimeError("Gradient is None.")
             return gradients
+
+    class SecondOrderDifferentiableFunction:
+        """Helper class to compute second-order derivatives (Hessian) of scalar functions."""
+
+        def __init__(self, f):
+            """
+            Parameters
+            ----------
+            f : callable
+                Function f(x) returning a scalar given input tensor x.
+            """
+            self.f = f
+            self._x = None
+            self._y = None
+            self._grad = None
+
+        def evaluate(self, x):
+            """Evaluate the function at x and store gradient graph."""
+            if not torch.is_tensor(x):
+                x = torch.tensor(x, requires_grad=True, dtype=torch.double)
+            else:
+                x = x.detach().clone().requires_grad_(True)
+
+            self._x = x
+            self._y = self.f(self._x)
+
+            if self._y.dim() != 0:
+                raise ValueError("Function output must be a scalar.")
+
+            return self._y
+
+        def gradient(self, retain=True):
+            """Compute and return gradient of the function at stored x."""
+            if self._y is None or self._x is None:
+                raise RuntimeError("Call evaluate(x) before calling gradient().")
+
+            grad, = torch.autograd.grad(
+                self._y, self._x, create_graph=True, retain_graph=retain
+            )
+            self._grad = grad
+            return grad.detach()
+
+        def hessian(self):
+            """Compute and return Hessian of the function at stored x."""
+            if self._grad is None:
+                raise RuntimeError("Call gradient() before calling hessian().")
+
+            x = self._x
+            grad = self._grad
+            n = x.numel()
+            hessian = torch.zeros((n, n), dtype=torch.double)
+
+            for idx in range(n):
+                grad2, = torch.autograd.grad(
+                    grad[idx], x, retain_graph=True, allow_unused=True
+                )
+                if grad2 is None:
+                    raise RuntimeError(f"Second derivative for parameter {idx} is None.")
+                hessian[idx] = grad2
+
+            # Ensure symmetry
+            hessian = 0.5 * (hessian + hessian.T)
+
+            return hessian.detach()
 
     def custom_sqrt(x):
         arbitrary_value = 1.0
@@ -716,6 +798,7 @@ elif _gpmp_backend_ == "jax":
         maximum,
         einsum,
         matmul,
+        trace,
         inner,
         all,
         logical_not,
@@ -723,7 +806,7 @@ elif _gpmp_backend_ == "jax":
         logical_or,
     )
     from jax.numpy.linalg import norm
-    from jax.numpy.linalg import cond, cholesky, qr, svd, inv
+    from jax.numpy.linalg import cond, cholesky, qr, svd, inv, slogdet
     from jax.numpy import pi, inf
     from jax.numpy import finfo, float64
     from jax.scipy.special import gammaln
@@ -738,19 +821,23 @@ elif _gpmp_backend_ == "jax":
         return array(x, copy=True)
 
     @jax.jit
-    def set_elem1(x, index, v):
+    def set_elem_1d(x, index, v):
         return x.at[index].set(v)
 
     @jax.jit
-    def set_row2(A, index, x):
+    def set_elem_2d(x, i, j, v):
+        return x.at[i, j].set(v)
+
+    @jax.jit
+    def set_row_2d(A, index, x):
         return A.at[index, :].set(x)
 
     @jax.jit
-    def set_col2(A, index, x):
+    def set_col_2d(A, index, x):
         return A.at[:, index].set(x)
 
     @jax.jit
-    def set_col3(A, index, x):
+    def set_col_3d(A, index, x):
         return A.at[:, :, index].set(x)
 
     def asarray(x):
@@ -870,7 +957,14 @@ elif _gpmp_backend_ == "jax":
             loginvrho, x, y
         )
         return f
+    
+    def logdet(A):
+        sign, logabsdet = slogdet(A)
+        if sign <= 0:
+            raise ValueError("Matrix is not positive definite (or has non-positive determinant).")
+        return logabsdet
 
+    
     def cholesky_inv(A):
         # FIXME: slow!
         # n = A.shape[0]
@@ -947,3 +1041,41 @@ else:
     raise RuntimeError(
         "Please set the GPMP_BACKEND environment variable to 'numpy', 'torch' or 'jax'."
     )
+
+# ------------------------------------------------------------------
+#
+# Backend independent functions
+#
+# ------------------------------------------------------------------
+
+
+def derivative_finite_diff(f, x, h):
+    """
+    5-point central difference derivative of f w.r.t. scalar x.
+    f(x) must return a NumPy (or similar) array/matrix/tensor.
+    """
+    f_x_p2 = f(x + 2*h)
+    f_x_p1 = f(x + h)
+    f_x_m1 = f(x - h)
+    f_x_m2 = f(x - 2*h)
+    return (-f_x_p2 + 8*f_x_p1 - 8*f_x_m1 + f_x_m2) / (12.0 * h)
+
+
+def try_with_postmortem(func, *args, **kwargs):
+    """
+    Executes `func(*args, **kwargs)` with a try/except block.
+    If an exception is raised, it prints the traceback and drops into pdb post-mortem.
+
+    Parameters
+    ----------
+    func : callable
+        The function to execute.
+    *args, **kwargs
+        Arguments passed to the function.
+    """
+    try:
+        return func(*args, **kwargs)
+    except Exception:
+        extype, value, tb = __import__("sys").exc_info()
+        __import__("traceback").print_exc()
+        __import__("pdb").post_mortem(tb)

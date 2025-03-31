@@ -346,9 +346,9 @@ def plot_selection_criterion_crossections(
             crit_values = gnp.zeros(n_points)
             for j, x_val in enumerate(p_values):
                 param = gnp.copy(param_opt)
-                param = gnp.set_elem1(param, param_index, x_val)
+                param = gnp.set_elem_1d(param, param_index, x_val)
                 crit = selection_criterion(param)
-                crit_values = gnp.set_elem1(crit_values, j, crit)
+                crit_values = gnp.set_elem_1d(crit_values, j, crit)
 
             ax = axes[idx]
             ax.plot(p_values, crit_values, label=criterion_name)
@@ -383,9 +383,9 @@ def plot_selection_criterion_crossections(
             crit_values = gnp.zeros(n_points)
             for j, x_val in enumerate(p_values):
                 param = gnp.copy(param_opt)
-                param = gnp.set_elem1(param, param_index, x_val)
+                param = gnp.set_elem_1d(param, param_index, x_val)
                 crit = selection_criterion(param)
-                crit_values = gnp.set_elem1(crit_values, j, crit)
+                crit_values = gnp.set_elem_1d(crit_values, j, crit)
 
             name = (param_names[param_index]
                     if (param_names is not None and param_index < len(param_names))
@@ -488,8 +488,8 @@ def plot_selection_criterion_2d(
     for i in range(n):
         print_progress(i)
         for j in range(n):
-            covparam = gnp.set_elem1(covparam, param_1_idx, log_param_1[i, j])
-            covparam = gnp.set_elem1(covparam, param_2_idx, log_param_2[i, j])
+            covparam = gnp.set_elem_1d(covparam, param_1_idx, log_param_1[i, j])
+            covparam = gnp.set_elem_1d(covparam, param_2_idx, log_param_2[i, j])
             selection_criterion_values[i, j] = selection_criterion(covparam)
 
     selection_criterion_values = np.nan_to_num(selection_criterion_values, copy=False)
@@ -605,7 +605,7 @@ def describe_array(x, rownames, normalizing_factor=None):
 
     data[:, 0] = np.min(x, axis=0)
     data[:, 1] = np.max(x, axis=0)
-    data[:, 2] = data[:, 3] - data[:, 2]
+    data[:, 2] = data[:, 1] - data[:, 0]
     data[:, 3] = np.mean(x, axis=0)
     data[:, 4] = np.std(x, axis=0)
 

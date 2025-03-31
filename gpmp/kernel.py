@@ -890,10 +890,10 @@ def log_prior_jeffrey_variance(covparam, lambda_var=1.0):
 def log_prior_power_law(
     covparam,
     lambda_var=1.0,
-    lambda_lengthscales=1.0,
-    cut_low=-9.2,
-    cut_high=9.2,
-    penalty_factor=10.0,
+    lambda_lengthscales=0.0,
+    cut_low=-9,  # exp(9.0) ~= 8100
+    cut_high=9,
+    penalty_factor=100.0,
 ):
     """
     Compute a log prior with power-law forms on the variance and inverse
@@ -939,6 +939,53 @@ def log_prior_power_law(
     return log_prior_sigma2 + log_prior_lengthscales
 
 
+def log_prior_reference(model, covparam, xi):
+    """
+    Compute the (log of the) reference prior.
+
+    Specifically, for a parameter vector \theta (the covariance parameters of the GP),
+    the reference prior is given by:
+
+        \pi_ref(\theta) \propto  \sqrt det(I(\theta)),
+
+    where I(\theta) is the Fisher Information matrix. The function below returns
+
+        log \pi_ref(\theta) = -1/2 * log det(I(\theta)).
+
+    Parameters
+    ----------
+    model : Model
+        The Gaussian Process model instance that provides:
+          - A covariance function.
+          - A method to compute the Fisher Information matrix.
+    covparam : array_like
+        Covariance parameters of the model at which to evaluate the reference prior.
+    xi : array_like, shape (n, d)
+        Observation points in the input space, where n is the number of data points
+        and d is the dimensionality.
+
+    Returns
+    -------
+    float
+        The log of the reference prior, i.e., -1/2 * log det FisherInformation(\theta).
+
+    References
+    ----------
+    .. [1] Bernardo, J. M. (1979). "Reference posterior distributions for Bayesian
+           inference." Journal of the Royal Statistical Society: Series B
+           (Methodological), 41(2), 113–128.
+    .. [2] Muré, J. (2021). Propriety of the reference posterior distribution
+            in Gaussian process modeling" Annals of Statistics
+
+    See Also
+    --------
+    model.fisher_information : Computes the Fisher Information matrix at given points xi.
+    """
+    fisher_info = model.fisher_information(xi, covparam)
+    logdet_fisher = gnp.logdet(fisher_info)
+    return -1 / 2 * logdet_fisher
+
+
 def neg_log_restricted_posterior_with_jeffreys_prior(
     model, covparam, xi, zi, lambda_var=1.0
 ):
@@ -982,9 +1029,7 @@ def neg_log_restricted_posterior_with_jeffreys_prior(
     return neg_log_posterior
 
 
-def neg_log_restricted_posterior_with_power_law_prior(
-    model, covparam, xi, zi, lambda_var=1.0, lambda_len=1.0
-):
+def neg_log_restricted_posterior_with_power_law_prior(model, covparam, xi, zi):
     """
     Compute the negative log restricted posterior that includes
     power-law priors on both the variance and the length scales.
@@ -1001,10 +1046,6 @@ def neg_log_restricted_posterior_with_power_law_prior(
         The input data points.
     zi : ndarray
         The observed values at the input data points.
-    lambda_var : float, optional
-        Scaling factor for the variance prior term. Default is 1.0.
-    lambda_len : float, optional
-        Scaling factor for the length-scale prior term. Default is 1.0.
 
     Returns
     -------
@@ -1015,9 +1056,7 @@ def neg_log_restricted_posterior_with_power_law_prior(
     nlrl = model.negative_log_restricted_likelihood(covparam, xi, zi)
 
     # Log prior (variance + length-scales)
-    log_prior = log_prior_power_law(
-        covparam, lambda_var=lambda_var, lambda_lengthscales=lambda_len
-    )
+    log_prior = log_prior_power_law(covparam)
 
     # Posterior = Likelihood * Prior, so negative log-posterior = nlrl - log_prior
     return nlrl - log_prior

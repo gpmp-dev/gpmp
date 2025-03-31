@@ -112,6 +112,9 @@ class Model:
         Calculates various quantities involving the inverse of the
         covariance matrix K.
 
+    fisher_information(xi, covparam)
+        Computes Fisher information matrix wrt covariance parameters
+
     sample_paths(xt, nb_paths, method="chol", check_result=True)
         Generates sample paths from the GP model at specified input points.
 
@@ -587,6 +590,88 @@ class Model:
         norm_sqrd = gnp.einsum("i..., i...", Wzi, WKWinv_Wzi)
         return norm_sqrd
 
+    def fisher_information(self, xi, covparam=None, epsilon=1e-3):
+        """Compute the Fisher information matrix using
+        finite-difference numerical differentiation (with respect to
+        the covariance parameters).
+
+        Parameters
+        ----------
+        xi : ndarray (n, d)
+            Observation points where n is the number of points and d is the dimensionality.
+        covparam : ndarray, optional
+            Covariance parameters at which to compute Fisher information.
+            If None, uses self.covparam.
+        epsilon : float, optional
+            Step size for finite-difference approximation. Default is 1e-5.
+
+        Returns
+        -------
+        fisher_info : ndarray (p, p)
+            Fisher Information matrix, where p is the number of covariance parameters.
+
+        Notes
+        -----
+        1) The Fisher information for a zero-mean Gaussian vector with covariance K(θ) is given by:
+             I_{ij}(θ) = 0.5 * Tr(K^{-1}(θ) * ∂K(θ)/∂θ_i * K^{-1}(θ) * ∂K(θ)/∂θ_j).
+        2) dK/dθ_i is computed via central finite differences:
+             dK_i = [K(θ + e_i) - K(θ - e_i)] / (2 * epsilon).
+        3) This method can be computationally expensive for high-dimensional parameter spaces,
+           but is robust when autodiff faces numerical instabilities.
+
+        """
+        if covparam is None:
+            covparam = self.covparam
+        else:
+            covparam = gnp.asarray(covparam)
+
+        param_dim = covparam.shape[0]
+        fisher_info = gnp.empty((param_dim, param_dim))
+
+        # 1) K and its inverse
+        K = self.covariance(xi, xi, covparam)
+        try:
+            K_inv = gnp.inv(K)
+        except:
+            raise RuntimeError("Covariance matrix not invertible; adjust hyperparameters or add jitter.")
+
+        # 2) Partial derivatives of K w.r.t. each parameter (finite differences)
+        dK = []
+        for i in range(param_dim):
+            def f(tmp_val):
+                param_copy = gnp.copy(covparam)
+                param_copy = gnp.set_elem_1d(param_copy, i, tmp_val)
+                return self.covariance(xi, xi, param_copy)
+
+            dK_i = gnp.derivative_finite_diff(f, covparam[i], epsilon)
+            dK.append(dK_i)
+
+        # 3) Fisher Information matrix entries
+        for i in range(param_dim):
+            for j in range(i, param_dim):
+                # 0.5 * trace(K_inv * dK[i] * K_inv * dK[j])
+                term = 0.5 * gnp.trace(K_inv @ dK[i] @ K_inv @ dK[j])
+                fisher_info = gnp.set_elem_2d(fisher_info, i, j, term)
+                fisher_info = gnp.set_elem_2d(fisher_info, j, i, term)
+
+        return fisher_info
+    
+    def fisher_information_torch(self, xi, covparam):
+        """Compute Fisher Information matrix using second-order differentiation."""
+        xi_tensor = gnp.asarray(xi)
+
+        def log_det_cov(params):
+            K = self.covariance(xi_tensor, xi_tensor, params)
+            L = gnp.cholesky(K)
+            return 2.0 * gnp.sum(gnp.log(gnp.diag(L)))
+
+        sodf = gnp.SecondOrderDifferentiableFunction(log_det_cov)
+        sodf.evaluate(covparam)
+        sodf.gradient()
+        fisher_info = 0.5 * sodf.hessian()
+
+        return fisher_info
+    
     def sample_paths(self, xt, nb_paths, method="chol", check_result=True):
         """Generates nb_paths sample paths on xt from the zero-mean GP model GP(0, k),
         where k is the covariance specified by Model.covariance.
