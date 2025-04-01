@@ -91,6 +91,7 @@ if _gpmp_backend_ == "numpy":
         sum,
         mean,
         std,
+        var,
         cov,
         sort,
         min,
@@ -190,7 +191,10 @@ if _gpmp_backend_ == "numpy":
             return self.f(x)
 
         def evaluate_no_grad(self, x):
-            return self.f(x)
+            try:
+                return self.f(x)
+            except:
+                return inf
         
     def scaled_distance(loginvrho, x, y):
         invrho = exp(loginvrho)
@@ -788,6 +792,7 @@ elif _gpmp_backend_ == "jax":
         sum,
         mean,
         std,
+        var,
         cov,
         sort,
         min,
