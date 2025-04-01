@@ -950,7 +950,7 @@ def log_prior_reference(model, covparam, xi):
 
     where I(\theta) is the Fisher Information matrix. The function below returns
 
-        log \pi_ref(\theta) = -1/2 * log det(I(\theta)).
+        log \pi_ref(\theta) = 1/2 * log det(I(\theta)).
 
     Parameters
     ----------
@@ -967,7 +967,7 @@ def log_prior_reference(model, covparam, xi):
     Returns
     -------
     float
-        The log of the reference prior, i.e., -1/2 * log det FisherInformation(\theta).
+        The log of the reference prior
 
     References
     ----------
@@ -983,7 +983,7 @@ def log_prior_reference(model, covparam, xi):
     """
     fisher_info = model.fisher_information(xi, covparam)
     logdet_fisher = gnp.logdet(fisher_info)
-    return -1 / 2 * logdet_fisher
+    return 1 / 2 * logdet_fisher
 
 
 def neg_log_restricted_posterior_with_jeffreys_prior(
