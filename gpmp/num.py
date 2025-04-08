@@ -88,7 +88,9 @@ if _gpmp_backend_ == "numpy":
         exp,
         log,
         log10,
+        log1p,
         sum,
+        prod,
         mean,
         std,
         var,
@@ -407,6 +409,7 @@ elif _gpmp_backend_ == "torch":
 
     log = scalar_safe(torch.log)
     log10 = scalar_safe(torch.log10)
+    log1p = scalar_safe(torch.log1p)
     exp = scalar_safe(torch.exp)
     sqrt = scalar_safe(torch.sqrt)
 
@@ -422,6 +425,7 @@ elif _gpmp_backend_ == "torch":
     all = axis_to_dim(torch.all)
     unique = axis_to_dim(torch.unique)
     sum = axis_to_dim(torch.sum)
+    prod = axis_to_dim(torch.prod)
     mean = axis_to_dim(torch.mean)
     std = axis_to_dim(torch.std)
     var = axis_to_dim(torch.var)
@@ -789,7 +793,9 @@ elif _gpmp_backend_ == "jax":
         exp,
         log,
         log10,
+        log1p,
         sum,
+        prod,
         mean,
         std,
         var,
