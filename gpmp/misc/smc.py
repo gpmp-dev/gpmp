@@ -17,6 +17,7 @@ License: GPLv3 (see LICENSE)
 import time, warnings
 from numpy.random import default_rng
 import scipy.stats as stats
+from scipy.stats import qmc
 from scipy.optimize import brentq
 import gpmp.num as gnp
 import matplotlib.pyplot as plt
@@ -184,9 +185,26 @@ class ParticlesSet:
         """
         self.logpdf_function = logpdf_function
 
+    def set_logpdf_with_parameter(self, logpdf_parameterized_function, param):
+        """Set the log-probability density function for the particles
+        with a prescribed parameter.
+
+        Parameters
+        ----------
+        logpdf_function : callable
+            Computes the log-probability density at given positions.
+        param : ndarray
+            Parameter for the logpdf_function (second argment of logpdf_function)
+        """
+
+        def logpdf(x):
+            return logpdf_parameterized_function(x, param)
+
+        self.logpdf_function = logpdf
+
     def reweight(self, update_logpx_and_w_pre=True):
-        logpx_new = self.logpdf_function(self.x)
-        self.w = self.w_pre * gnp.exp(logpx_new.reshape(-1) - self.logpx.reshape(-1))
+        logpx_new = self.logpdf_function(self.x).reshape(-1)
+        self.w = self.w_pre * gnp.exp(logpx_new - self.logpx)
         if update_logpx_and_w_pre:
             self.logpx = logpx_new
             self.w_pre = gnp.copy(self.w)
@@ -323,7 +341,7 @@ class ParticlesSet:
         This method perturbs the current positions of the particles by
         applying a Gaussian random perturbation. The covariance matrix
         is computed from the particles' current positions and is
-        scaled by the perturbation parameter `param_s`. This
+        scaled by the perturbation parameter `param_s`. The
         covariance matrix defines the spread of the Gaussian noise
         used to move the particles.
 
@@ -385,27 +403,25 @@ class ParticlesSet:
         """
         # Perturb the particles
         y = self.perturb()
-        logpy = self.logpdf_function(y)
+        logpy = self.logpdf_function(y).reshape(-1)
 
-        # Compute acceptation probabilities
-        rho = gnp.minimum(1, gnp.exp(logpy - self.logpx))
+        # Determine which moves are accepted
+        logrho = logpy - self.logpx
+        u = self.rand((self.n,), self.rng)
+        accept_mask = gnp.log(u) < logrho
 
-        accepted_moves = 0  # Counter for accepted moves
-        for i in range(self.n):
-            if ParticlesSet.rand(self.rng) < rho[i]:
-                # Update the particle position and log probability if the move is accepted
-                self.x = gnp.set_row_2d(self.x, i, y[i, :])
-                self.logpx = gnp.set_elem_1d(self.logpx, i, logpy[i])
-                accepted_moves += 1
+        # Update
+        self.x[accept_mask, :] = y[accept_mask, :]
+        self.logpx[accept_mask] = logpy[accept_mask]
 
-        # Compute the acceptation rate
-        acceptation_rate = accepted_moves / self.n
+        # Compute the acceptance rate
+        acceptance_rate = gnp.sum(accept_mask) / self.n
 
-        return acceptation_rate
-
+        return acceptance_rate
+    
     @staticmethod
-    def rand(rng):
-        return rng.uniform()
+    def rand(size, rng):
+        return rng.uniform(size=size)
 
     @staticmethod
     def multinomial_rvs(n, p, rng):
@@ -419,7 +435,7 @@ class ParticlesSet:
 
     @staticmethod
     def randunif(dim, n, box, rng):
-        return gnp.asarray(stats.qmc.scale(rng.uniform(size=(n, dim)), box[0], box[1]))
+        return gnp.asarray(qmc.scale(rng.uniform(size=(n, dim)), box[0], box[1]))
 
 
 class SMC:
@@ -468,17 +484,14 @@ class SMC:
         compute_next_logpdf_param_method="p0",
         rng=default_rng(),
     ):
-        """
-        Initialize the SMC sampler.
-        """
         self.box = box
         self.n = n
         self.initial_distribution_type = initial_distribution_type
         self.particles = ParticlesSet(box, n, initial_distribution_type, rng)
 
-        # Dictionary to hold MH algorithm parameters
+        # Metropolis-Hastings algorithm parameters.
         self.mh_params = {
-            "mh_steps": 20,
+            "mh_steps": 10,
             "acceptation_rate_min": 0.2,
             "acceptation_rate_max": 0.4,
             "adjustment_factor": 1.4,
@@ -487,69 +500,67 @@ class SMC:
 
         # Next param method
         self.compute_next_logpdf_param_method = compute_next_logpdf_param_method
-        if self.compute_next_logpdf_param_method == "p0":
+        if compute_next_logpdf_param_method == "p0":
             self.compute_next_logpdf_param = self.compute_next_logpdf_param_p0
-        elif self.compute_next_logpdf_param_method == "ess":
+        elif compute_next_logpdf_param_method == "ess":
             self.compute_next_logpdf_param = self.compute_next_logpdf_param_ess
         else:
             raise ValueError("compute_next_logpdf_param_method must be 'ess' or 'p0'.")
-        # Logging
-        self.log = []  # Store the state logs
-        self.stage = 0
-        self.logging_current_ess = None
-        self.logging_current_logpdf_param = None
-        self.logging_target_logpdf_param = None
-        self.logging_restart_iteration = 0
-        self.logging_logpdf_param_sequence = []  # Sequence of logpdf_params in restart
-        self.logging_acceptation_rate_sequence = []
 
-    def _log_data(
-        self,
-        logpdf_param=None,
-        ess=None,
-        acceptation_rate=None,
-        log_current_state_and_reinitialize=False,
+        # Logging: self.log will store full state snapshots.
+        self.log = []
+        self.stage = 0
+        # log_data holds incremental values that can be be frozen with self.log_snapshot().
+        self.log_data = {
+            "current_logpdf_param": None,
+            "ess": None,
+            "target_logpdf_param": None,
+            "restart_iteration": 0,
+            "logpdf_param_sequence": [],
+            "acceptation_rate_sequence": [],
+            "execution_state": None,  # New field to store the current execution state.
+        }
+
+    def update_log(
+        self, logpdf_param=None, ess=None, acceptation_rate=None, state=None
     ):
         """
-        Helper function to log data during the SMC process. It logs both incremental data
-        like logpdf_param, ESS, and acceptation rate, as well as the full state at the end of a stage.
-
-        Parameters
-        ----------
-        logpdf_param : float, optional
-            The current logpdf parameter value being used in the SMC step.
-        ess : float, optional
-            Effective sample size (ESS) of the current particle set.
-        acceptation_rate : float, optional
-            Acceptation rate of the particle move step.
-        log_current_state_and_reinitialize : bool, optional
-            If True, logs the full current state of the SMC process.
+        Update the incremental logging dictionary.
+        Optionally record the execution state with extra context.
         """
-        # Incremental data logging
         if logpdf_param is not None:
-            self.logging_current_logpdf_param = logpdf_param
+            self.log_data["current_logpdf_param"] = logpdf_param
         if ess is not None:
-            self.logging_current_ess = ess
+            self.log_data["ess"] = ess
         if acceptation_rate is not None:
-            self.logging_acceptation_rate_sequence.append(acceptation_rate)
+            self.log_data["acceptation_rate_sequence"].append(acceptation_rate)
+        if state is not None:
+            # Append additional context information to the state string.
+            self.log_data["execution_state"] = f"[Stage {self.stage}] {state}"
 
-        # If log_current_state_and_reinitialize is True, log the full state
-        if log_current_state_and_reinitialize:
-            state = {
-                "timestamp": time.time(),
-                "stage": self.stage,
-                "num_particles": self.n,
-                "current_scaling_param": self.particles.param_s,
-                "target_logpdf_param": self.logging_target_logpdf_param,
-                "current_logpdf_param": self.logging_current_logpdf_param,
-                "ess": self.logging_current_ess,
-                "restart_iteration": self.logging_restart_iteration,
-                "logpdf_param_sequence": self.logging_logpdf_param_sequence.copy(),
-                "acceptation_rate_sequence": self.logging_acceptation_rate_sequence.copy(),
-            }
-            self.log.append(state)
-            # Reinitialize acceptation_rate_sequence for the next stage
-            self.logging_acceptation_rate_sequence = []
+    def log_snapshot(self):
+        """
+        Freeze the current logging state into a snapshot and append it to self.log.
+        The snapshot includes the current execution state.
+        """
+        snapshot = {
+            "timestamp": time.time(),
+            "stage": self.stage,
+            "num_particles": self.n,
+            "current_scaling_param": self.particles.param_s,
+            "target_logpdf_param": self.log_data["target_logpdf_param"],
+            "current_logpdf_param": self.log_data["current_logpdf_param"],
+            "ess": self.log_data["ess"],
+            "restart_iteration": self.log_data["restart_iteration"],
+            "logpdf_param_sequence": self.log_data["logpdf_param_sequence"].copy(),
+            "acceptation_rate_sequence": self.log_data[
+                "acceptation_rate_sequence"
+            ].copy(),
+            "execution_state": self.log_data["execution_state"],
+        }
+        self.log.append(snapshot)
+        # Reset the incremental acceptation rate sequence for the next stage.
+        self.log_data["acceptation_rate_sequence"] = []
 
     def step(
         self, logpdf_parameterized_function, logpdf_param, debug=False, debug_plot=False
@@ -566,32 +577,39 @@ class SMC:
             Parameter value for the logpdf function (typically, a threshold).
 
         """
-
-        # Set target density
-        def logpdf(x):
-            return logpdf_parameterized_function(x, logpdf_param)
-
-        self.particles.set_logpdf(logpdf)
+        # Set target density.
+        self.update_log(state=f"Step start: set logpdf_param to {logpdf_param}")
+        self.particles.set_logpdf_with_parameter(
+            logpdf_parameterized_function, logpdf_param
+        )
 
         # Reweight
+        self.update_log(state=f"Reweight with logpdf_param = {logpdf_param}")
         self.particles.reweight()
 
         # Log current logpdf_param and ESS
-        self._log_data(logpdf_param=logpdf_param, ess=self.particles.ess())
+        ess_value = self.particles.ess()
+        self.update_log(logpdf_param=logpdf_param, ess=ess_value)
 
-        # Resample / move
+        # Resample
+        self.update_log(state=f"Resample particles (ESS = {ess_value})")
         self.particles.resample(debug)
-        self.move_with_controlled_acceptation_rate()
 
-        for _ in range(self.mh_params["mh_steps"] - 1):
-            # Additional moves if required
+        # Move particles
+        self.update_log(state="Move particles with controlled acceptation rate")
+        self.move_with_controlled_acceptation_rate(debug)
+        self.log_snapshot()
+
+        for i in range(self.mh_params["mh_steps"] - 1):
             acceptation_rate = self.particles.move()
-            self._log_data(acceptation_rate=acceptation_rate)
+            self.update_log(
+                acceptation_rate=acceptation_rate,
+                state=f"Additional move {i+1}/{self.mh_params['mh_steps']-1} with acceptation rate {acceptation_rate:.2f}",
+            )
 
-        # Log state at the end of the step
-        self._log_data(log_current_state_and_reinitialize=True)
+        # Log a snapshot of the full current state.
+        self.log_snapshot()
 
-        # Debug plot, if needed
         if debug_plot:
             self.plot_particles()
 
@@ -606,10 +624,10 @@ class SMC:
     ):
         """Perform an SMC step with the possibility of restarting the process.
 
-        This method checks if the effective sample size (ESS) falls
-        below a specified ratio, and if so, initiates a restart. The
-        restart process reinitializes particles and recalculates
-        logpdf_params to better target the desired distribution.
+        This method checks if the effective sample size (ESS) is
+        below a specified ratio, and if so, initiates a "restart". The
+        restart process reinitializes particles and calculates a sequence of
+        logpdf_params to target the desired distribution.
 
         Parameters
         ----------
@@ -634,22 +652,26 @@ class SMC:
         """
         # Logging
         self.stage += 1
-        self.logging_current_logpdf_param = target_logpdf_param
-        self.logging_target_logpdf_param = target_logpdf_param
+        self.update_log(state="Starting step_with_possible_restart")
+        self.log_data["current_logpdf_param"] = target_logpdf_param
+        self.log_data["target_logpdf_param"] = target_logpdf_param
+        self.log_snapshot()
 
-        # Set logpdf with target param
-        def logpdf(x):
-            return logpdf_parameterized_function(x, target_logpdf_param)
-
-        self.particles.set_logpdf(logpdf)
-
-        # reweight and compute ess
+        # Set logpdf with target param, compute ess
+        self.particles.set_logpdf_with_parameter(
+            logpdf_parameterized_function, target_logpdf_param
+        )
+        self.update_log(state="Computing initial ESS in step_with_possible_restart")
         self.particles.reweight(update_logpx_and_w_pre=False)
         ess = self.particles.ess()
-        self.logging_current_ess = ess
+        self.update_log(ess=ess)
 
-        # restart?
+        # Restart?
         if ess / self.n < min_ess_ratio:
+            self.update_log(
+                state=f"ESS ratio ({ess/self.n:.2f}) below threshold ({min_ess_ratio}), initiating restart"
+            )
+            self.log_snapshot()
             self.restart(
                 logpdf_parameterized_function,
                 initial_logpdf_param,
@@ -658,21 +680,12 @@ class SMC:
                 p0,
                 debug=debug,
             )
-            # Note: Logging will occur inside the restart method.
-
         else:  # Normal step
-            # Reweight and update self.logpx
-            self.particles.reweight(update_logpx_and_w_pre=True)
-            # Resample
-            self.particles.resample()
-            # Move with control on acceptation rate
-            self.move_with_controlled_acceptation_rate()
-            # Additional moves if required
-            for _ in range(self.mh_params["mh_steps"] - 1):
-                acceptation_rate = self.particles.move()
-                self.logging_acceptation_rate_sequence.append(acceptation_rate)
-            # Logging
-            self._log_data(log_current_state_and_reinitialize=True)
+            self.update_log(
+                state="ESS acceptable, proceeding with resampling and moves"
+            )
+            self.log_snapshot()
+            self.step(logpdf_parameterized_function, target_logpdf_param)
 
     def restart(
         self,
@@ -694,6 +707,8 @@ class SMC:
             Starting param value.
         target_logpdf_param : float
             Target param value.
+        min_ess_ratio : float
+            Minimum ESS ratio
         p0 : float
             Prescribed probability
         debug : bool
@@ -701,23 +716,23 @@ class SMC:
         """
         if debug:
             print("---- (Re)starting SMC from initial parameter ----")
-
-        self._log_data(log_current_state_and_reinitialize=True)
+        self.update_log(state="Restarting: taking snapshot before restart")
+        self.log_snapshot()
 
         if self.compute_next_logpdf_param_method == "p0":
             threshold = p0
         elif self.compute_next_logpdf_param_method == "ess":
             threshold = min_ess_ratio
 
+        self.update_log(state="Reinitializing particles with initial distribution")
         self.particles.particles_init(
             self.box, self.n, method=self.initial_distribution_type
         )
 
         # Is the initial threshold too difficult?
-        def logpdf(x):
-            return logpdf_parameterized_function(x, initial_logpdf_param)
-
-        self.particles.set_logpdf(logpdf)
+        self.particles.set_logpdf_with_parameter(
+            logpdf_parameterized_function, initial_logpdf_param
+        )
         self.particles.reweight(update_logpx_and_w_pre=False)
         ess = self.particles.ess()
         if ess / self.n < min_ess_ratio:
@@ -727,8 +742,7 @@ class SMC:
             )
 
         current_logpdf_param = initial_logpdf_param
-
-        self.logging_logpdf_param_sequence = [initial_logpdf_param]
+        self.log_data["logpdf_param_sequence"] = [initial_logpdf_param]
 
         while current_logpdf_param != target_logpdf_param:
             next_logpdf_param = self.compute_next_logpdf_param(
@@ -739,16 +753,18 @@ class SMC:
                 debug=debug,
             )
 
-            self.logging_restart_iteration += 1
-            self.logging_logpdf_param_sequence.append(next_logpdf_param)
+            self.log_data["restart_iteration"] += 1
+            self.log_data["logpdf_param_sequence"].append(next_logpdf_param)
+            self.update_log(
+                state=f"Restart loop iteration {self.log_data['restart_iteration']}: stepping with logpdf_param {next_logpdf_param}"
+            )
+            self.log_snapshot()
 
             self.step(logpdf_parameterized_function, next_logpdf_param, debug=debug)
-
             current_logpdf_param = next_logpdf_param
 
-        # Logging reinitialization
-        self.logging_logpdf_param_sequence = []
-        self.logging_restart_iteration = 0
+        self.log_data["logpdf_param_sequence"] = []
+        self.log_data["restart_iteration"] = 0
 
     def move_with_controlled_acceptation_rate(self, debug=False):
         """
@@ -758,60 +774,31 @@ class SMC:
         efficient exploration of the state space.
 
         """
+        self.update_log(state="Entering move_with_controlled_acceptation_rate")
         iteration_counter = 0
-        self.logging_acceptation_rate_sequence = []  # Logging
         while iteration_counter < self.mh_params["adjustment_max_iterations"]:
             iteration_counter += 1
-
             acceptation_rate = self.particles.move()
-
-            # Logging
-            self.logging_acceptation_rate_sequence.append(acceptation_rate)
-
+            self.update_log(
+                acceptation_rate=acceptation_rate,
+                state=f"Controlled move iteration {iteration_counter} with acceptation rate {acceptation_rate:.2f}",
+            )
             if debug:
-                print(f"Acceptation rate = {acceptation_rate}")
+                print(f"Acceptation rate = {acceptation_rate:.2f}")
 
             if acceptation_rate < self.mh_params["acceptation_rate_min"]:
                 self.particles.param_s /= self.mh_params["adjustment_factor"]
+                self.update_log(
+                    state=f"Acceptation rate low ({acceptation_rate:.2f}); decreasing param_s to {self.particles.param_s:.2e}"
+                )
                 continue
-
             if acceptation_rate > self.mh_params["acceptation_rate_max"]:
                 self.particles.param_s *= self.mh_params["adjustment_factor"]
+                self.update_log(
+                    state=f"Acceptation rate high ({acceptation_rate:.2f}); increasing param_s to {self.particles.param_s:.2e}"
+                )
                 continue
-
             break
-
-    def compute_p_value(self, logpdf_function, new_logpdf_param, current_logpdf_param):
-        """
-        Compute the mean value of the exponentiated difference in
-        log-probability densities between two logpdf_params.
-
-        .. math::
-
-            \\frac{1}{n} \\sum_{i=1}^{n} \\exp(logpdf_function(x_i, new_logpdf_param)
-            - logpdf_function(x_i, current_logpdf_param))
-
-        Parameters
-        ----------
-        logpdf_function : callable
-            Function to compute log-probability density.
-        new_logpdf_param : float
-            The new logpdf_param value.
-        current_logpdf_param : float
-            The current logpdf_param value used as a reference.
-
-        Returns
-        -------
-        float
-            Computed mean value.
-
-        """
-        return gnp.mean(
-            gnp.exp(
-                logpdf_function(self.particles.x, new_logpdf_param)
-                - logpdf_function(self.particles.x, current_logpdf_param)
-            )
-        )
 
     def compute_next_logpdf_param_ess(
         self,
@@ -855,10 +842,9 @@ class SMC:
         param_difficult = target_logpdf_param
 
         def compute_delta_eta(logpdf_param):
-            def logpdf(x):
-                return logpdf_parameterized_function(x, logpdf_param)
-
-            self.particles.set_logpdf(logpdf)
+            self.particles.set_logpdf_with_parameter(
+                logpdf_parameterized_function, logpdf_param
+            )
             self.particles.reweight(update_logpx_and_w_pre=False)
             eta = self.particles.ess() / self.particles.n
             if debug:
@@ -881,6 +867,38 @@ class SMC:
             next_logpdf_param = brentq(compute_delta_eta, low, high, xtol=tolerance)
 
             return next_logpdf_param
+
+    def compute_p_value(self, logpdf_function, new_logpdf_param, current_logpdf_param):
+        """
+        Compute the mean value of the exponentiated difference in
+        log-probability densities between two logpdf_params.
+
+        .. math::
+
+            \\frac{1}{n} \\sum_{i=1}^{n} \\exp(logpdf_function(x_i, new_logpdf_param)
+            - logpdf_function(x_i, current_logpdf_param))
+
+        Parameters
+        ----------
+        logpdf_function : callable
+            Function to compute log-probability density.
+        new_logpdf_param : float
+            The new logpdf_param value.
+        current_logpdf_param : float
+            The current logpdf_param value used as a reference.
+
+        Returns
+        -------
+        float
+            Computed mean value.
+
+        """
+        return gnp.mean(
+            gnp.exp(
+                logpdf_function(self.particles.x, new_logpdf_param)
+                - logpdf_function(self.particles.x, current_logpdf_param)
+            )
+        )
 
     def compute_next_logpdf_param_p0(
         self,
@@ -961,7 +979,6 @@ class SMC:
         It includes visualizations of logpdf_params, effective sample
         size (ESS), and acceptation rates.
         """
-
         import matplotlib.pyplot as plt
 
         log_data = self.log
@@ -980,20 +997,20 @@ class SMC:
         current_logpdf_params = []
         ess_values = []
         acceptation_rates = []
-        stage_changes = []  # To mark the stages where change occurs
+        execution_states = []  # Collect execution state info
 
         # Extracting and replicating data according to the length of 'acceptation_rate_sequence' in each log entry
-        for idx, entry in enumerate(log_data):
-            ar_length = len(entry["acceptation_rate_sequence"])
-            if ar_length == 0:
-                entry["acceptation_rate_sequence"] = [0.0]
-                ar_length = 1
-
-            stages.extend([entry["stage"]] * ar_length)
-            target_logpdf_params.extend([entry["target_logpdf_param"]] * ar_length)
-            current_logpdf_params.extend([entry["current_logpdf_param"]] * ar_length)
-            ess_values.extend([entry["ess"]] * ar_length)
-            acceptation_rates.extend(entry["acceptation_rate_sequence"])
+        for entry in log_data:
+            ar_seq = entry.get("acceptation_rate_sequence", [])
+            if len(ar_seq) == 0:
+                ar_seq = [0.0]
+            n_ar = len(ar_seq)
+            stages.extend([entry["stage"]] * n_ar)
+            target_logpdf_params.extend([entry["target_logpdf_param"]] * n_ar)
+            current_logpdf_params.extend([entry["current_logpdf_param"]] * n_ar)
+            ess_values.extend([entry["ess"]] * n_ar)
+            acceptation_rates.extend(ar_seq)
+            execution_states.extend([entry["execution_state"]] * n_ar)
 
         # Plotting
         fig, ax1 = plt.subplots()
@@ -1001,23 +1018,23 @@ class SMC:
         color = "tab:red"
         ax1.set_xlabel("Time")
         ax1.set_ylabel("logpdf_param", color=color)
-        t, target_logpdf_params = make_stairs(target_logpdf_params)
-        t, current_logpdf_params = make_stairs(current_logpdf_params)
+        t, target_stairs = make_stairs(target_logpdf_params)
+        t, current_stairs = make_stairs(current_logpdf_params)
         ax1.plot(
             t,
-            target_logpdf_params,
+            target_stairs,
             label="Target logpdf_param",
             color="red",
             linestyle="dashed",
         )
         ax1.plot(
             t,
-            current_logpdf_params,
+            current_stairs,
             label="Current logpdf_param",
             color="red",
             linestyle="solid",
         )
-        (ymin, ymax) = ax1.get_ylim()
+        ymin, ymax = ax1.get_ylim()
         ax1.set_ylim(ymin, ymax * 1.2)
         ax1.tick_params(axis="y", labelcolor=color)
         ax1.legend(loc="upper left")
@@ -1032,8 +1049,8 @@ class SMC:
         ax2 = ax1.twinx()
         color = "tab:blue"
         ax2.set_ylabel("ESS", color=color)
-        t, ess_values = make_stairs(ess_values)
-        ax2.plot(t, ess_values, label="ESS", color=color)
+        t, ess_stairs = make_stairs(ess_values)
+        ax2.plot(t, ess_stairs, label="ESS", color=color)
         ax2.set_ylim(0.0, self.n)
         ax2.tick_params(axis="y", labelcolor=color)
         ax2.legend(loc="upper right")
@@ -1136,31 +1153,6 @@ class SMC:
             ax.legend()
             plt.tight_layout()
             plt.show()
-
-        # if parameter_indices_pooled is not None:
-        #     pooled_vals = self.particles.x[:, parameter_indices_pooled].ravel()
-        #     fig, ax = plt.subplots(figsize=(8, 3))
-        #     color_cycler = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-        #     colors = cycle(color_cycler)
-        #     color = next(colors)
-        #     ax.hist(
-        #         pooled_vals,
-        #         bins=bins,
-        #         density=True,
-        #         alpha=0.3,
-        #         color=color,
-        #         label="Histogram",
-        #     )
-        #     lo, hi = pooled_vals.min(), pooled_vals.max()
-        #     xx = gnp.linspace(lo - 0.1 * (hi - lo), hi + 0.1 * (hi - lo), 100)
-        #     kde = stats.gaussian_kde(pooled_vals, bw_method='scott')
-        #     ax.plot(xx, kde(xx), color=color, label="KDE")
-        #     ax.set_xlabel(r"Pooled $\theta_i$")
-        #     ax.set_ylabel("Density")
-        #     ax.set_title("Marginal distributions")
-        #     ax.legend()
-        #     plt.tight_layout()
-        #     plt.show()
 
 
 def run_smc_sampling(
@@ -1302,6 +1294,8 @@ def test_run_smc_sampling_gaussian_mixture():
     plt.legend()
     plt.tight_layout()
     plt.show()
+
+    smc_instance.plot_state()
 
 
 if __name__ == "__main__":
