@@ -15,6 +15,7 @@ License: GPLv3 (see LICENSE)
 """
 
 import time, warnings
+from dataclasses import dataclass, field
 from numpy.random import default_rng
 import scipy.stats as stats
 from scipy.stats import qmc
@@ -22,6 +23,27 @@ from scipy.optimize import brentq
 import gpmp.num as gnp
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+
+
+@dataclass
+class ParticlesSetConfig:
+    initial_distribution_type: str = "randunif"
+    resample_scheme: str = "multinomial"
+    param_s_initial_value: float = 0.5
+    param_s_upper_bound: float = 1e4
+    param_s_lower_bound: float = 1e-3
+    jitter_initial_value: float = 1e-16
+    jitter_max_iterations: int = 10
+
+
+@dataclass
+class SMCConfig:
+    compute_next_logpdf_param_method: str = "p0"  # or "ess"
+    mh_steps: int = 10
+    mh_acceptation_rate_min: float = 0.2
+    mh_acceptation_rate_max: float = 0.4
+    mh_adjustment_factor: float = 1.4
+    mh_adjustment_max_iterations: int = 50
 
 
 class ParticlesSetError(BaseException):
@@ -37,99 +59,86 @@ class ParticlesSetError(BaseException):
 
 class ParticlesSet:
     """
-    A class representing a set of particles for Sequential Monte
-    Carlo (SMC) simulation.
+    Defines a set of particles for SMC simulation.
 
-    This class provides elementary operations for initializing,
-    reweighting, resampling, and moving particles.
+    This class initializes, reweights, resamples, perturbs, and moves particles.
+    Configuration is passed via a ParticlesSetConfig object (defaults are used if not provided).
 
     Parameters
     ----------
     box : array_like
-        The domain box in which the particles are initialized.
-    n : int, optional, default: 1000
-        Number of particles.
-    initial_distribution_type: str, optional, default: "randunif"
-        Initial distribution for the particles.
-    rng : numpy.random.Generator
-        Random number generator.
+        Domain bounds for initialization ([lower bounds, upper bounds]).
+    n : int, optional
+        Number of particles (default: 1000).
+    config : ParticlesSetConfig, optional
+        Configuration for initialization, resampling, and perturbation.
+    rng : numpy.random.Generator, optional
+        Random number generator (defaults to default_rng()).
 
     Attributes
     ----------
     n : int
         Number of particles.
+    dim : int
+        Dimension of the particles.
     x : ndarray
-        Current positions of the particles.
+        Particle positions.
     logpx : ndarray
-        Log-probabilities of the particles at their current positions.
+        Log-probabilities at current positions.
     w : ndarray
-        Weights of the particles.
-    logpdf_function : callable
-        Function to compute the log-probability density.
+        Particle weights.
     param_s : float
-        Scaling parameter for the perturbation step.
-    resample_scheme : str
-        Scheme for resampling ('multinomial' or 'residual').
+        Scaling parameter for Gaussian perturbations.
+    config : ParticlesSetConfig
+        The configuration object.
     rng : numpy.random.Generator
-        Random number generator.
+        The random number generator.
 
     Methods
     -------
-    particles_init(box, n)
-        Initialize particles within the given box.
+    particles_init(box, n, method)
+        Initialize particles within the provided bounds.
     set_logpdf(logpdf_function)
-        Set the log-probability density function.
-    reweight()
-        Reweight the particles based on the log-probability density function.
+        Set the log-density function.
+    set_logpdf_with_parameter(logpdf_parameterized_function, param)
+        Set the log-density using a parameterized function.
+    reweight(update_logpx_and_w_pre=True)
+        Update particle weights based on current log-probabilities.
     ess()
-        Calculate the effective sample size (ESS) of the particles.
-    resample()
-        Resample the particles based on their weights.
-    multinomial_resample()
-        Resample using multinomial resampling.
-    residual_resample()
+        Compute the effective sample size.
+    resample(debug=False)
+        Resample particles using the selected scheme.
+    multinomial_resample(debug=False)
+        Resample using multinomial sampling.
+    residual_resample(debug=False)
         Resample using residual resampling.
     perturb()
-        Perturb the particles by adding random noise.
+        Perturb particles by adding scaled Gaussian noise.
     move()
-        Perform a Metropolis-Hastings step and compute the acceptation rate.
-
+        Execute a vectorized Metropolis-Hastings move and return the acceptance rate.
     """
 
     def __init__(
-        self, box, n=1000, initial_distribution_type="randunif", rng=default_rng()
+        self, box, n=1000, config: ParticlesSetConfig = None, rng=default_rng()
     ):
         """
         Initialize the ParticlesSet instance.
         """
         self.n = n  # Number of particles
         self.dim = len(box[0])
-        self.logpdf_function = None
         self.rng = rng
+        self.config = config if config is not None else ParticlesSetConfig()
 
-        # Dictionary to hold parameters for the particle set
-        self.particles_set_params = {
-            "initial_distribution_type": initial_distribution_type,
-            "resample_scheme": "multinomial",
-            "param_s_initial_value": 0.5,  # Initial scaling parameter for MH perturbation
-            "param_s_upper_bound": 10**4,
-            "param_s_lower_bound": 10 ** (-3),
-            # Jitter added to pertubation covariance matrix when it's not PSD
-            "jitter_initial_value": 1e-16,
-            "jitter_max_iterations": 10,
-        }
-        self.param_s = self.particles_set_params["param_s_initial_value"]
-        self.resample_scheme = self.particles_set_params["resample_scheme"]
+        # Initialize particle parameters using config
+        self.param_s = self.config.param_s_initial_value
 
-        # Initialize the particles.  Returns a tuple containing the
-        # positions, log-probabilities, and weights of the particles
+        # Initialize the particles.
         self.x = None
         self.logpx = None
         self.w = None
-        self.w_pre = None
-        self.particles_init(
-            box, n, method=self.particles_set_params["initial_distribution_type"]
-        )
+        self.w_tmp = None
+        self.particles_init(box, n, method=self.config.initial_distribution_type)
+        self.logpdf_function = None
 
     def particles_init(self, box, n, method="randunif"):
         """Initialize particles within the given box.
@@ -171,8 +180,8 @@ class ParticlesSet:
 
         # Initialize log-probabilities and weights
         self.logpx = gnp.zeros((n,))
-        self.w = gnp.full((n,), 1 / n)
-        self.w_pre = gnp.full((n,), 1 / n)  # pre-update values of self.w
+        self.w_tmp = gnp.full((n,), 1 / n)
+        self.w = gnp.full((n,), 1 / n)  # pre-update values of self.w
 
     def set_logpdf(self, logpdf_function):
         """
@@ -202,20 +211,20 @@ class ParticlesSet:
 
         self.logpdf_function = logpdf
 
-    def reweight(self, update_logpx_and_w_pre=True):
+    def reweight(self, update_logpx_and_w=True):
         logpx_new = self.logpdf_function(self.x).reshape(-1)
-        self.w = self.w_pre * gnp.exp(logpx_new - self.logpx)
-        if update_logpx_and_w_pre:
+        self.w_tmp = self.w * gnp.exp(logpx_new - self.logpx)
+        if update_logpx_and_w:
             self.logpx = logpx_new
-            self.w_pre = gnp.copy(self.w)
+            self.w = gnp.copy(self.w_tmp)
 
     def ess(self):
         """https://en.wikipedia.org/wiki/Effective_sample_size"""
-        normalization = gnp.sum(self.w**2)
+        normalization = gnp.sum(self.w_tmp**2)
         if normalization == 0.0:
             return 0.0
         else:
-            return gnp.sum(self.w) ** 2 / normalization
+            return gnp.sum(self.w_tmp) ** 2 / normalization
 
     def resample(self, debug=False):
         """
@@ -224,9 +233,9 @@ class ParticlesSet:
         The resample method routes to either multinomial_resample or
         residual_resample according to self.resample_scheme.
         """
-        if self.resample_scheme == "multinomial":
+        if self.config.resample_scheme == "multinomial":
             self.multinomial_resample(debug=debug)
-        elif self.resample_scheme == "residual":
+        elif self.config.resample_scheme == "residual":
             self.residual_resample(debug=debug)
         else:
             raise ValueError("Unknown resample scheme: {}".format(self.resample_scheme))
@@ -239,14 +248,14 @@ class ParticlesSet:
         to a multinomial distribution.
         """
         x_resampled = gnp.empty(self.x.shape)
-        logpx_resampled = gnp.empty(self.logpx.shape)
-        normalization = gnp.sum(self.w)
+        logpx_resampled = gnp.empty((self.n,))
+        normalization = gnp.sum(self.w_tmp)
         if normalization == 0.0:
             p = gnp.full((self.n,), 1 / self.n)
         else:
-            p = self.w / gnp.sum(self.w)
+            p = self.w_tmp / gnp.sum(self.w_tmp)
         try:
-            counts = self.multinomial_rvs(self.n, p, self.rng)
+            counts = ParticlesSet.multinomial_rvs(self.n, p, self.rng)
         except Exception:
             extype, value, tb = __import__("sys").exc_info()
             __import__("traceback").print_exc()
@@ -269,8 +278,8 @@ class ParticlesSet:
 
         self.x = x_resampled
         self.logpx = logpx_resampled
+        self.w_tmp = gnp.full((self.n,), 1 / self.n)
         self.w = gnp.full((self.n,), 1 / self.n)
-        self.w_pre = gnp.full((self.n,), 1 / self.n)
 
     def residual_resample(self, debug=False):
         """
@@ -283,11 +292,11 @@ class ParticlesSet:
         N = self.n
         x_resampled = gnp.empty(self.x.shape)
         logpx_resampled = gnp.empty(self.logpx.shape)
-        normalization = gnp.sum(self.w)
+        normalization = gnp.sum(self.w_tmp)
         if normalization == 0.0:
             p = gnp.full((self.n,), 1 / self.n)
         else:
-            p = self.w / gnp.sum(self.w)
+            p = self.w_tmp / gnp.sum(self.w_tmp)
 
         # Deterministic assignment: floor of expected counts
         counts_det = gnp.asint(gnp.floor(N * p))
@@ -302,7 +311,7 @@ class ParticlesSet:
             try:
                 p_vals = residuals / N_residual
 
-                counts_res = self.multinomial_rvs(
+                counts_res = ParticlesSet.multinomial_rvs(
                     N_residual, residuals / N_residual, self.rng
                 )
             except Exception:
@@ -332,8 +341,8 @@ class ParticlesSet:
 
         self.x = x_resampled
         self.logpx = logpx_resampled
+        self.w_tmp = gnp.full((self.n,), 1 / self.n)
         self.w = gnp.full((self.n,), 1 / self.n)
-        self.w_pre = gnp.full((self.n,), 1 / self.n)
 
     def perturb(self):
         """Perturb the particles by adding Gaussian noise.
@@ -347,8 +356,8 @@ class ParticlesSet:
 
         """
 
-        param_s_lower = self.particles_set_params["param_s_lower_bound"]
-        param_s_upper = self.particles_set_params["param_s_upper_bound"]
+        param_s_lower = self.config.param_s_lower_bound
+        param_s_upper = self.config.param_s_upper_bound
 
         # Check if param_s is within bounds
         if self.param_s > param_s_upper or self.param_s < param_s_lower:
@@ -367,9 +376,9 @@ class ParticlesSet:
             print(f"Non-PSD covariance matrix encountered: {e}")
             success = False
             for i in range(
-                self.particles_set_params["jitter_max_iterations"]
+                self.config.jitter_max_iterations
             ):  # Try iterations of jittering
-                jitter = self.particles_set_params["jitter_initial_value"] * (10**i)
+                jitter = self.config.jitter_initial_value * (10**i)
                 C_jittered = C + jitter * np.eye(C.shape[0])  # Add jitter
                 try:
                     eps = ParticlesSet.multivariate_normal_rvs(
@@ -383,7 +392,7 @@ class ParticlesSet:
         if not success:
             raise RuntimeError(
                 "Failed to generate samples after "
-                + f"{self.particles_set_params['jitter_max_iterations']} jittering attempts. "
+                + f"{self.config.jitter_max_iterations} jittering attempts. "
                 + "Covariance matrix might still be non-PSD."
             )
 
@@ -407,7 +416,7 @@ class ParticlesSet:
 
         # Determine which moves are accepted
         logrho = logpy - self.logpx
-        u = self.rand((self.n,), self.rng)
+        u = ParticlesSet.rand((self.n,), self.rng)
         accept_mask = gnp.log(u) < logrho
 
         # Update
@@ -418,7 +427,7 @@ class ParticlesSet:
         acceptance_rate = gnp.sum(accept_mask) / self.n
 
         return acceptance_rate
-    
+
     @staticmethod
     def rand(size, rng):
         return rng.uniform(size=size)
@@ -439,70 +448,85 @@ class ParticlesSet:
 
 
 class SMC:
-    """Sequential Monte Carlo (SMC) sampler class.
+    """
+    Sequential Monte Carlo (SMC) sampler.
 
-    This class drives the SMC process using a set of particles,
-    employing a strategy as described in
-    Bect, J., Li, L., & Vazquez, E. (2017). "Bayesian subset simulation",
+    Drives the SMC process using a set of particles, following the approach
+    in Bect, J., Li, L., & Vazquez, E. (2017), "Bayesian subset simulation",
     SIAM/ASA Journal on Uncertainty Quantification, 5(1), 762-786.
-    Available at: https://arxiv.org/abs/1601.02557
+    https://arxiv.org/abs/1601.02557
 
     Parameters
     ----------
     box : array_like
-        The domain box for particle initialization.
-    n : int, optional, default: 1000
-        Number of particles.
-    initial_distribution_type: str, optional, default: "randunif"
-        Initial distribution for the particles.
-    rng : numpy.random.Generator
-        Random number generator.
+        Domain bounds for particle initialization ([lower bounds, upper bounds]).
+    n : int, optional
+        Number of particles (default: 1000).
+    particles_config : ParticlesSetConfig, optional
+        Configuration for the particle set; default settings are used if None.
+    smc_config : SMCConfig, optional
+        Configuration for SMC options (e.g., MH steps, thresholds); default settings are used if None.
+    rng : numpy.random.Generator, optional
+        Random number generator (default: default_rng()).
 
     Attributes
     ----------
     box : array_like
-        The domain box for particle initialization.
+        Domain for particle initialization.
     n : int
         Number of particles.
     particles : ParticlesSet
-        Instance of ParticlesSet class to manage the particles.
+        Manages particle operations (initialization, resampling, move, etc.).
+    log : list
+        List of diagnostic snapshots.
+    stage : int
+        Current stage of the SMC process.
 
     Methods
     -------
     step(logpdf_parameterized_function, logpdf_param)
-        Perform a single SMC step.
-    move_with_controlled_acceptation_rate()
-        Adjust the particles' movement to control the acceptation rate.
-
+        Execute a single SMC step.
+    step_with_possible_restart(logpdf_parameterized_function, initial_logpdf_param, target_logpdf_param, min_ess_ratio, p0, debug=False)
+        Execute an SMC step and restart if the effective sample size is too low.
+    restart(logpdf_parameterized_function, initial_logpdf_param, target_logpdf_param, min_ess_ratio, p0, debug=False)
+        Restart the SMC process with an updated logpdf parameter sequence.
+    move_with_controlled_acceptation_rate(debug=False)
+        Adjust particle moves to maintain the target acceptance rate.
+    compute_next_logpdf_param_ess(...)
+        Compute the next logpdf parameter based on effective sample size.
+    compute_next_logpdf_param_p0(...)
+        Compute the next logpdf parameter using a prescribed probability.
+    compute_p_value(logpdf_function, new_logpdf_param, current_logpdf_param)
+        Compute the average exponentiated difference in logpdf values.
+    plot_state()
+        Plot diagnostic data (logpdf parameters, ESS, acceptance rates over time).
+    plot_particles()
+        Display a matrix plot of particle positions.
+    plot_empirical_distributions(parameter_indices=None, parameter_indices_pooled=None, bins=50)
+        Plot histograms or KDEs for the particle distribution.
     """
 
     def __init__(
         self,
         box,
         n=2000,
-        initial_distribution_type="randunif",
-        compute_next_logpdf_param_method="p0",
+        particles_config: ParticlesSetConfig = None,
+        smc_config: SMCConfig = None,
         rng=default_rng(),
     ):
         self.box = box
         self.n = n
-        self.initial_distribution_type = initial_distribution_type
-        self.particles = ParticlesSet(box, n, initial_distribution_type, rng)
+        self.particles_config = (
+            particles_config if particles_config is not None else ParticlesSetConfig()
+        )
+        self.smc_config = smc_config if smc_config is not None else SMCConfig()
+        self.particles = ParticlesSet(box, n, config=self.particles_config, rng=rng)
 
-        # Metropolis-Hastings algorithm parameters.
-        self.mh_params = {
-            "mh_steps": 10,
-            "acceptation_rate_min": 0.2,
-            "acceptation_rate_max": 0.4,
-            "adjustment_factor": 1.4,
-            "adjustment_max_iterations": 50,
-        }
-
-        # Next param method
-        self.compute_next_logpdf_param_method = compute_next_logpdf_param_method
-        if compute_next_logpdf_param_method == "p0":
+        # Set up next logpdf parameter method.
+        method = self.smc_config.compute_next_logpdf_param_method
+        if method == "p0":
             self.compute_next_logpdf_param = self.compute_next_logpdf_param_p0
-        elif compute_next_logpdf_param_method == "ess":
+        elif method == "ess":
             self.compute_next_logpdf_param = self.compute_next_logpdf_param_ess
         else:
             raise ValueError("compute_next_logpdf_param_method must be 'ess' or 'p0'.")
@@ -600,11 +624,11 @@ class SMC:
         self.move_with_controlled_acceptation_rate(debug)
         self.log_snapshot()
 
-        for i in range(self.mh_params["mh_steps"] - 1):
+        for i in range(self.smc_config.mh_steps - 1):
             acceptation_rate = self.particles.move()
             self.update_log(
                 acceptation_rate=acceptation_rate,
-                state=f"Additional move {i+1}/{self.mh_params['mh_steps']-1} with acceptation rate {acceptation_rate:.2f}",
+                state=f"Additional move {i+1}/{self.smc_config.mh_steps-1} with acceptation rate {acceptation_rate:.2f}",
             )
 
         # Log a snapshot of the full current state.
@@ -662,7 +686,7 @@ class SMC:
             logpdf_parameterized_function, target_logpdf_param
         )
         self.update_log(state="Computing initial ESS in step_with_possible_restart")
-        self.particles.reweight(update_logpx_and_w_pre=False)
+        self.particles.reweight(update_logpx_and_w=False)
         ess = self.particles.ess()
         self.update_log(ess=ess)
 
@@ -719,21 +743,21 @@ class SMC:
         self.update_log(state="Restarting: taking snapshot before restart")
         self.log_snapshot()
 
-        if self.compute_next_logpdf_param_method == "p0":
+        if self.smc_config.compute_next_logpdf_param_method == "p0":
             threshold = p0
-        elif self.compute_next_logpdf_param_method == "ess":
+        elif self.smc_config.compute_next_logpdf_param_method == "ess":
             threshold = min_ess_ratio
 
         self.update_log(state="Reinitializing particles with initial distribution")
         self.particles.particles_init(
-            self.box, self.n, method=self.initial_distribution_type
+            self.box, self.n, method=self.particles_config.initial_distribution_type
         )
 
         # Is the initial threshold too difficult?
         self.particles.set_logpdf_with_parameter(
             logpdf_parameterized_function, initial_logpdf_param
         )
-        self.particles.reweight(update_logpx_and_w_pre=False)
+        self.particles.reweight(update_logpx_and_w=False)
         ess = self.particles.ess()
         if ess / self.n < min_ess_ratio:
             warnings.warn(
@@ -776,7 +800,7 @@ class SMC:
         """
         self.update_log(state="Entering move_with_controlled_acceptation_rate")
         iteration_counter = 0
-        while iteration_counter < self.mh_params["adjustment_max_iterations"]:
+        while iteration_counter < self.smc_config.mh_adjustment_max_iterations:
             iteration_counter += 1
             acceptation_rate = self.particles.move()
             self.update_log(
@@ -786,14 +810,14 @@ class SMC:
             if debug:
                 print(f"Acceptation rate = {acceptation_rate:.2f}")
 
-            if acceptation_rate < self.mh_params["acceptation_rate_min"]:
-                self.particles.param_s /= self.mh_params["adjustment_factor"]
+            if acceptation_rate < self.smc_config.mh_acceptation_rate_min:
+                self.particles.param_s /= self.smc_config.mh_adjustment_factor
                 self.update_log(
                     state=f"Acceptation rate low ({acceptation_rate:.2f}); decreasing param_s to {self.particles.param_s:.2e}"
                 )
                 continue
-            if acceptation_rate > self.mh_params["acceptation_rate_max"]:
-                self.particles.param_s *= self.mh_params["adjustment_factor"]
+            if acceptation_rate > self.smc_config.mh_acceptation_rate_max:
+                self.particles.param_s *= self.smc_config.mh_adjustment_factor
                 self.update_log(
                     state=f"Acceptation rate high ({acceptation_rate:.2f}); increasing param_s to {self.particles.param_s:.2e}"
                 )
@@ -845,7 +869,7 @@ class SMC:
             self.particles.set_logpdf_with_parameter(
                 logpdf_parameterized_function, logpdf_param
             )
-            self.particles.reweight(update_logpx_and_w_pre=False)
+            self.particles.reweight(update_logpx_and_w=False)
             eta = self.particles.ess() / self.particles.n
             if debug:
                 print(
@@ -1164,6 +1188,8 @@ def run_smc_sampling(
     p0: float = None,
     init_box: list = None,
     n_particles: int = 1000,
+    smc_config: SMCConfig = None,
+    particles_config: ParticlesSetConfig = None,
     debug: bool = False,
     plot_particles: bool = False,
     plot_empirical_distributions: bool = False,
@@ -1189,6 +1215,10 @@ def run_smc_sampling(
         Domain box for particle initialization.
     n_particles : int, optional
         Number of particles. Default is 1000.
+    smc_config : SMCConfig, optional
+        An instance of SMCConfig to set SMC options.
+    particles_config : ParticlesSetConfig, optional
+        An instance of ParticlesSetConfig to set particle options.
     debug : bool, optional
         If True, print debug information during execution.
     plot_particles : bool, optional
@@ -1203,13 +1233,24 @@ def run_smc_sampling(
     smc : SMC
         The SMC instance containing diagnostics and logs.
     """
-    smc = SMC(
-        init_box,
-        n=n_particles,
-        compute_next_logpdf_param_method=compute_next_logpdf_param_method,
-    )
-    current_logpdf_param = initial_logpdf_param
+    # Create the SMC instance using the configuration objects. If none are provided,
+    # defaults are used based on the dataclass definitions.
+    if particles_config is None:
+        particles_config = ParticlesSetConfig(resample_scheme="residual")
+    if smc_config is None:
+        smc_config = SMCConfig(
+            compute_next_logpdf_param_method=compute_next_logpdf_param_method,
+            mh_steps=10,
+        )
 
+    smc = SMC(
+        box=init_box,
+        n=n_particles,
+        particles_config=particles_config,
+        smc_config=smc_config,
+    )
+
+    # Perform the SMC step with a possible restart.
     smc.step_with_possible_restart(
         logpdf_parameterized_function,
         initial_logpdf_param,

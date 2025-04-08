@@ -1,3 +1,4 @@
+- 0.9.24 update smc code
 - 0.9.23 update mcmc code and implement Fisher information matrix
 - 0.9.22 implement sampling from posterior
 - 0.9.21 bug correction introduced in v0.9.20 about computation of posterior variance
