@@ -1,6 +1,6 @@
 ## --------------------------------------------------------------
 # Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-# Copyright (c) 2022, CentraleSupelec
+# Copyright (c) 2022-2025, CentraleSupelec
 # License: GPLv3 (see LICENSE)
 ## --------------------------------------------------------------
 import sys
@@ -116,6 +116,12 @@ class Figure:
             self.ax.set_ylim(new_limits)
             return new_limits
 
+    def axhline(self, y, **kwargs):
+        self.ax.axhline(y, **kwargs)
+
+    def axvline(self, x, **kwargs):
+        self.ax.axvline(x, **kwargs)
+        
     def plotgp(
         self,
         x,
