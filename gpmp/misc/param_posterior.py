@@ -386,6 +386,7 @@ def sample_from_selection_criterion_smc(
     initial_temperature: float = 1e6,
     final_temperature: float = 1.0,
     min_ess_ratio: float = 0.5,
+    mh_steps: int = 20,
     max_stages: int = 50,
     debug: bool = False,
     plot_marginals: bool = False,
@@ -498,6 +499,7 @@ def sample_from_selection_criterion_smc(
         min_ess_ratio=min_ess_ratio,
         init_box=init_box,
         n_particles=n_particles,
+        mh_steps=mh_steps,
         debug=debug,
         plot_empirical_distributions=plot_marginals,
     )

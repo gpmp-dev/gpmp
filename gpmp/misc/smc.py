@@ -39,7 +39,7 @@ class ParticlesSetConfig:
 @dataclass
 class SMCConfig:
     compute_next_logpdf_param_method: str = "p0"  # or "ess"
-    mh_steps: int = 10
+    mh_steps: int = 20
     mh_acceptation_rate_min: float = 0.2
     mh_acceptation_rate_max: float = 0.4
     mh_adjustment_factor: float = 1.4
@@ -1190,14 +1190,14 @@ def run_smc_sampling(
     p0: float = None,
     init_box: list = None,
     n_particles: int = 1000,
+    mh_steps: int = 20,
     smc_config: SMCConfig = None,
     particles_config: ParticlesSetConfig = None,
     debug: bool = False,
     plot_particles: bool = False,
     plot_empirical_distributions: bool = False,
 ):
-    """
-    Run a full Sequential Monte Carlo (SMC) simulation.
+    """Run a full Sequential Monte Carlo (SMC) simulation.
 
     Parameters
     ----------
@@ -1217,10 +1217,13 @@ def run_smc_sampling(
         Domain box for particle initialization.
     n_particles : int, optional
         Number of particles. Default is 1000.
+    mh_steps : int, optional
+        Number of MH steps for moving the particles. Default is 20.
     smc_config : SMCConfig, optional
         An instance of SMCConfig to set SMC options.
     particles_config : ParticlesSetConfig, optional
         An instance of ParticlesSetConfig to set particle options.
+        (Takes precedence on mh_steps setting.)
     debug : bool, optional
         If True, print debug information during execution.
     plot_particles : bool, optional
@@ -1234,6 +1237,7 @@ def run_smc_sampling(
         Final particle positions.
     smc : SMC
         The SMC instance containing diagnostics and logs.
+
     """
     # Create the SMC instance using the configuration objects. If none are provided,
     # defaults are used based on the dataclass definitions.
@@ -1242,7 +1246,7 @@ def run_smc_sampling(
     if smc_config is None:
         smc_config = SMCConfig(
             compute_next_logpdf_param_method=compute_next_logpdf_param_method,
-            mh_steps=10,
+            mh_steps=mh_steps,
         )
 
     smc = SMC(
