@@ -831,23 +831,37 @@ elif _gpmp_backend_ == "jax":
     def copy(x):
         return array(x, copy=True)
 
-    @jax.jit
+    def is_boolean_mask(mask):
+        return isinstance(mask, jax.numpy.ndarray) and jax.numpy.issubdtype(mask.dtype, jax.numpy.bool_)
+
     def set_elem_1d(x, index, v):
         return x.at[index].set(v)
 
-    @jax.jit
     def set_elem_2d(x, i, j, v):
         return x.at[i, j].set(v)
 
-    @jax.jit
     def set_row_2d(A, index, x):
-        return A.at[index, :].set(x)
-
-    @jax.jit
+        if isinstance(index, (int, jax.numpy.integer)):
+            return A.at[index, :].set(x)
+        elif isinstance(index, jax.numpy.ndarray):
+            if jax.numpy.issubdtype(index.dtype, jax.numpy.bool_):
+                rows = jax.numpy.where(index)[0]
+                return A.at[rows].set(x)
+            elif jax.numpy.issubdtype(index.dtype, jax.numpy.integer):
+                return A.at[index].set(x)
+        raise TypeError("Unsupported index type: must be int, integer array, or boolean mask")
+    
     def set_col_2d(A, index, x):
-        return A.at[:, index].set(x)
+        if isinstance(index, (int, jax.numpy.integer)):
+            return A.at[:, index].set(x)
+        elif isinstance(index, jax.numpy.ndarray):
+            if jax.numpy.issubdtype(index.dtype, jax.numpy.bool_):
+                cols = jax.numpy.where(index)[0]
+                return A.at[:, cols].set(x)
+            elif jax.numpy.issubdtype(index.dtype, jax.numpy.integer):
+                return A.at[:, index].set(x)
+        raise TypeError("Unsupported index type: must be int, integer array, or boolean mask")
 
-    @jax.jit
     def set_col_3d(A, index, x):
         return A.at[:, :, index].set(x)
 

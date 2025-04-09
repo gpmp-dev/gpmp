@@ -420,9 +420,11 @@ class ParticlesSet:
         accept_mask = gnp.log(u) < logrho
 
         # Update
-        self.x[accept_mask, :] = y[accept_mask, :]
-        self.logpx[accept_mask] = logpy[accept_mask]
-
+        # self.x[accept_mask, :] = y[accept_mask, :]
+        self.x = gnp.set_row_2d(self.x, accept_mask, y[accept_mask, :])
+        # self.logpx[accept_mask] = logpy[accept_mask]
+        self.logpx = gnp.set_elem_1d(self.logpx, accept_mask, logpy[accept_mask])
+        
         # Compute the acceptance rate
         acceptance_rate = gnp.sum(accept_mask) / self.n
 
