@@ -462,6 +462,8 @@ def autoselect_parameters(
     criterion,
     gradient,
     bounds=None,
+    bounds_auto=True,
+    bounds_delta=10.0,
     silent=True,
     info=False,
     method="SLSQP",
@@ -485,8 +487,15 @@ def autoselect_parameters(
         to the parameters. It should take an ndarray of parameters and return an ndarray
         of the same shape.
     bounds : sequence of tuple, optional
-        A sequence of (min, max) pairs specifying bounds for each parameter.
-        Use None to indicate no bounds. Default is None.
+        A sequence of (min, max) pairs for each parameter. If None and bounds_auto 
+        is True, the bounds are automatically set as (max(p - bounds_delta, safe_min), 
+        min(p + bounds_delta, safe_max)) for each parameter in p0.
+    bounds_auto : bool, optional
+        If True and bounds is None, automatically create bounds as described above.
+        Default is True.
+    bounds_delta : float, optional
+        The delta value for automatically setting bounds if bounds_auto is True.
+        Default is 10.0.
     silent : bool, optional
         If True, suppresses optimization output messages. Default is True.
     info : bool, optional
@@ -516,6 +525,15 @@ def autoselect_parameters(
     # Track optimization start time
     tic = time.time()
 
+    # Set bounds
+    safe_lower = -500
+    safe_upper = 500
+    if bounds is None and bounds_auto:
+        bounds = [
+            (max(param - bounds_delta, safe_lower), min(param + bounds_delta, safe_upper))
+            for param in p0
+        ]
+    
     # Setup to record parameter and criterion history
     history_params = []
     history_criterion = []
