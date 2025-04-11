@@ -1,17 +1,542 @@
-# --------------------------------------------------------------
-# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-# Copyright (c) 2023-2025, CentraleSupelec
-# License: GPLv3 (see LICENSE)
-# --------------------------------------------------------------
+"""Model Diagnosis Tool for Gaussian Process Models
+
+This script provides functions to diagnose Gaussian Process (GP)
+models. The functions are organized into the following sections:
+
+1. Parameter Statistics and Analysis:
+   - Unnormalized1DDistribution: Constructs a normalized density from
+     an unnormalized log-pdf.
+   - test_unormalized_1d_distribution: Tests the
+     Unnormalized1DDistribution class.
+   - fast_univariate_stats: Computes weighted statistics using a
+     grid-based evaluation.
+   - make_single_param_criterion_function: Generates a function that
+     varies a single parameter.
+   - selection_criterion_statistics_fast: Provides fast, grid-based
+     parameter statistics and Fisher information.
+   - selection_criterion_statistics: Computes parameter statistics
+     using integration over a pseudo-density.
+
+2. Performance Evaluation and Model Metrics:
+   - diag: Runs the overall model diagnosis and displays results.
+   - perf: Computes and prints predictive performance metrics.
+   - modeldiagnosis_init: Initializes a diagnostic report with
+     optimization and parameter information.
+   - compute_performance: Calculates GP performance metrics (LOO, test
+     metrics, PIT, etc.).
+   - model_diagnosis_disp: Displays detailed model diagnosis information.
+
+3. Visualization and Plotting Tools:
+   - plot_pit_ecdf: Plots the empirical cumulative distribution
+     function (ECDF) for PIT values.
+   - plot_selection_criterion_crossections: Generates 1D cross-section
+     plots of the selection criterion.
+   - plot_selection_criterion_2d: Creates a 2D contour plot for two
+     selected parameters.
+   - plot_selection_criterion_sigma_rho: Specialized 2D plot for sigma
+     and rho parameters.
+
+4. Utilities and Data Description:
+   - sigma_rho_from_covparam: Extracts sigma and rho from the
+     covariance parameters.
+   - describe_array: Builds a DataFrame with descriptive statistics
+     for data arrays.
+   - pretty_print_dictionnary: Formats and prints dictionaries in a
+     readable manner.
+
+Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+Copyright (c) 2022-2025, CentraleSupelec
+License: GPLv3 (see LICENSE)
+"""
+
 import sys
 import time
 import math
+from scipy.integrate import quad, cumulative_trapezoid
+from scipy.optimize import brentq
 import numpy as np
 import gpmp.num as gnp
 import gpmp as gp
 from gpmp.misc.dataframe import DataFrame, ftos
 import matplotlib.pyplot as plt
 from matplotlib import interactive
+
+# ============================================================
+# Parameter statistics and analysis
+# ============================================================
+
+
+class Unnormalized1DDistribution:
+    def __init__(self, log_pdf, bounds):
+        """
+        Parameters:
+        - log_pdf: function (float -> float), unnormalized log-pdf (scalar-only)
+        - bounds: tuple (a, b), integration bounds for numerical integration
+        """
+        self.log_pdf = log_pdf
+        self.bounds = bounds
+        self.f_scalar = lambda x: gnp.exp(gnp.asarray(self.log_pdf(x)))
+
+        # Normalization constant
+        self.Z, _ = quad(self.f_scalar, *self.bounds)
+
+    def f(self, x: gnp.ndarray) -> gnp.ndarray:
+        """Unnormalized density"""
+        return gnp.asarray([self.f_scalar(x_scalar) for x_scalar in x])
+
+    def pdf(self, x: gnp.ndarray) -> gnp.ndarray:
+        """Normalized density evaluated"""
+        return self.f(x) / self.Z
+
+    def cdf(self, x: float) -> float:
+        """CDF at scalar x (float input only)"""
+        integral, _ = quad(self.f_scalar, self.bounds[0], x)
+        return integral / self.Z
+
+    def mean(self) -> float:
+        integrand = lambda x: x * self.f_scalar(x)
+        mu, _ = quad(integrand, *self.bounds)
+        return mu / self.Z
+
+    def var(self) -> float:
+        mu = self.mean()
+        integrand = lambda x: x**2 * self.f_scalar(x)
+        second_moment, _ = quad(integrand, *self.bounds)
+        return second_moment / self.Z - mu**2
+
+    def quantile(self, p: float, xtol: float = 1e-6) -> float:
+        """Quantile for probability p"""
+        a, b = self.bounds
+        return brentq(lambda x: self.cdf(x) - p, a, b, xtol=xtol)
+
+
+def test_unormalized_1d_distribution():
+    from scipy.stats import t
+
+    def log_pdf_scalar(x: float) -> float:
+        # Non-vectorized log-pdf
+        return t.logpdf(x, df=5) + 1.0
+
+    dist = Unnormalized1DDistribution(log_pdf_scalar, bounds=(-gnp.inf, gnp.inf))
+
+    # Scalar evaluations
+    print("Mean:", dist.mean())
+    print("Variance:", dist.variance())
+    print("Quantile (0.9):", dist.quantile(0.9))
+
+    # Tensor evaluation for plotting or analysis
+    x = gnp.linspace(-3, 3, 200)
+    pdf_vals = dist.pdf(x)
+
+
+def fast_univariate_stats(single_param_fn, lower_bound, upper_bound, n_points=100):
+    """
+    Compute statistics on a univariate function by evaluating on a linspace.
+
+    The pseudo-pdf is defined as:
+         f(x) = exp( - single_param_fn(x) )
+    so that lower criterion values yield higher weight.
+
+    Parameters
+    ----------
+    single_param_fn : callable
+         Function of one variable (scalar-only).
+    lower_bound, upper_bound : float
+         Integration bounds.
+    n_points : int, optional
+         Number of grid points.
+
+    Returns
+    -------
+    mean_val : float
+         Estimated weighted mean.
+    variance : float
+         Estimated weighted variance.
+    quantiles : dict
+         Dictionary with keys "0.1", "0.25", "0.5", "0.75", "0.9" for the quantiles.
+    mode_val : float
+         Grid estimate for the mode (the x-value maximizing f(x), i.e. minimizing the criterion).
+    """
+    xs = np.linspace(lower_bound, upper_bound, n_points)
+    # Evaluate the pseudo pdf: f(x) = exp( - single_param_fn(x) )
+    f_vals = np.array([np.exp(-single_param_fn(x)) for x in xs])
+    # Integration step size (assumes uniform grid)
+    dx = xs[1] - xs[0]
+    # Normalization constant (using trapezoidal rule)
+    Z = np.trapz(f_vals, xs)
+    mean_val = np.trapz(xs * f_vals, xs) / Z
+    variance = np.trapz((xs**2) * f_vals, xs) / Z - mean_val**2
+    # Compute CDF via cumulative trapezoidal integration.
+    cdf_vals = cumulative_trapezoid(f_vals, xs, initial=0)
+    cdf_vals = cdf_vals / Z
+    quantiles = {}
+    for q in [0.1, 0.25, 0.5, 0.75, 0.9]:
+        quantiles[str(q)] = float(np.interp(q, cdf_vals, xs))
+    # Mode: x-value at maximum f(x)
+    mode_val = xs[np.argmax(f_vals)]
+    return mean_val, variance, quantiles, mode_val
+
+
+def make_single_param_criterion_function(selection_criterion, covparam, param_index):
+    """
+    Create a function of one float variable that computes the selection criterion
+    when only the parameter at param_index is varied, keeping all other parameters
+    in covparam fixed.
+    """
+
+    def single_param_function(x):
+        new_covparam = gnp.copy(covparam)
+        new_covparam = gnp.set_elem_1d(new_covparam, param_index, x)
+        return selection_criterion(new_covparam)
+
+    return single_param_function
+
+
+def selection_criterion_statistics_fast(
+    info=None,
+    model=None,
+    xi=None,
+    selection_criterion=None,
+    covparam=None,
+    ind=None,
+    param_box=None,
+    delta=5.0,
+    n_points=250,
+    verbose=False,
+):
+    """Compute statistics on the selection criterion viewed as a
+    negative log pdf, for the specified dimensions of covparam, and
+    compute the Fisher information matrix using
+    model.fisher_information(xi, covparam, epsilon=1e-3).
+
+    For each parameter in `ind`, the function:
+      - Creates a single-parameter function (via make_single_param_criterion_function).
+      - Evaluates the pseudo–pdf f(x)=exp(–selection_criterion) on a linspace.
+      - Computes the weighted mean, variance, and quantiles at 0.1, 0.25, 0.5, 0.75, 0.9.
+      - Determines the mode, defined as the x-value at which f(x) is maximized.
+
+    Parameters
+    ----------
+    info : object, optional
+        If provided—and if selection_criterion or covparam is not supplied explicitly—they
+        are taken from this object (attributes selection_criterion_nograd and covparam).
+    model : object, required
+        The model object, assumed to implement a method fisher_information(xi, covparam, epsilon).
+    xi : array-like, required
+        Input data points to be passed to model.fisher_information.
+    selection_criterion : callable, optional
+        A function that accepts a covparam vector and returns a scalar value.
+    covparam : array-like, optional
+        The covariance parameters vector.
+    ind : list or array-like, optional
+        List of indices (dimensions) for which statistics are computed. If not provided, all dimensions are used.
+    param_box : 2D array-like, optional
+        Two-row array with min and max values for each parameter; if provided, these are used
+        to set integration bounds. Otherwise, bounds are set to:
+            [opt_value - delta, opt_value + delta],
+        where opt_value is the reference value in covparam.
+    delta : float, optional
+        Default range ±delta around the reference parameter value if param_box is not provided.
+    n_points : int, optional
+        Number of points to use in the linspace for integration (default is 250).
+    verbose : bool, optional
+        If True, prints a compressed summary for each parameter and the Fisher matrix.
+
+    Returns
+    -------
+    result_dict : dict
+        Dictionary with two keys:
+          "parameter_statistics" : DataFrame
+              A DataFrame where each row corresponds to a parameter. Columns are:
+                "mean", "variance", "quantile_0.1", "quantile_0.25",
+                "quantile_0.5", "quantile_0.75", "quantile_0.9", "mode".
+          "fisher_information" : array-like
+              The Fisher information matrix as computed by model.fisher_information(xi, covparam, epsilon=1e-3).
+
+    """
+    # If info is provided, set defaults.
+    if info is not None:
+        if selection_criterion is None:
+            selection_criterion = info.selection_criterion_nograd
+        if covparam is None:
+            covparam = info.covparam
+        if model is None and hasattr(info, "model"):
+            model = info.model
+        if xi is None and hasattr(info, "xi"):
+            xi = info.xi
+
+    if covparam is None:
+        raise ValueError("covparam must be provided either directly or via info.")
+    if model is None:
+        raise ValueError("model must be provided either directly or via info.")
+    if xi is None:
+        raise ValueError("xi must be provided either directly or via info.")
+
+    covparam = gnp.asarray(covparam)
+    n_params = covparam.shape[0]
+    # If no indices specified, use all dimensions.
+    if ind is None:
+        ind = list(range(n_params))
+
+    parameter_stats = {}
+
+    for param_index in ind:
+        opt_value = covparam[param_index]
+        if param_box is not None:
+            lower_bound = float(param_box[0][param_index])
+            upper_bound = float(param_box[1][param_index])
+        else:
+            lower_bound = opt_value - delta
+            upper_bound = opt_value + delta
+
+        if verbose:
+            print(f"\nProcessing parameter index {param_index}:")
+            print(
+                f"  Reference value: {opt_value}, Integration bounds: [{lower_bound}, {upper_bound}]"
+            )
+
+        # Create the single-parameter function.
+        single_param_fn = make_single_param_criterion_function(
+            selection_criterion, covparam, param_index
+        )
+        # Compute fast stats using the grid-based method.
+        mean_val, var_val, quantiles, mode_val = fast_univariate_stats(
+            single_param_fn, lower_bound, upper_bound, n_points=n_points
+        )
+
+        parameter_stats[param_index] = {
+            "mean": float(mean_val),
+            "variance": float(var_val),
+            "quantile_0.1": quantiles["0.1"],
+            "quantile_0.25": quantiles["0.25"],
+            "quantile_0.5": quantiles["0.5"],
+            "quantile_0.75": quantiles["0.75"],
+            "quantile_0.9": quantiles["0.9"],
+            "mode": float(mode_val),
+        }
+
+        if verbose:
+            print(
+                f"  Stats for param {param_index} -> Mean: {mean_val:.4f}, Var: {var_val:.4f}, "
+                f"Quantiles: [0.1: {quantiles['0.1']:.4f}, 0.25: {quantiles['0.25']:.4f}, "
+                f"0.5: {quantiles['0.5']:.4f}, 0.75: {quantiles['0.75']:.4f}, 0.9: {quantiles['0.9']:.4f}], "
+                f"Mode: {mode_val:.4f}"
+            )
+
+    # Convert the parameter_stats dictionary into a DataFrame.
+    # Create a list of row data and corresponding row names.
+    rows = []
+    row_names = []
+    # Define column order.
+    col_names = [
+        "mean",
+        "variance",
+        "quantile_0.1",
+        "quantile_0.25",
+        "quantile_0.5",
+        "quantile_0.75",
+        "quantile_0.9",
+        "mode",
+    ]
+    for param_index in sorted(parameter_stats.keys()):
+        stats = parameter_stats[param_index]
+        row = [stats[col] for col in col_names]
+        rows.append(row)
+        row_names.append(f"param_{param_index}")
+
+    parameter_stats_df = DataFrame(np.array(rows), col_names, row_names)
+
+    # Compute the Fisher information matrix using the provided model.
+    fisher_information = model.fisher_information(xi, covparam, epsilon=1e-3)
+
+    if verbose:
+        print("\nFisher Information Matrix:")
+        print(fisher_information)
+
+    result_dict = {
+        "parameter_statistics": parameter_stats_df,
+        "fisher_information": fisher_information,
+    }
+    return result_dict
+
+
+def selection_criterion_statistics(
+    info=None,
+    model=None,
+    xi=None,
+    selection_criterion=None,
+    covparam=None,
+    ind=None,
+    param_box=None,
+    delta=5.0,
+    verbose=False,
+):
+    """Compute statistics on the selection criterion viewed as a
+    negative log pdf, for the specified dimensions of covparam, and
+    compute the Fisher information matrix using
+    model.fisher_information(xi, covparam, epsilon=1e-3).
+
+    For each parameter in `ind`, the function:
+      - Creates a single-parameter function (via make_single_param_criterion_function).
+      - Builds a pseudo-density with log_pdf = -selection_criterion (so that lower criterion values get higher weight).
+      - Computes the weighted mean, variance, and quantiles at 0.1, 0.25, 0.5, 0.75, 0.9.
+      - Computes the mode, defined as the value that minimizes the selection criterion via bounded minimization.
+
+    Parameters
+    ----------
+    info : object, optional
+        If provided—and if selection_criterion or covparam is not supplied explicitly—they
+        are taken from this object (attributes selection_criterion_nograd and covparam).
+    model : object, required
+        The model object, assumed to implement a method fisher_information(xi, covparam, epsilon).
+    xi : array-like, required
+        Input data points to be passed to model.fisher_information.
+    selection_criterion : callable, optional
+        A function that accepts a covparam vector and returns a scalar value.
+    covparam : array-like, optional
+        The covariance parameters vector.
+    ind : list or array-like, optional
+        List of indices (dimensions) for which statistics are computed. If not provided, all dimensions are used.
+    param_box : 2D array-like, optional
+        Two-row array with min and max values for each parameter; if provided, these are used
+        to set integration bounds. Otherwise, bounds are set to:
+            [opt_value - delta, opt_value + delta],
+        where opt_value is the reference value in covparam.
+    delta : float, optional
+        Default range ±delta around the reference parameter value if param_box is not provided.
+    verbose : bool, optional
+        If True, prints detailed compressed information during computation.
+
+    Returns
+    -------
+    result_dict : dict
+        Dictionary with two keys:
+          "parameter_statistics" : DataFrame
+              A DataFrame where each row corresponds to a parameter. Columns are:
+                "mean", "variance", "quantile_0.1", "quantile_0.25",
+                "quantile_0.5", "quantile_0.75", "quantile_0.9", "mode".
+          "fisher_information" : array-like
+              The Fisher information matrix as computed by model.fisher_information(xi, covparam, epsilon=1e-3).
+
+    """
+    # If info is provided, set defaults.
+    if info is not None:
+        if selection_criterion is None:
+            selection_criterion = info.selection_criterion_nograd
+        if covparam is None:
+            covparam = info.covparam
+        if model is None and hasattr(info, "model"):
+            model = info.model
+        if xi is None and hasattr(info, "xi"):
+            xi = info.xi
+
+    if covparam is None:
+        raise ValueError("covparam must be provided either directly or via info.")
+    if model is None:
+        raise ValueError("model must be provided either directly or via info.")
+    if xi is None:
+        raise ValueError("xi must be provided either directly or via info.")
+
+    covparam = gnp.asarray(covparam)
+    n_params = covparam.shape[0]
+    # If no indices specified, use all dimensions.
+    if ind is None:
+        ind = list(range(n_params))
+
+    parameter_stats = {}
+
+    for param_index in ind:
+        opt_value = covparam[param_index]
+        if param_box is not None:
+            lower_bound = float(param_box[0][param_index])
+            upper_bound = float(param_box[1][param_index])
+        else:
+            lower_bound = opt_value - delta
+            upper_bound = opt_value + delta
+
+        if verbose:
+            print(f"\nProcessing parameter index {param_index}:")
+            print(
+                f"  Reference value: {opt_value}, Integration bounds: [{lower_bound}, {upper_bound}]"
+            )
+
+        # Create the single-parameter function for the current dimension.
+        single_param_fn = make_single_param_criterion_function(
+            selection_criterion, covparam, param_index
+        )
+        # Define a pseudo log-pdf as minus the selection criterion (lower criterion gives higher weight).
+        log_pdf = lambda x: -single_param_fn(x)
+        # Build the pseudo-distribution.
+        dist = Unnormalized1DDistribution(log_pdf, bounds=(lower_bound, upper_bound))
+
+        # Compute weighted statistics.
+        mean_val = dist.mean()
+        var_val = dist.var()
+        quantile_0_1 = dist.quantile(0.1)
+        quantile_0_25 = dist.quantile(0.25)
+        quantile_0_5 = dist.quantile(0.5)
+        quantile_0_75 = dist.quantile(0.75)
+        quantile_0_9 = dist.quantile(0.9)
+
+        # Determine the mode as the covparam value.
+        mode_val = covparam[param_index]
+
+        parameter_stats[param_index] = {
+            "mean": float(mean_val),
+            "variance": float(var_val),
+            "quantile_0.1": float(quantile_0_1),
+            "quantile_0.25": float(quantile_0_25),
+            "quantile_0.5": float(quantile_0_5),
+            "quantile_0.75": float(quantile_0_75),
+            "quantile_0.9": float(quantile_0_9),
+            "mode": float(mode_val),
+        }
+
+        if verbose:
+            print(
+                f"  Stats for param {param_index} -> Mean: {mean_val:.4f}, Var: {var_val:.4f}, "
+                f"Quantiles: [0.1: {quantile_0_1:.4f}, 0.25: {quantile_0_25:.4f}, 0.5: {quantile_0_5:.4f}, "
+                f"0.75: {quantile_0_75:.4f}, 0.9: {quantile_0_9:.4f}], Mode: {mode_val:.4f}"
+            )
+
+    # Convert the parameter_stats dictionary into a DataFrame.
+    rows = []
+    row_names = []
+    col_names = [
+        "mean",
+        "variance",
+        "quantile_0.1",
+        "quantile_0.25",
+        "quantile_0.5",
+        "quantile_0.75",
+        "quantile_0.9",
+        "mode",
+    ]
+    for param_index in sorted(parameter_stats.keys()):
+        stats = parameter_stats[param_index]
+        row = [stats[col] for col in col_names]
+        rows.append(row)
+        row_names.append(f"param_{param_index}")
+
+    parameter_stats_df = DataFrame(np.array(rows), col_names, row_names)
+
+    # Compute the Fisher information matrix using the provided model.
+    fisher_information = model.fisher_information(xi, covparam, epsilon=1e-3)
+
+    if verbose:
+        print("\nFisher Information Matrix:")
+        print(fisher_information)
+
+    result_dict = {
+        "parameter_statistics": parameter_stats_df,
+        "fisher_information": fisher_information,
+    }
+    return result_dict
+
+
+# ============================================================
+# Performance evaluation and model metrics
+# ============================================================
 
 
 def diag(model, info_select_parameters, xi, zi):
@@ -85,7 +610,9 @@ def modeldiagnosis_init(model, info):
     return md
 
 
-def compute_performance(model, xi, zi, loo=True, loo_res=None, xtzt=None, zpmzpv=None):
+def compute_performance(
+    model, xi, zi, loo=True, loo_res=None, xtzt=None, zpmzpv=None, compute_pit=False
+):
     """Compute performance metrics of the GP model.
 
     Parameters
@@ -104,6 +631,8 @@ def compute_performance(model, xi, zi, loo=True, loo_res=None, xtzt=None, zpmzpv
         The test input data and corresponding targets to be used for computing test set metrics. Default is None.
     zpmzpv : tuple, optional
         The predicted mean and variance on the test set data. Default is None.
+    compute_pit : bool, optional
+        Whether to compute probability integral transform (PIT)
 
     Returns
     -------
@@ -120,15 +649,14 @@ def compute_performance(model, xi, zi, loo=True, loo_res=None, xtzt=None, zpmzpv
           residual error sum of squares to the total sum of squares in
           the leave-one-out predictions.
         - 'loo_pit': probability integral transform (PIT) of the
-          leave-one-out predictions.  If `xtzt` and `zpmzpv` are not
-          None, the following keys are present:
+          leave-one-out predictions.
+        If `xtzt` and `zpmzpv` are not None, the following keys are present:
         - 'test_tss': total sum of squares in the test set predictions.
-        - 'test_press': predictive residual error sum of squares in
+        - 'test_rss': residual error sum of squares in
           the test set predictions.
-        - 'test_Q2': coefficient of determination for the test set predictions.
-        - 'test_log10ratio': logarithm of the predictive
-          residual error sum of squares to the total sum of squares in
-          the test set predictions.
+        - 'test_R2': coefficient of determination for the test set predictions.
+        - 'test_log10ratio': logarithm of the residual error sum of squares
+          to the total sum of squares in the test set predictions.
         - 'test_pit': PIT of the test set predictions.
     """
     xi = gnp.asarray(xi)
@@ -156,52 +684,26 @@ def compute_performance(model, xi, zi, loo=True, loo_res=None, xtzt=None, zpmzpv
 
     if loo:
         # total sum of squares
-        perf["data_tss"] = gnp.norm(zi - gnp.mean(zi), ord=2)
+        perf["data_tss"] = gnp.norm(zi - gnp.mean(zi), ord=2) ** 2
         # Predictive residual Error sum of squares
-        perf["loo_press"] = gnp.norm(eloo, ord=2)
+        perf["loo_press"] = gnp.norm(eloo, ord=2) ** 2
         # Q2
         perf["loo_Q2"] = 1 - perf["loo_press"] / perf["data_tss"]
         # L2err
         perf["loo_log10ratio"] = gnp.log10(perf["loo_press"] / perf["data_tss"])
         # PIT
-        perf["loo_pit"] = gnp.normal.cdf(zi, loc=zloom, scale=gnp.sqrt(zloov))
+        if compute_pit:
+            perf["loo_pit"] = gnp.normal.cdf(zi, loc=zloom, scale=gnp.sqrt(zloov))
 
     if test_set:
-        perf["test_tss"] = gnp.norm(zt - gnp.mean(zt), ord=2)
-        perf["test_press"] = gnp.norm(zpm - zt, ord=2)
-        perf["test_Q2"] = 1 - perf["test_press"] / perf["test_tss"]
-        perf["test_log10ratio"] = gnp.log10(perf["test_press"] / perf["test_tss"])
-        perf["test_pit"] = gnp.normal.cdf(zt, loc=zpm, scale=gnp.sqrt(zpv))
+        perf["test_tss"] = gnp.norm(zt - gnp.mean(zt), ord=2) ** 2
+        perf["test_rss"] = gnp.norm(zt - zpm, ord=2) ** 2
+        perf["test_R2"] = 1 - perf["test_rss"] / perf["test_tss"]
+        perf["test_log10ratio"] = gnp.log10(perf["test_rss"] / perf["test_tss"])
+        if compute_pit:
+            perf["test_pit"] = gnp.normal.cdf(zt, loc=zpm, scale=gnp.sqrt(zpv))
 
     return perf
-
-
-def plot_pit_ecdf(pit, fig=None):
-    """Plot the empirical cumulative distribution function (ECDF) of a Probability
-    Integral Transform (PIT) vector.
-
-    Parameters
-    ----------
-    pit : gnp.ndarray, shape (n,)
-        An array of PIT values.
-    fig : matplotlib.figure.Figure, optional
-        Matplotlib figure object to plot the PIT ECDF on. If None, a
-        new figure is created. Default is None.
-
-    Returns
-    -------
-    None
-    """
-    n = pit.shape[0]
-    p = gnp.concatenate((gnp.array([0]), gnp.linspace(0, 1, n)))
-    pit_sorted = gnp.concatenate((gnp.array([0.0]), gnp.sort(pit)))
-
-    if fig is None:
-        plt.figure()
-    plt.step(pit_sorted, p)
-    plt.plot([0, 1], [0, 1])
-    plt.title("PIT (Probability Integral Transform) ECDF")
-    plt.show()
 
 
 def model_diagnosis_disp(md, xi, zi):
@@ -243,6 +745,39 @@ def model_diagnosis_disp(md, xi, zi):
 
     # zi + xi
     print(df_zi.concat(df_xi))
+
+
+# ============================================================
+# Visualization and plotting tools
+# ============================================================
+
+
+def plot_pit_ecdf(pit, fig=None):
+    """Plot the empirical cumulative distribution function (ECDF) of a Probability
+    Integral Transform (PIT) vector.
+
+    Parameters
+    ----------
+    pit : gnp.ndarray, shape (n,)
+        An array of PIT values.
+    fig : matplotlib.figure.Figure, optional
+        Matplotlib figure object to plot the PIT ECDF on. If None, a
+        new figure is created. Default is None.
+
+    Returns
+    -------
+    None
+    """
+    n = pit.shape[0]
+    p = gnp.concatenate((gnp.array([0]), gnp.linspace(0, 1, n)))
+    pit_sorted = gnp.concatenate((gnp.array([0.0]), gnp.sort(pit)))
+
+    if fig is None:
+        plt.figure()
+    plt.step(pit_sorted, p)
+    plt.plot([0, 1], [0, 1])
+    plt.title("PIT (Probability Integral Transform) ECDF")
+    plt.show()
 
 
 def plot_selection_criterion_crossections(
@@ -303,7 +838,9 @@ def plot_selection_criterion_crossections(
     if info is None:
         # Must have selection_criterion and covparam
         if selection_criterion is None:
-            raise ValueError("selection_criterion must be provided if info is not given.")
+            raise ValueError(
+                "selection_criterion must be provided if info is not given."
+            )
         if covparam is None:
             raise ValueError("covparam must be provided if info is not given.")
         param_opt = gnp.asarray(covparam)
@@ -356,12 +893,14 @@ def plot_selection_criterion_crossections(
                 opt_value,
                 color="red",
                 linestyle="--",
-                label=("reference" if covparam is not None else "optimal")
+                label=("reference" if covparam is not None else "optimal"),
             )
             # Label for the parameter
-            name = (param_names[param_index]
-                    if (param_names is not None and param_index < len(param_names))
-                    else f"param {param_index}")
+            name = (
+                param_names[param_index]
+                if (param_names is not None and param_index < len(param_names))
+                else f"param {param_index}"
+            )
             ax.set_ylabel("Criterion value")
             if idx == n_ind - 1:
                 ax.set_xlabel("Param value")
@@ -387,13 +926,15 @@ def plot_selection_criterion_crossections(
                 crit = selection_criterion(param)
                 crit_values = gnp.set_elem_1d(crit_values, j, crit)
 
-            name = (param_names[param_index]
-                    if (param_names is not None and param_index < len(param_names))
-                    else f"param {param_index}")
+            name = (
+                param_names[param_index]
+                if (param_names is not None and param_index < len(param_names))
+                else f"param {param_index}"
+            )
             ax.plot(p_values, crit_values, label=name)
-            if covparam is None and idx == len(ind_pooled)-1:
+            if covparam is None and idx == len(ind_pooled) - 1:
                 label_ref = "optimal"
-            elif idx == len(ind_pooled)-1:
+            elif idx == len(ind_pooled) - 1:
                 label_ref = "ref"
             else:
                 label_ref = None
@@ -404,6 +945,7 @@ def plot_selection_criterion_crossections(
         ax.legend()
         plt.tight_layout()
         plt.show()
+
 
 def plot_selection_criterion_2d(
     model,
@@ -550,6 +1092,11 @@ def plot_selection_criterion_sigma_rho(
         param_names=["sigma (log10)", "rho (log10)"],
         criterion_name=criterion_name,
     )
+
+
+# ============================================================
+# Utilities and Data Description
+# ============================================================
 
 
 def sigma_rho_from_covparam(covparam):
