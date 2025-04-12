@@ -21,6 +21,7 @@ import scipy.stats as stats
 from scipy.stats import qmc
 from scipy.optimize import brentq
 import gpmp.num as gnp
+import gpmp.misc.knn_cov
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
@@ -34,6 +35,9 @@ class ParticlesSetConfig:
     param_s_lower_bound: float = 1e-3
     jitter_initial_value: float = 1e-16
     jitter_max_iterations: int = 10
+    covariance_method: str = "knn"
+    covariance_knn_n_random: int = 50
+    covariance_knn_n_neighbors: int = 100
 
 
 @dataclass
@@ -364,7 +368,15 @@ class ParticlesSet:
             raise ParticlesSetError(self.param_s, param_s_lower, param_s_upper)
 
         # Covariance matrix of the pertubation noise
-        C = self.param_s * gnp.cov(self.x.reshape(self.n, -1).T)
+        if self.config.covariance_method == "knn":
+            base_cov = gpmp.misc.knn_cov.estimate_cov_matrix_knn(
+                self.x,
+                n_random=self.config.covariance_knn_n_random,
+                n_neighbors=self.config.covariance_knn_n_neighbors,
+            )  # shape (dim, dim)
+        elif self.config.covariance_method == "normal":
+            base_cov = gpmp.misc.knn_cov.estimate_cov_matrix(self.x)
+        C = self.param_s * base_cov
 
         # Call ParticlesSet.multivariate_normal_rvs(C, self.n, self.rng)
         # with control on the possible degeneracy of C
@@ -424,7 +436,7 @@ class ParticlesSet:
         self.x = gnp.set_row_2d(self.x, accept_mask, y[accept_mask, :])
         # self.logpx[accept_mask] = logpy[accept_mask]
         self.logpx = gnp.set_elem_1d(self.logpx, accept_mask, logpy[accept_mask])
-        
+
         # Compute the acceptance rate
         acceptance_rate = gnp.sum(accept_mask) / self.n
 
@@ -1287,7 +1299,7 @@ def test_run_smc_sampling_gaussian_mixture():
     from scipy import stats
 
     # Gaussian mixture parameters
-    m1, s1, w1 = 0.0, 0.05, 0.3
+    m1, s1, w1 = 0.0, 0.04, 0.3
     m2, s2, w2 = 1.0, 0.1, 0.7
 
     # Tempered log pdf: log p_T(x) = beta * log(p(x))
@@ -1301,7 +1313,7 @@ def test_run_smc_sampling_gaussian_mixture():
 
     # Domain: 1D in [-1, 2]
     init_box = [[-1], [2]]
-    initial_logpdf_param = 0.1  # initial beta
+    initial_logpdf_param = 0.01  # initial beta
     target_logpdf_param = 1.0  # target beta
 
     # SMC settings
@@ -1329,13 +1341,14 @@ def test_run_smc_sampling_gaussian_mixture():
     print("Sample variance:", gnp.var(particles))
 
     # Plot target density and histogram of particles
-    x_vals = gnp.linspace(-1, 2, 300)
-    target_density = w1 * stats.norm.pdf(
+    x_vals = gnp.linspace(-0.5, 1.5, 600)
+    target_density = lambda x_vals: w1 * stats.norm.pdf(
         x_vals, loc=m1, scale=s1
     ) + w2 * stats.norm.pdf(x_vals, loc=m2, scale=s2)
     plt.figure(figsize=(8, 3))
     plt.hist(particles, bins=100, density=True, histtype="step", label="SMC particles")
-    plt.plot(x_vals, target_density, "r--", label="Target density")
+    plt.plot(x_vals, target_density(x_vals), "r--", label="Target density")
+    #  plt.plot(particles, target_density(particles), 'b.')
     plt.xlabel("x")
     plt.ylabel("Density")
     plt.legend()
