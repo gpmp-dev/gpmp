@@ -17,7 +17,7 @@ Description:
 
 """
 
-import os
+import os, warnings
 import numpy
 from importlib import util as importlib_util
 
@@ -102,6 +102,7 @@ if _gpmp_backend_ == "numpy":
         argmax,
         minimum,
         maximum,
+        clip,
         einsum,
         matmul,
         trace,
@@ -112,7 +113,6 @@ if _gpmp_backend_ == "numpy":
         logical_or,
     )
     from numpy.linalg import norm, cond, cholesky, qr, svd, inv
-    from numpy.random import rand, randn, choice
     from numpy import pi, inf
     from numpy import finfo, float64
     from scipy.special import gammaln
@@ -209,7 +209,7 @@ if _gpmp_backend_ == "numpy":
             d = zeros((x.shape[0],))
         else:
             invrho = exp(loginvrho)
-            d = sqrt(sum(invrho * (xs - ys) ** 2, axis=1))
+            d = sqrt(sum((invrho * (x - y)) ** 2, axis=1))
         return d
 
     def logdet(A):
@@ -231,6 +231,23 @@ if _gpmp_backend_ == "numpy":
         x = solve_triangular(L.T, y, lower=False)
         return x, L
 
+    # Build one global RNG (or let the user set the seed somewhere):
+    _np_rng = numpy.random.default_rng(seed=1234)
+
+    def set_seed(seed):
+        """Set the global NumPy generator seed."""
+        global _np_rng
+        _np_rng = numpy.random.default_rng(seed=seed)
+
+    def rand(*shape):
+        return _np_rng.random(shape)
+
+    def randn(*shape):
+        return _np_rng.normal(loc=0, scale=1, size=shape)
+
+    def choice(a, size=None, replace=True, p=None):
+        return _np_rng.choice(a, size=size, replace=replace, p=p)
+    
     class multivariate_normal:
         @staticmethod
         def rvs(mean=0.0, cov=1.0, n=1):
@@ -455,6 +472,11 @@ elif _gpmp_backend_ == "torch":
             x2 = tensor(x2)
         return torch.minimum(x1, x2)
 
+    def clip(x, min=None, max=None, out=None):
+        if not torch.is_tensor(x):
+            x = tensor(x)
+        return torch.clamp(x, min, max, out)
+
     def sort(x, axis=-1):
         xsorted = torch.sort(x, dim=axis)
         return xsorted.values
@@ -634,7 +656,7 @@ elif _gpmp_backend_ == "torch":
             d = zeros((x.shape[0],))
         else:
             invrho = exp(loginvrho)
-            d = sqrt(sum(invrho * (xs - ys) ** 2, axis=1))
+            d = sqrt(sum(invrho * (x - y) ** 2, axis=1))
         return d
 
     def svd(A, full_matrices=True, hermitian=True):
@@ -658,6 +680,45 @@ elif _gpmp_backend_ == "torch":
     def cholesky_inv(A):
         C = cholesky(A)
         return torch.cholesky_inverse(C)
+
+    # Build a global Torch Generator
+    _torch_gen = torch.Generator()
+    _torch_gen.manual_seed(1234)
+
+    def set_seed(seed):
+        """Set the global Torch generator seed."""
+        global _torch_gen
+        _torch_gen = torch.Generator()
+        _torch_gen.manual_seed(seed)
+    
+    def rand(*shape):
+        return torch.rand(shape, generator=_torch_gen)
+
+    def randn(*shape):
+        return torch.randn(shape, generator=_torch_gen)
+
+    def choice(a, size=None, replace=True, p=None):
+        """
+        Torch doesn't have a built-in direct 'choice' exactly like NumPy's,
+        but you can mimic it. For integer a, we can do something like:
+        """
+        a_tensor = torch.arange(a) if isinstance(a, int) else torch.tensor(a)
+
+        # If p is not None, use torch.multinomial
+        if p is not None:
+            p_tensor = torch.tensor(p, dtype=torch.float64)
+            indices = torch.multinomial(p_tensor, num_samples=size, replacement=replace, generator=_torch_gen)
+            return a_tensor[indices]
+
+        # If p is None, uniform distribution
+        # for sampling 'size' elements from 'a'
+        n = len(a_tensor)
+        # sample with or w/o replacement
+        if replace:
+            indices = torch.randint(low=0, high=n, size=(size,), generator=_torch_gen)
+        else:
+            indices = torch.randperm(n, generator=_torch_gen)[:size]
+        return a_tensor[indices]
 
     class normal:
         @staticmethod
@@ -807,6 +868,7 @@ elif _gpmp_backend_ == "jax":
         argmax,
         minimum,
         maximum,
+        clip,
         einsum,
         matmul,
         trace,
@@ -945,17 +1007,13 @@ elif _gpmp_backend_ == "jax":
     @jax.custom_vjp
     def scaled_distance_(loginvrho, x, y):
         invrho = exp(loginvrho)
-        xs = invrho * x
-        ys = invrho * y
-        hs2 = (xs - ys) ** 2
+        hs2 = (invrho * (x - y)) ** 2
         d = sqrt(sum(hs2))
         return d
 
     def scaled_distance__fwd(loginvrho, x, y):
         invrho = exp(loginvrho)
-        xs = invrho * x
-        ys = invrho * y
-        hs2 = (xs - ys) ** 2
+        hs2 = (invrho * (x - y)) ** 2
         d = sqrt(sum(hs2))
         intermediates = (d, hs2)
         return d, intermediates
@@ -1003,16 +1061,60 @@ elif _gpmp_backend_ == "jax":
         x = solve_triangular(L.T, y, lower=False)
         return x, L
 
-    def seed(s):
-        return jax.random.PRNGKey(s)
+    # One global key:
+    _jax_key = jax.random.PRNGKey(1234)
 
-    key = seed(0)
+    def _update_key():
+        global _jax_key
+        _jax_key, subkey = jax.random.split(_jax_key)
+        return subkey
 
-    def rand(*args):
-        return jax.random.uniform(key, shape=args)
+    def set_seed(seed):
+        """Set the global JAX key seed."""
+        global _jax_key
+        _jax_key = jax.random.PRNGKey(seed)
 
-    def randn(*args):
-        return jax.random.normal(key, shape=args)
+    def rand(*shape):
+        subkey = _update_key()
+        return jax.random.uniform(subkey, shape=shape)
+
+    def randn(*shape):
+        subkey = _update_key()
+        return jax.random.normal(subkey, shape=shape)
+
+    def choice(a, size=None, replace=True, p=None):
+        """
+        We implement a NumPy-like choice in JAX. Suppose 'a' is an int or array.
+        We'll do a naive approach if a is an int => [0,1,...a-1].
+        """
+        subkey = _update_key()
+
+        if isinstance(a, int):
+            a_ar = jax.numpy.arange(a)
+        else:
+            a_ar = jax.numpy.asarray(a)
+
+        n = a_ar.shape[0]
+        if p is not None:
+            p_ar = jax.numpy.asarray(p, dtype=jax.numpy.float32)
+            if replace:
+                # JAX doesn't have a built-in 'multinomial' for sampling items directly
+                # We'll do a simple gather approach:
+                indices = jax.random.categorical(subkey, jax.numpy.log(p_ar), shape=(size,))
+            else:
+                # There's no direct built-in in JAX for 'choice' without replacement + p
+                # This may require a custom approach (Gumbel trick, etc.). For simplicity:
+                raise NotImplementedError("choice w/o replacement + p not trivially supported in JAX.")
+        else:
+            # uniform distribution
+            if replace:
+                indices = jax.random.randint(subkey, shape=(size,), minval=0, maxval=n)
+            else:
+                # naive approach: random permutation then take first 'size'
+                perm = jax.random.permutation(subkey, n)
+                indices = perm[:size]
+
+        return a_ar[indices]
 
     class multivariate_normal:
         @staticmethod
@@ -1025,8 +1127,9 @@ elif _gpmp_backend_ == "jax":
             d = cov.shape[0]  # Dimensionality from the covariance matrix
             mean_vector = full((d,), mean)  # Expand mean to a vector
 
+            subkey = _update_key()
             return jax.random.multivariate_normal(
-                key, mean=mean_vector, cov=cov, shape=(n,)
+                subkey, mean=mean_vector, cov=cov, shape=(n,)
             )
 
         @staticmethod
