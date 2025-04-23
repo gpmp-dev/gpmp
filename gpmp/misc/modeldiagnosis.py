@@ -58,6 +58,7 @@ import numpy as np
 import gpmp.num as gnp
 import gpmp as gp
 from gpmp.misc.dataframe import DataFrame, ftos
+from gpmp.misc.param import param_from_anisotropic_covparam
 import matplotlib.pyplot as plt
 from matplotlib import interactive
 
@@ -539,77 +540,6 @@ def selection_criterion_statistics(
 # ============================================================
 
 
-def diag(model, info_select_parameters, xi, zi):
-    """Run model diagnosis and display the results.
-
-    Parameters
-    ----------
-    model : object
-        GP Model object.
-    info_select_parameters : object
-        Information object containing the parameter selection process.
-    xi : array-like
-        Input data matrix.
-    zi : array-like
-        Output data matrix.
-    """
-    md = modeldiagnosis_init(model, info_select_parameters)
-    model_diagnosis_disp(md, xi, zi)
-
-
-def perf(model, xi, zi, loo=True, loo_res=None, xtzt=None, zpmzpv=None):
-    perf = compute_performance(model, xi, zi, loo, loo_res, xtzt, zpmzpv)
-    perf_disp = perf
-    try:
-        perf_disp.pop("loo_pit")
-    except:
-        pass
-    try:
-        perf_disp.pop("test_pit")
-    except:
-        pass
-    print("[Prediction performances]")
-    pretty_print_dictionnary(perf_disp)
-
-
-def modeldiagnosis_init(model, info):
-    """Build model diagnosis based on the provided model and information.
-
-    Parameters
-    ----------
-    model : object
-        Model object.
-    info : object
-        Information object containing the parameter selection process.
-
-    Returns
-    -------
-    dict
-        Model diagnosis information.
-    """
-    md = {
-        "optim_info": info,
-        "param_selection": {},
-        "parameters": {},
-        "loo": {},
-        "data": {},
-    }
-
-    md["param_selection"] = {
-        "cvg_reached": info.success,
-        "optimal_val": info.best_value_returned,
-        "n_evals": info.nfev,
-        "time": info.total_time,
-        "initial_val": float(info.selection_criterion(info.initial_params)),
-        "final_val": info.fun,
-    }
-
-    covparam = gnp.asarray(model.covparam)
-    md["parameters"] = sigma_rho_from_covparam(covparam)
-
-    return md
-
-
 def compute_performance(
     model, xi, zi, loo=True, loo_res=None, xtzt=None, zpmzpv=None, compute_pit=False
 ):
@@ -706,6 +636,88 @@ def compute_performance(
     return perf
 
 
+def perf(model, xi, zi, loo=True, loo_res=None, xtzt=None, zpmzpv=None):
+    perf = compute_performance(model, xi, zi, loo, loo_res, xtzt, zpmzpv)
+    perf_disp = perf
+    try:
+        perf_disp.pop("loo_pit")
+    except:
+        pass
+    try:
+        perf_disp.pop("test_pit")
+    except:
+        pass
+    print("[Prediction performances]")
+    pretty_print_dictionnary(perf_disp)
+
+
+def diag(model, info_select_parameters, xi, zi, model_type="irf0_matern_anisotropic"):
+    """Run model diagnosis and display the results.
+
+    Parameters
+    ----------
+    model : object
+        GP Model object.
+    info_select_parameters : object
+        Information object containing the parameter selection process.
+    xi : array-like
+        Input data matrix.
+    zi : array-like
+        Output data matrix.
+    model_type : str, optional
+        Type of the model (default is "irf0_matern_anisotropic").
+    """
+    md = modeldiagnosis_init(model, info_select_parameters, model_type=model_type)
+    model_diagnosis_disp(md, xi, zi)
+
+
+def modeldiagnosis_init(model, info, model_type="irf0_matern_anisotropic"):
+    """Build model diagnosis based on the provided model and information.
+
+    Parameters
+    ----------
+    model : object
+        Model object.
+    info : object
+        Information object containing the parameter selection process.
+    model_type : str
+        Type of the model.
+
+    Returns
+    -------
+    dict
+        Model diagnosis information.
+    """
+
+    md = {
+        "optim_info": info,
+        "param_selection": {},
+        "parameters": {},
+        "param_obj": None,
+        "loo": {},
+        "data": {},
+    }
+
+    md["param_selection"] = {
+        "cvg_reached": info.success,
+        "optimal_val": info.best_value_returned,
+        "n_evals": info.nfev,
+        "time": info.total_time,
+        "initial_val": float(info.selection_criterion(info.initial_params)),
+        "final_val": info.fun,
+    }
+
+    covparam = gnp.asarray(model.covparam)
+    if model_type == "irf0_matern_anisotropic":
+        param_obj = param_from_anisotropic_covparam(covparam)
+    else:
+        raise "Unknown model type"
+    md["parameters"] = param_obj.to_simple_dict()
+    md["param_obj"] = param_obj
+
+    return md
+
+
 def model_diagnosis_disp(md, xi, zi):
     """Display model diagnosis information.
 
@@ -722,8 +734,8 @@ def model_diagnosis_disp(md, xi, zi):
     print("  * Parameter selection")
     pretty_print_dictionnary(md["param_selection"])
 
-    print("  * Parameters")
-    pretty_print_dictionnary(md["parameters"])
+    print("  * Parameters")  # Uses Param.__repr__ to display
+    print("\n".join("    " + line for line in str(md["param_obj"]).splitlines()))
 
     print("  * Data")
     print("    {:>0}: {:d}".format("count", zi.shape[0]))
@@ -1132,7 +1144,7 @@ def describe_array(x, rownames, normalizing_factor=None):
     rownames : list
         List of row names for the DataFrame.
     normalizing_factor : float, optional
-        Normalizing factor to compute the 'delta_norm' column, by default None.
+        Normalizing factor to compute the 'delta_normalized' column, by default None.
 
     Returns
     -------
@@ -1145,7 +1157,7 @@ def describe_array(x, rownames, normalizing_factor=None):
         colnames = ["mean", "std", "min", "max", "delta"]
     else:
         n_descriptors = 6
-        colnames = ["min", "max", "delta", "mean", "std", "delta_norm"]
+        colnames = ["min", "max", "delta", "mean", "std", "delta_normalized"]
     dim = 1 if x.ndim == 1 else x.shape[1]
 
     data = np.empty((dim, n_descriptors))

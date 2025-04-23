@@ -53,8 +53,8 @@ def constant_mean(x, _):
 def kernel_ii_or_tt(x, param, pairwise=False):
     p = 2
     sigma2 = gnp.exp(param[0])
-    loginvrho = param[1]
-    noise_variance = gnp.exp(param[2])
+    noise_variance = gnp.exp(param[1])
+    loginvrho = param[2:]
 
     if pairwise:
         K = sigma2 * gnp.ones((x.shape[0], ))
@@ -68,7 +68,7 @@ def kernel_ii_or_tt(x, param, pairwise=False):
 def kernel_it(x, y, param, pairwise=False):
     p = 2
     sigma2 = gnp.exp(param[0])
-    loginvrho = param[1]
+    loginvrho = param[2:]
 
     if pairwise:
         K = gnp.scaled_distance_elementwise(loginvrho, x, y)
@@ -95,8 +95,8 @@ def main():
 
     covparam = gnp.array([
         math.log(0.5**2),
-        math.log(1 / .7),
-        2 * math.log(noise_std)])
+        2 * math.log(noise_std),
+        math.log(1 / .7)])
 
     model = gp.core.Model(mean, kernel, meanparam, covparam)
 

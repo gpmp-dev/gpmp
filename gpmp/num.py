@@ -61,6 +61,7 @@ if _gpmp_backend_ == "numpy":
         isnan,
         isinf,
         isfinite,
+        allclose,
         unique,
         hstack,
         vstack,
@@ -89,6 +90,7 @@ if _gpmp_backend_ == "numpy":
         log,
         log10,
         log1p,
+        diff,
         sum,
         prod,
         mean,
@@ -144,13 +146,13 @@ if _gpmp_backend_ == "numpy":
         A[:, :, index] = x
         return A
 
-    def asarray(x):
+    def asarray(x, dtype=None):
         if isinstance(x, numpy.ndarray):
             return x
         elif isinstance(x, (int, float)):
-            return numpy.array([x])
+            return numpy.array([x], dtype=dtype)
         else:
-            return numpy.asarray(x)
+            return numpy.asarray(x, dtype=dtype)
 
     def asdouble(x):
         return x.astype(float64)
@@ -304,6 +306,7 @@ elif _gpmp_backend_ == "torch":
         isnan,
         isinf,
         isfinite,
+        allclose,
         hstack,
         vstack,
         stack,
@@ -384,13 +387,13 @@ elif _gpmp_backend_ == "torch":
     def array(x: list):
         return tensor(x)
 
-    def asarray(x):
+    def asarray(x, dtype=None):
         if isinstance(x, torch.Tensor):
             return x
         elif isinstance(x, (int, float)):
-            return tensor([x])
+            return tensor([x], dtype=dtype)
         else:
-            return torch.asarray(x)
+            return torch.asarray(x, dtype=dtype)
 
     def asdouble(x):
         return x.to(torch.double)
@@ -441,6 +444,7 @@ elif _gpmp_backend_ == "torch":
 
     all = axis_to_dim(torch.all)
     unique = axis_to_dim(torch.unique)
+    diff = axis_to_dim(torch.diff)
     sum = axis_to_dim(torch.sum)
     prod = axis_to_dim(torch.prod)
     mean = axis_to_dim(torch.mean)
@@ -827,6 +831,7 @@ elif _gpmp_backend_ == "jax":
         isnan,
         isinf,
         isfinite,
+        allclose,
         unique,
         hstack,
         vstack,
@@ -855,6 +860,7 @@ elif _gpmp_backend_ == "jax":
         log,
         log10,
         log1p,
+        diff,
         sum,
         prod,
         mean,
@@ -927,13 +933,13 @@ elif _gpmp_backend_ == "jax":
     def set_col_3d(A, index, x):
         return A.at[:, :, index].set(x)
 
-    def asarray(x):
+    def asarray(x, dtype=None):
         if isinstance(x, jax.numpy.ndarray):
             return x
         if isinstance(x, (int, float)):
             return jax.numpy.array([x])
         else:
-            return jax.numpy.asarray(x)
+            return jax.numpy.asarray(x, dtype=dtype)
 
     def asdouble(x):
         return x.astype(float64)
