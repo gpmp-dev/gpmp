@@ -964,8 +964,8 @@ elif _gpmp_backend_ == "jax":
 
     class DifferentiableFunction:
         def __init__(self, f):
-            self.f = jax.jit(f)
-            self.f_grad = jax.jit(jax.grad(self.f))
+            self.f = f  # jax.jit(f) 
+            self.f_grad = jax.grad(self.f)  # jax.jit(jax.grad(self.f))
             self.f_value = None
             self.x_value = None
 

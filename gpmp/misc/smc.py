@@ -22,8 +22,6 @@ from scipy.stats import qmc
 from scipy.optimize import brentq
 import gpmp.num as gnp
 import gpmp.misc.knn_cov
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 
 
 @dataclass
@@ -31,21 +29,21 @@ class ParticlesSetConfig:
     initial_distribution_type: str = "randunif"
     resample_scheme: str = "multinomial"
     param_s_initial_value: float = 0.5
-    param_s_upper_bound: float = 1e4
+    param_s_upper_bound: float = 1e5
     param_s_lower_bound: float = 1e-3
     jitter_initial_value: float = 1e-16
     jitter_max_iterations: int = 10
-    covariance_method: str = "knn"
-    covariance_knn_n_random: int = 50
-    covariance_knn_n_neighbors: int = 100
+    covariance_method: str = "normal"
+    covariance_knn_n_random: int = 20
+    covariance_knn_n_neighbors: int = 200
 
 
 @dataclass
 class SMCConfig:
     compute_next_logpdf_param_method: str = "p0"  # or "ess"
     mh_steps: int = 20
-    mh_acceptation_rate_min: float = 0.2
-    mh_acceptation_rate_max: float = 0.4
+    mh_acceptation_rate_min: float = 0.15
+    mh_acceptation_rate_max: float = 0.30
     mh_adjustment_factor: float = 1.4
     mh_adjustment_max_iterations: int = 50
 
@@ -312,16 +310,19 @@ class ParticlesSet:
 
         # Multinomial step on residuals
         if N_residual > 0:
-            try:
-                p_vals = residuals / N_residual
+            residuals = gnp.maximum(residuals, 0.0)
+            total_residual = gnp.sum(residuals)
+            if total_residual == 0.0:
+                p_vals = gnp.full_like(residuals, 1.0 / len(residuals))
+            else:
+                p_vals = residuals / total_residual
 
-                counts_res = ParticlesSet.multinomial_rvs(
-                    N_residual, residuals / N_residual, self.rng
-                )
-            except Exception:
-                extype, value, tb = __import__("sys").exc_info()
-                __import__("traceback").print_exc()
-                __import__("pdb").post_mortem(tb)
+            # Defensive check before multinomial draw
+            if gnp.any(p_vals < 0) or gnp.any(p_vals > 1) or gnp.any(gnp.isnan(p_vals)):
+                print("Residual resampling error: invalid p_vals.")
+                __import__("pdb").set_trace()
+
+            counts_res = ParticlesSet.multinomial_rvs(N_residual, p_vals, self.rng)
         else:
             counts_res = gnp.zeros_like(counts_det)
 
@@ -1124,6 +1125,7 @@ class SMC:
 
         If `parameter_indices_pooled` is not None, plot multiple marginals on the same figure.
         """
+        import matplotlib.pyplot as plt
         from itertools import cycle
 
         if self.particles.x is None:
@@ -1254,7 +1256,9 @@ def run_smc_sampling(
     # Create the SMC instance using the configuration objects. If none are provided,
     # defaults are used based on the dataclass definitions.
     if particles_config is None:
-        particles_config = ParticlesSetConfig(resample_scheme="residual")
+        particles_config = ParticlesSetConfig(
+            resample_scheme="residual", covariance_method="normal"
+        )
     if smc_config is None:
         smc_config = SMCConfig(
             compute_next_logpdf_param_method=compute_next_logpdf_param_method,
@@ -1292,6 +1296,132 @@ def run_smc_sampling(
             print("Plotting failed:", e)
 
     return smc.particles.x, smc
+
+
+def log_indicator_density(f, threshold, log_px, tail="lower"):
+    """Return logpdf(x) = log(1_{f(x) ? threshold} * p_X(x)) where ? depends on tail."""
+
+    def logpdf(x):
+        x = gnp.asarray(x)
+        fx = gnp.asarray(f(x))
+        logpx = log_px(x)
+        if tail == "lower":
+            return gnp.where(fx < threshold, logpx, gnp.asarray(-1e100))
+        elif tail == "upper":
+            return gnp.where(fx > threshold, logpx, gnp.asarray(-1e100))
+        else:
+            raise ValueError(f"Invalid tail argument: {tail}")
+
+    return logpdf
+
+
+def run_subset_simulation(
+    f,
+    thresholds,
+    init_box,
+    log_px,
+    tail="upper",
+    n_particles=1000,
+    mh_steps=20,
+    min_acceptation=0.15,
+    max_acceptation=0.30,
+    resample_scheme="residual",
+    debug=False,
+):
+    """Estimate P(f(X) ? u_T), with ? = < or >, via Subset Simulation.
+
+    Parameters
+    ----------
+    f : callable
+        Function from R^d to R (performance or score function).
+    thresholds : list of float
+        Monotonic threshold sequence: decreasing for '<', increasing for '>'.
+    init_box : list of [lower_bounds, upper_bounds]
+        Sampling domain for initial distribution.
+    log_px : callable
+        Log-density of the base distribution p_X.
+    tail : str
+        Either 'lower' (f < u_i) or 'upper' (f > u_i).
+    Returns
+    -------
+    p_estimate : float
+        Final estimate of P(f(X) ? u_T).
+    stage_probs : list of float
+        Estimated conditional probabilities p_{u_i | u_{i-1}}.
+    smc : SMC
+        The SMC object with diagnostics.
+    """
+    if tail == "lower":
+        assert thresholds[0] == float(
+            "inf"
+        ), "First threshold must be +8 for tail='lower'."
+    elif tail == "upper":
+        assert thresholds[0] == float(
+            "-inf"
+        ), "First threshold must be -8 for tail='upper'."
+    else:
+        raise ValueError(f"Invalid tail: {tail}")
+
+    # Set up configs
+    particles_config = ParticlesSetConfig(
+        initial_distribution_type="randunif",
+        resample_scheme=resample_scheme,
+    )
+    smc_config = SMCConfig(
+        compute_next_logpdf_param_method="p0",  # not used
+        mh_steps=mh_steps,
+        mh_acceptation_rate_min=min_acceptation,
+        mh_acceptation_rate_max=max_acceptation,
+    )
+
+    smc = SMC(
+        init_box,
+        n=n_particles,
+        particles_config=particles_config,
+        smc_config=smc_config,
+    )
+
+    # Initialize particles
+    smc.particles.particles_init(init_box, n_particles)
+    smc.log_data["target_logpdf_param"] = thresholds[1]
+
+    stage_probs = gnp.empty(len(thresholds)-1)
+
+    for k in range(1, len(thresholds)):
+        uk = thresholds[k]
+        uk_prev = thresholds[k - 1]
+        if debug:
+            print(f"\n[Stage {k}] Threshold u_k = {uk:.2f}")
+
+        # Construct logpdf for current level
+        logpdf_k = log_indicator_density(f, uk, log_px, tail=tail)
+        smc.particles.set_logpdf(logpdf_k)
+
+        # Reweight
+        smc.particles.reweight()
+
+        # Compute conditional probability p_{u_k | u_{k-1}}
+        w_sum = gnp.sum(smc.particles.w)
+        stage_probs[k-1] = w_sum
+
+        if debug:
+            print(f"    p_{{{uk:.2f} | {uk_prev:.2f}}} - {w_sum:.2f}")
+
+        # Normalize weights
+        smc.particles.w = smc.particles.w / w_sum
+
+        # Resample and MH move
+        smc.particles.resample(debug=debug)
+        smc.move_with_controlled_acceptation_rate(debug=debug)
+        for _ in range(mh_steps - 1):
+            smc.particles.move()
+
+        smc.stage += 1
+        smc.log_snapshot()
+
+    # Final estimate of tail probability
+    p_estimate = float(gnp.prod(stage_probs))
+    return p_estimate, stage_probs, smc
 
 
 def test_run_smc_sampling_gaussian_mixture():
@@ -1358,5 +1488,129 @@ def test_run_smc_sampling_gaussian_mixture():
     smc_instance.plot_state()
 
 
+def test_subset_sampling_gaussian_icdf():
+    from scipy.stats import norm
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    # Define f(x) = inverse CDF of standard normal
+    def f(x):
+        return norm.ppf(x[:, 0])
+
+    # Quantile levels and corresponding thresholds
+    q_levels = [0.0, 0.5, 0.9, 0.97, 0.99, 1 - 1e-3, 1 - 1e-4, 1 - 1e-5, 1 - 1e-6]
+    thresholds = [float("-inf")] + list(norm.ppf(q_levels[1:]))
+
+    # Domain: Uniform[0, 1]
+    box = [[0.0], [1.0]]
+
+    def log_px(x):
+        inside = gnp.all((x >= 0.0) & (x <= 1.0), axis=1)
+        return gnp.where(inside, 0.0, -1e100)
+
+    # Run subset simulation
+    p_hat, stage_probs, smc = run_subset_simulation(
+        f=f,
+        thresholds=thresholds,
+        init_box=box,
+        log_px=log_px,
+        tail="upper",
+        n_particles=10000,
+        debug=True,
+    )
+
+    # Exact conditional and sequential probabilities
+    exact_conditional_probs = []
+    exact_sequential_probs = []
+    for i in range(1, len(q_levels)):
+        q_i = q_levels[i]
+        q_prev = q_levels[i - 1]
+        exact_conditional_probs.append((1 - q_i) / (1 - q_prev))
+        exact_sequential_probs.append(1 - q_i)
+
+    # Estimated sequential probabilities
+    estimated_sequential_probs = np.cumprod(stage_probs)
+
+    # Print results
+    print("\nThresholds:                 ", [f"{u:.2f}" for u in thresholds[1:]])
+    print("Estimated conditional probs:", [f"{p:.2e}" for p in stage_probs])
+    print("Exact conditional probs:    ", [f"{p:.2e}" for p in exact_conditional_probs])
+    print(
+          "Estimated sequential probs: ", [f"{p:.2e}" for p in estimated_sequential_probs]
+    )
+    print("Exact sequential probs:     ", [f"{p:.2e}" for p in exact_sequential_probs])
+    print(f"Estimated final probability: {p_hat:.3e}")
+    print(f"Exact final probability:     {exact_sequential_probs[-1]:.3e}")
+
+    # Plot conditional probabilities
+    stages = list(range(1, len(thresholds)))
+    plt.figure(figsize=(6, 4))
+    plt.plot(stages, stage_probs, marker="o", label="Estimated p_{u_i | u_{i-1}}")
+    plt.plot(
+        stages,
+        exact_conditional_probs,
+        marker="x",
+        linestyle="--",
+        label="Exact p_{u_i | u_{i-1}}",
+    )
+    plt.xlabel("Stage (i)")
+    plt.ylabel("p")
+    plt.title("Conditional probabilities")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+    # Plot sequential tail probabilities
+    plt.figure(figsize=(6, 4))
+    plt.plot(
+        stages, estimated_sequential_probs, marker="o", label="Estimated P(f(X) > u_i)"
+    )
+    plt.plot(
+        stages,
+        exact_sequential_probs,
+        marker="x",
+        linestyle="--",
+        label="Exact P(f(X) > u_i)",
+    )
+    plt.xlabel("Stage (i)")
+    plt.ylabel("P(f(X) > u_i)")
+    plt.yscale("log")
+    plt.title("Sequential tail probabilities")
+    plt.legend()
+    plt.grid(True, which="both")
+    plt.tight_layout()
+    plt.show()
+
+    # Plot the inverse CDF: zoom on upper tail using 1 - x (log scale)
+    x_vals = np.linspace(1e-8, 1 - 1e-8, 1000)
+    y_vals = norm.ppf(x_vals)
+    x_tail = 1 - x_vals  # Tail probability
+
+    plt.figure(figsize=(6, 4))
+    plt.semilogx(x_tail, y_vals, label=r"$f(x) = \Phi^{-1}(x)$")
+
+    for i, q in enumerate(q_levels[1:], start=1):
+        x_q = q
+        y_q = thresholds[i]
+        x_tail_q = 1 - x_q
+        plt.axhline(y=y_q, color="gray", linestyle="dotted")
+        plt.plot([x_tail_q], [y_q], "ro")
+        plt.text(
+            x_tail_q, y_q, f"$1-q={1 - q:.3g}$", fontsize=8, va="bottom", ha="right"
+        )
+
+    plt.xlabel(r"$1 - x$ (tail probability)")
+    plt.ylabel(r"$\Phi^{-1}(x)$")
+    plt.title("Zoom on right tail of standard gaussian inverse cdf")
+    plt.grid(True, which="both")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
 if __name__ == "__main__":
+    print("Sample a Gaussian mixture")
     test_run_smc_sampling_gaussian_mixture()
+    print("Subset sampling")
+    test_subset_sampling_gaussian_icdf()

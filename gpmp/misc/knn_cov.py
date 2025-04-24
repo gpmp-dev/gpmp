@@ -22,7 +22,7 @@ def estimate_cov_matrix_knn(
     x,
     n_random=50,
     n_neighbors=50,
-    ef=50,
+    ef=100,
     max_ef_construction=200,
     M=16,
 ):
