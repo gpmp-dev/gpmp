@@ -58,7 +58,7 @@ import numpy as np
 import gpmp.num as gnp
 import gpmp as gp
 from gpmp.misc.dataframe import DataFrame, ftos
-from gpmp.misc.param import param_from_anisotropic_covparam
+from gpmp.misc.param import param_from_covparam_anisotropic, param_from_covparam_anisotropic_noisy
 import matplotlib.pyplot as plt
 from matplotlib import interactive
 
@@ -651,7 +651,7 @@ def perf(model, xi, zi, loo=True, loo_res=None, xtzt=None, zpmzpv=None):
     pretty_print_dictionnary(perf_disp)
 
 
-def diag(model, info_select_parameters, xi, zi, model_type="irf0_matern_anisotropic"):
+def diag(model, info_select_parameters, xi, zi, model_type="linear_mean_matern_anisotropic"):
     """Run model diagnosis and display the results.
 
     Parameters
@@ -665,13 +665,13 @@ def diag(model, info_select_parameters, xi, zi, model_type="irf0_matern_anisotro
     zi : array-like
         Output data matrix.
     model_type : str, optional
-        Type of the model (default is "irf0_matern_anisotropic").
+        Type of the model (default is "linear_mean_matern_anisotropic").
     """
     md = modeldiagnosis_init(model, info_select_parameters, model_type=model_type)
-    model_diagnosis_disp(md, xi, zi)
+    model_diagnosis_disp(md, xi, zi, model_type=model_type)
 
 
-def modeldiagnosis_init(model, info, model_type="irf0_matern_anisotropic"):
+def modeldiagnosis_init(model, info, model_type="linear_mean_matern_anisotropic"):
     """Build model diagnosis based on the provided model and information.
 
     Parameters
@@ -708,17 +708,24 @@ def modeldiagnosis_init(model, info, model_type="irf0_matern_anisotropic"):
     }
 
     covparam = gnp.asarray(model.covparam)
-    if model_type == "irf0_matern_anisotropic":
-        param_obj = param_from_anisotropic_covparam(covparam)
-    else:
-        raise "Unknown model type"
+
+    param_builders = {
+        "linear_mean_matern_anisotropic": param_from_covparam_anisotropic,
+        "linear_mean_matern_anisotropic_noisy": param_from_covparam_anisotropic_noisy,
+    }
+
+    try:
+        param_obj = param_builders[model_type](covparam)
+    except KeyError:
+        raise ValueError(f"Unknown model type: {model_type}")
+
     md["parameters"] = param_obj.to_simple_dict()
     md["param_obj"] = param_obj
 
     return md
 
 
-def model_diagnosis_disp(md, xi, zi):
+def model_diagnosis_disp(md, xi, zi, model_type="linear_mean_matern_anisotropic"):
     """Display model diagnosis information.
 
     Parameters
@@ -729,6 +736,8 @@ def model_diagnosis_disp(md, xi, zi):
         Input data matrix.
     zi : array-like
         Output data matrix.
+    model_type : str
+        Type of the model.
     """
     print("[Model diagnosis]")
     print("  * Parameter selection")
@@ -752,8 +761,9 @@ def model_diagnosis_disp(md, xi, zi):
     df_zi = describe_array(zi, rownames, 1 / param_values[0])
 
     # xi
-    rownames = [f"xi_{j}" for j in range(xi.shape[1])]
-    df_xi = describe_array(xi, rownames, 1 / param_values[1:])
+    n, d = xi.shape
+    rownames = [f"xi_{j}" for j in range(d)]
+    df_xi = describe_array(xi, rownames, 1 / param_values[-d:])
 
     # zi + xi
     print(df_zi.concat(df_xi))

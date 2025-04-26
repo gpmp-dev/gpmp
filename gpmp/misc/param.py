@@ -25,6 +25,7 @@ License: GPLv3 (see LICENSE)
 from enum import Enum
 from typing import List, Union, Optional, Dict, Any, Tuple
 import gpmp.num as gnp
+from gpmp.misc.dataframe import ftos
 
 
 class Normalization(Enum):
@@ -275,8 +276,8 @@ class Param:
                 if self.bounds[i]
                 else "(-inf, inf)"
             )
-            value = f"{self._values[i]:.4f}"
-            denorm = f"{self.denormalized_values[i]:.4f}"
+            value = ftos(self._values[i]) # f"{self._values[i]:.4f}"
+            denorm = ftos(self.denormalized_values[i]) #  f"{self.denormalized_values[i]:.4f}"
             raw_data.append((name, path, norm, bounds, value, denorm))
 
         # Compute max width for each column
@@ -336,7 +337,7 @@ def make_anisotropic_param(
     )
 
 
-def param_from_anisotropic_covparam(
+def param_from_covparam_anisotropic(
     covparam: Union[List[float], gnp.ndarray],
     logsigma2_bounds: Optional[Tuple[float, float]] = None,
     loginvrho_bounds: Optional[Tuple[float, float]] = None,
@@ -349,6 +350,28 @@ def param_from_anisotropic_covparam(
     paths = [["covparam", "variance"]] + [["covparam", "lengthscale"]] * d
     normalizations = [Normalization.LOG] + [Normalization.LOG_INV] * d
     bounds = [logsigma2_bounds] + [loginvrho_bounds] * d
+    return Param(
+        values=values,
+        paths=paths,
+        normalizations=normalizations,
+        names=names,
+        bounds=bounds,
+    )
+
+
+def param_from_covparam_anisotropic_noisy(
+    covparam: Union[List[float], gnp.ndarray],
+    logsigma2_bounds: Optional[Tuple[float, float]] = None,
+    logsigma2_noise_bounds: Optional[Tuple[float, float]] = None,
+    loginvrho_bounds: Optional[Tuple[float, float]] = None,
+    name_prefix: str = "",
+) -> Param:
+    d = len(covparam) - 2
+    values = covparam
+    names = [f"{name_prefix}sigma2"] + [f"{name_prefix}sigma2_noise"] + [f"{name_prefix}rho_{i}" for i in range(d)]
+    paths = [["covparam", "variance"]] + [["covparam", "variance"]] + [["covparam", "lengthscale"]] * d
+    normalizations = [Normalization.LOG] + [Normalization.LOG] + [Normalization.LOG_INV] * d
+    bounds = [logsigma2_bounds] + [logsigma2_noise_bounds] + [loginvrho_bounds] * d
     return Param(
         values=values,
         paths=paths,
