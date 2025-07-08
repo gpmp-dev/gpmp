@@ -140,11 +140,11 @@ meanparam = None
 
 covparam0 = gnp.concatenate(
     (
-        gnp.array([gnp.log(gnp.var(zi)), 2 * gnp.log(0.1) + gnp.log(gnp.var(zi))]),
+        gnp.array([gnp.log(gnp.var(zi))]),
+        gnp.array([2 * gnp.log(0.1) + gnp.log(gnp.var(zi))]),
         -gnp.log(gnp.std(xi, axis=0)).flatten(),
     )
 )
-
 
 model = gp.core.Model(mean, kernel, meanparam, covparam0)
 
@@ -169,8 +169,6 @@ gp.misc.modeldiagnosis.diag(
     model, info, xi, zi, model_type="linear_mean_matern_anisotropic_noisy"
 )
 
-
 (zpm, zpv) = model.predict(xi, zi, xt)
-
 
 visualize_predictions(problem_name, zt, zpm)

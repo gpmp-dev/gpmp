@@ -16,7 +16,6 @@ Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
 Copyright (c) 2022-2025, CentraleSupelec
 License: GPLv3 (see LICENSE)
 """
-
 import gpmp.num as gnp
 import gpmp as gp
 import matplotlib.pyplot as plt
