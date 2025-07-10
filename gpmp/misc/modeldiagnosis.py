@@ -809,6 +809,7 @@ def plot_selection_criterion_crossections(
     n_points=100,
     param_names=None,
     criterion_name="selection criterion",
+    criterion_name_full="Cross sections for negative log restricted likelihood",
     ind=None,
     ind_pooled=None,
     param_box=None,
@@ -837,6 +838,7 @@ def plot_selection_criterion_crossections(
         n_points: Number of points in each cross-section.
         param_names: List of parameter names.
         criterion_name: Label for criterion curves.
+        criterion_name_full: Figure title.
         ind: List of indices for individual subplots.
         ind_pooled: List of indices for the pooled plot.
         param_box: 2D array of shape (2, n_params) for individual plot bounds.
@@ -929,7 +931,7 @@ def plot_selection_criterion_crossections(
             if idx == 0:
                 ax.legend()
             ax.set_title(f"{name}")
-        fig.suptitle("Individual cross sections", fontsize=14)
+        fig.suptitle(criterion_name_full, fontsize=12)
         plt.tight_layout(rect=[0, 0, 1, 0.95])
         plt.show()
 
@@ -1144,7 +1146,7 @@ def sigma_rho_from_covparam(covparam):
     return pdict
 
 
-def describe_array(x, rownames, normalizing_factor=None):
+def describe_array(x, rownames, sigma_factor=None):
     """Create a DataFrame containing descriptive statistics for the given data.
 
     Parameters
@@ -1153,8 +1155,8 @@ def describe_array(x, rownames, normalizing_factor=None):
         Input data matrix.
     rownames : list
         List of row names for the DataFrame.
-    normalizing_factor : float, optional
-        Normalizing factor to compute the 'delta_normalized' column, by default None.
+    sigma_factor : float, optional
+        Normalizing factor to compute the 'delta/sigma' column, by default None.
 
     Returns
     -------
@@ -1162,12 +1164,12 @@ def describe_array(x, rownames, normalizing_factor=None):
         DataFrame with descriptive statistics.
     """
     x = np.array(x)
-    if normalizing_factor is None:
+    if sigma_factor is None:
         n_descriptors = 5
         colnames = ["mean", "std", "min", "max", "delta"]
     else:
         n_descriptors = 6
-        colnames = ["min", "max", "delta", "mean", "std", "delta_normalized"]
+        colnames = ["min", "max", "delta", "mean", "std", "delta/sigma"]
     dim = 1 if x.ndim == 1 else x.shape[1]
 
     data = np.empty((dim, n_descriptors))
@@ -1178,8 +1180,8 @@ def describe_array(x, rownames, normalizing_factor=None):
     data[:, 3] = np.mean(x, axis=0)
     data[:, 4] = np.std(x, axis=0)
 
-    if normalizing_factor is not None:
-        data[:, 5] = data[:, 4] * normalizing_factor
+    if sigma_factor is not None:
+        data[:, 5] = data[:, 4] * sigma_factor
 
     return DataFrame(data, colnames, rownames)
 

@@ -10,7 +10,8 @@ from examples import (
     gpmp_example11_sample_paths_noisy_obs,
     gpmp_example20_1d_interpolation_variation_remap,
     gpmp_example21_1d_interpolation_variation_reml,
-    gpmp_example22_1d_interpolation_variation_ml
+    gpmp_example22_1d_interpolation_variation_ml,
+    gpmp_example30_dataloader
     )
     
 
@@ -48,6 +49,8 @@ class TestExamples(unittest.TestCase):
     def test_22(self):
         gpmp_example22_1d_interpolation_variation_ml.main()
 
+    def test_30(self):
+        gpmp_example30_dataloader.main()
 
 if __name__ == "__main__":
     unittest.main()

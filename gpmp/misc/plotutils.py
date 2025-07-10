@@ -293,7 +293,7 @@ def plot_loo(zi, zloom, zloov):
         _description_
     """
     fig = Figure()
-    fig.ax.errorbar(zi, zloom, 1.96 * np.sqrt(zloov), fmt="ko", ls="None")
+    fig.ax.errorbar(zi, zloom, 1.96 * zloov.sqrt(), fmt="ko", ls="None")
     fig.ax.set_xlabel("true values"), plt.ylabel("predicted")
     fig.ax.set_title("LOO predictions with 95% coverage intervals")
     (xmin, xmax), (ymin, ymax) = fig.ax.get_xlim(), fig.ax.get_ylim()

@@ -11,9 +11,9 @@ from scipy.optimize import minimize, OptimizeWarning
 from math import log, sqrt
 
 
-# -- kernels
-
-
+# ============================================================
+#                          kernels
+# ============================================================
 def exponential_kernel(h):
     """Exponential kernel.
 
@@ -64,7 +64,6 @@ def matern32_kernel(h):
     t = c * h
 
     return (1.0 + t) * gnp.exp(-t)
-
 
 
 @lru_cache(maxsize=32)
@@ -248,28 +247,38 @@ def maternp_covariance(x, y, p, param, pairwise=False):
         return maternp_covariance_it(x, y, p, param, pairwise)
 
 
-# -- parameters
-
-
-def anisotropic_parameters_initial_guess_zero_mean(model, xi, zi):
+# ============================================================
+#                      parameter selection
+# ============================================================
+def anisotropic_parameters_initial_guess_zero_mean(
+    model, xi=None, zi=None, dataloader=None
+):
     """Anisotropic initialization strategy with zero mean.
 
     See anisotropic_parameters_initial_guess
     """
-    xi_ = gnp.asarray(xi)
-    zi_ = gnp.asarray(zi).reshape(-1, 1)
-    n = xi_.shape[0]
-    d = xi_.shape[1]
+    xi_, zi_, n, d, data_source = _prepare_data(xi, zi, dataloader)
 
-    delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
+    if data_source == "arrays":
+        delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
+    else:
+        delta = dataloader.dataset_x_max - dataloader.dataset_x_min
+
     rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi**0.5) * delta
-    covparam = gnp.concatenate((gnp.array([log(1.0)]), -gnp.log(rho)))
-    sigma2_GLS = 1.0 / n * model.norm_k_sqrd_with_zero_mean(xi_, zi_, covparam)
+    covparam = gnp.concatenate((gnp.array([gnp.log(1.0)]), -gnp.log(rho)))
+
+    sigma2_GLS_fn = lambda x, z: 1.0 / x.shape[0] * model.norm_k_sqrd_with_zero_mean(x, z, covparam)
+    if data_source == "arrays":
+        sigma2_GLS = sigma2_GLS_fn(xi_, zi_)
+    else:
+        sigma2_GLS = dataloader.reduce_mean(sigma2_GLS_fn)
 
     return gnp.concatenate((gnp.log(sigma2_GLS), -gnp.log(rho)))
 
 
-def anisotropic_parameters_initial_guess_constant_mean(model, xi, zi):
+def anisotropic_parameters_initial_guess_constant_mean(
+    model, xi=None, zi=None, dataloader=None
+):
     """Anisotropic initialization strategy with a parameterized constant mean.
 
     This function provides initial parameter guesses for an
@@ -279,48 +288,65 @@ def anisotropic_parameters_initial_guess_constant_mean(model, xi, zi):
     ----------
     model : object
         The Gaussian process model object.
-    xi : array_like, shape (n, d)
+    xi : array_like, shape (n, d), optional
         Input data points used for fitting the GP model, where `n` is
-        the number of points and `d` is the dimensionality.
-    zi : array_like, shape (n, )
-        Output (response) values corresponding to the input data points xi.
+        the number of points and `d` is the dimension.
+    zi : array_like, shape (n,), optional
+        Output (response) values corresponding to the input data points.
+    dataloader : DataLoader, optional
+        A DataLoader instance providing access to input/output batches.
 
     Returns
     -------
     mean_GLS : float
-        The generalized least squares (GLS) estimator of the
-        mean. Computed as:
+        The generalized least squares (GLS) estimator of the mean. Computed as:
 
         .. math::
 
-            m_{GLS} = \frac{\mathbf{1}^T K^{-1} \mathbf{z}}{\mathbf{1}^T K^{-1} \mathbf{1}}
+            m_{GLS} = \\frac{\\mathbf{1}^T K^{-1} \\mathbf{z}}{\\mathbf{1}^T K^{-1} \\mathbf{1}}
 
     concatenated parameters : array_like
-        An array containing the initialized :math:`\sigma^2_{GLS}` and :math:`\rho` values.
-        The estimator :math:`\sigma^2_{GLS}` is given by:
+        An array containing the initialized :math:`\\sigma^2_{GLS}` and
+        :math:`\\rho` values. The estimator :math:`\\sigma^2_{GLS}` is given by:
 
         .. math::
 
-            \sigma^2_{GLS} = \frac{1}{n} \mathbf{z}^T K^{-1} \mathbf{z}
+            \\sigma^2_{GLS} = \\frac{1}{n} \\mathbf{z}^T K^{-1} \\mathbf{z}
+
+    The initial guess for the lengthscales :math:`\\rho` is computed
+    using the same heuristic as in
+    :func:`anisotropic_parameters_initial_guess`
+
     """
-    xi_ = gnp.asarray(xi)
-    zi_ = gnp.asarray(zi).reshape((-1, 1))  # Ensure zi_ is a column vector
-    n = xi_.shape[0]
-    d = xi_.shape[1]
+    xi_, zi_, n, d, data_source = _prepare_data(xi, zi, dataloader)
 
-    delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
+    if data_source == "arrays":
+        delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
+    else:
+        delta = dataloader.dataset_x_max - dataloader.dataset_x_min
+
     rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi**0.5) * delta
-
     covparam = gnp.concatenate((gnp.array([gnp.log(1.0)]), -gnp.log(rho)))
-    zTKinvz, Kinv1, Kinvz = model.k_inverses(xi_, zi_, covparam)
 
-    mean_GLS = gnp.sum(Kinvz) / gnp.sum(Kinv1)
-    sigma2_GLS = (1.0 / n) * zTKinvz
+    if data_source == "arrays":
+        zTKinvz, Kinv1, Kinvz = model.k_inverses(xi_, zi_, covparam)
+        mean_GLS = gnp.sum(Kinvz) / gnp.sum(Kinv1)
+        sigma2_GLS = (1.0 / n) * zTKinvz
+    else:
+        def per_batch_gls(x, z):
+            zTKinvz, Kinv1, Kinvz = model.k_inverses(x, z, covparam)
+            m_batch = gnp.sum(Kinvz) / gnp.sum(Kinv1)
+            sigma2_batch = zTKinvz / x.shape[0]
+            return gnp.stack([m_batch, sigma2_batch], axis=-1)
+
+        mean_and_sigma2 = dataloader.reduce_mean(per_batch_gls)
+        mean_GLS = mean_and_sigma2[0]
+        sigma2_GLS = mean_and_sigma2[1]
 
     return mean_GLS.reshape(1), gnp.concatenate((gnp.log(sigma2_GLS), -gnp.log(rho)))
 
 
-def anisotropic_parameters_initial_guess(model, xi, zi):
+def anisotropic_parameters_initial_guess(model, xi=None, zi=None, dataloader=None):
     """Anisotropic initialization strategy for parameters of a Gaussian process model.
 
     Given the observed data points and their values, this function
@@ -332,10 +358,12 @@ def anisotropic_parameters_initial_guess(model, xi, zi):
     ----------
     model : object
         An instance of a Gaussian process model.
-    xi : ndarray, shape (n, d)
+    xi : ndarray, shape (n, d), optional
         Locations of the observed data points.
-    zi : ndarray, shape (n,)
+    zi : ndarray, shape (n,), optional
         Observed values at the data points.
+    dataloader : DataLoader, optional
+        A DataLoader instance providing access to input/output batches.
 
     Returns
     -------
@@ -371,24 +399,39 @@ def anisotropic_parameters_initial_guess(model, xi, zi):
     .. [1] Basak, S., Petit, S., Bect, J., & Vazquez, E. (2021).
        Numerical issues in maximum likelihood parameter estimation for
        Gaussian process interpolation. arXiv:2101.09747.
+
     """
+    xi_, zi_, n, d, data_source = _prepare_data(xi, zi, dataloader)
 
-    xi_ = gnp.asarray(xi)
-    zi_ = gnp.asarray(zi).reshape(-1, 1)
-    n = xi_.shape[0]
-    d = xi_.shape[1]
-
-    delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
+    if data_source == "arrays":
+        delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
+    else:
+        delta = dataloader.dataset_x_max() - dataloader.dataset_x_min()
+        
     rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi**0.5) * delta
 
     covparam = gnp.concatenate((gnp.array([log(1.0)]), -gnp.log(rho)))
-    sigma2_GLS = 1.0 / n * model.norm_k_sqrd(xi_, zi_, covparam)
+
+    if data_source == "arrays":
+        sigma2_GLS = (1.0 / n) * model.norm_k_sqrd(xi_, zi_, covparam)
+    else:
+        def per_batch_sigma2(x, z):
+            return model.norm_k_sqrd(x, z, covparam) / x.shape[0]
+
+        sigma2_GLS = dataloader.reduce_mean(per_batch_sigma2)
 
     return gnp.concatenate((gnp.log(sigma2_GLS), -gnp.log(rho)))
 
 
+# ............................................................
 def make_selection_criterion_with_gradient(
-    model, selection_criterion, xi, zi, parameterized_mean=False, meanparam_len=1
+    model,
+    selection_criterion,
+    xi=None,
+    zi=None,
+    dataloader=None,
+    parameterized_mean=False,
+    meanparam_len=1,
 ):
     """Make selection criterion function with gradient.
 
@@ -398,10 +441,12 @@ def make_selection_criterion_with_gradient(
         Instance of a Gaussian process model that needs parameter optimization.
     selection_criterion : function
         Selection criterion function. (See Notes.)
-    xi : ndarray, shape (n, d)
+    xi : ndarray, shape (n, d), optional
         Locations of the observed data points.
-    zi : ndarray, shape (n,)
+    zi : ndarray, shape (n,), optional
         Observed values at the data points.
+    dataloader : DataLoader, optional
+        A DataLoader instance providing access to input/output batches.
     parameterized_mean : bool, optional
         Whether to use mean parameter in the selection criterion.
     meanparam_len : int, optional
@@ -410,9 +455,11 @@ def make_selection_criterion_with_gradient(
     Returns
     -------
     crit : function
-        Selection criterion function with gradient.
+        Selection criterion function, with gradient pre-computation.
     dcrit : function
         Gradient of the selection criterion function.
+    crit_nograd: function
+        Selection criterion without gradient pre-computation.
 
     Notes
     -----
@@ -431,26 +478,32 @@ def make_selection_criterion_with_gradient(
     `parameterized_mean` flag in the criterion definition).
 
     """
-    xi_ = gnp.asarray(xi)
-    zi_ = gnp.asarray(zi)
+    # Check input
+    data_source = _check_xi_zi_or_loader(xi, zi, dataloader)
 
     if parameterized_mean:
         # make a selection criterion with mean parameter
-        def crit_(param):
+        def crit_(param, xi, zi):
             meanparam = param[:meanparam_len]
             covparam = param[meanparam_len:]
-            return selection_criterion(model, meanparam, covparam, xi_, zi_)
+            return selection_criterion(model, meanparam, covparam, xi, zi)
 
     else:
         # make a selection criterion without mean parameter
-        def crit_(covparam):
-            return selection_criterion(model, covparam, xi_, zi_)
+        def crit_(covparam, xi, zi):
+            return selection_criterion(model, covparam, xi, zi)
 
-    crit = gnp.DifferentiableFunction(crit_)
+    if data_source == "arrays":
+        xi_ = gnp.asarray(xi)
+        zi_ = gnp.asarray(zi)
+        crit = gnp.DifferentiableSelectionCriterion(crit_, xi_, zi_)
+    else:
+        crit = gnp.BatchDifferentiableSelectionCriterion(crit_, dataloader)
 
     return crit.evaluate, crit.gradient, crit.evaluate_no_grad
 
 
+# ............................................................
 def autoselect_parameters(
     p0,
     criterion,
@@ -481,8 +534,8 @@ def autoselect_parameters(
         to the parameters. It should take an ndarray of parameters and return an ndarray
         of the same shape.
     bounds : sequence of tuple, optional
-        A sequence of (min, max) pairs for each parameter. If None and bounds_auto 
-        is True, the bounds are automatically set as (max(p - bounds_delta, safe_min), 
+        A sequence of (min, max) pairs for each parameter. If None and bounds_auto
+        is True, the bounds are automatically set as (max(p - bounds_delta, safe_min),
         min(p + bounds_delta, safe_max)) for each parameter in p0.
     bounds_auto : bool, optional
         If True and bounds is None, automatically create bounds as described above.
@@ -524,10 +577,13 @@ def autoselect_parameters(
     safe_upper = 500
     if bounds is None and bounds_auto:
         bounds = [
-            (max(param - bounds_delta, safe_lower), min(param + bounds_delta, safe_upper))
+            (
+                max(param - bounds_delta, safe_lower),
+                min(param + bounds_delta, safe_upper),
+            )
             for param in p0
         ]
-    
+
     # Setup to record parameter and criterion history
     history_params = []
     history_criterion = []
@@ -623,11 +679,13 @@ def autoselect_parameters(
         return r.x
 
 
+# ............................................................
 def select_parameters_with_criterion(
     model,
     criterion,
-    xi,
-    zi,
+    xi=None,
+    zi=None,
+    dataloader=None,
     meanparam0=None,
     covparam0=None,
     parameterized_mean=False,
@@ -661,10 +719,13 @@ def select_parameters_with_criterion(
         - For models with a parameterized mean:
           `criterion(model, meanparam, covparam, xi, zi)` where both
           `meanparam` and `covparam` are passed.
-    xi : ndarray, shape (n, d)
+    xi : ndarray, shape (n, d), optional
         Locations of the observed data points in the input space.
-    zi : ndarray, shape (n,)
+        (If not using dataloader.)
+    zi : ndarray, shape (n,), optional
         Observed values corresponding to the data points `xi`.
+    dataloader : DataLoader, optional
+        Batch generator over the dataset
     meanparam0 : ndarray, shape (meanparam_len,), optional
         Initial guess for the mean parameters. Required if
         `parameterized_mean=True`. Default is None.
@@ -717,8 +778,12 @@ def select_parameters_with_criterion(
     """
     tic = time.time()
 
+    # Check input
+    data_source = _check_xi_zi_or_loader(xi, zi, dataloader)
+
+    # Intial guess
     if covparam0 is None:
-        covparam0 = anisotropic_parameters_initial_guess(model, xi, zi)
+        covparam0 = anisotropic_parameters_initial_guess(model, xi, zi, dataloader)
 
     # If model has parameterized mean, we need an initial guess
     # for the mean parameters
@@ -732,19 +797,20 @@ def select_parameters_with_criterion(
     else:
         param0 = covparam0
 
-    # Create the criterion and its gradient using the passed criterion function
+    # Criterion constructor
     (criterion_func, criterion_grad, criterion_func_nograd) = (
         make_selection_criterion_with_gradient(
             model,
             criterion,
             xi,
             zi,
+            dataloader,
             parameterized_mean=parameterized_mean,
             meanparam_len=meanparam_len,
         )
     )
 
-    # Optimize parameters using the provided criterion
+    # Optimize
     silent = True
     if verbosity == 1:
         print("Parameter selection using custom criterion...")
@@ -758,7 +824,7 @@ def select_parameters_with_criterion(
     if verbosity == 1:
         print("done.")
 
-    # Split the optimized parameters into meanparam and covparam if the mean is parameterized
+    # Split the optimized parameters into meanparam and covparam
     if parameterized_mean:
         meanparam_opt = param_opt[:meanparam_len]
         covparam_opt = param_opt[meanparam_len:]
@@ -769,10 +835,10 @@ def select_parameters_with_criterion(
 
     model.covparam = gnp.asarray(covparam_opt)
 
-    # NB: info_ret is essentially a dict with attribute accessors
+    # NB: info_ret has attribute accessors
     if info:
-        info_ret["meanparam0"] = meanparam0
-        info_ret["covparam0"] = covparam0
+        info_ret["meanparam0"] = gnp.to_np(meanparam0)
+        info_ret["covparam0"] = gnp.to_np(covparam0)
         info_ret["meanparam"] = meanparam_opt
         info_ret["covparam"] = covparam_opt
         info_ret["selection_criterion"] = criterion_func
@@ -784,7 +850,14 @@ def select_parameters_with_criterion(
 
 
 def update_parameters_with_criterion(
-    model, criterion, xi, zi, parameterized_mean=False, meanparam_len=1, info=False
+    model,
+    criterion,
+    xi=None,
+    zi=None,
+    dataloader=None,
+    parameterized_mean=False,
+    meanparam_len=1,
+    info=False,
 ):
     """Update model parameters using a specified selection criterion.
 
@@ -794,10 +867,12 @@ def update_parameters_with_criterion(
         Gaussian process model.
     criterion : function
         The selection criterion function (e.g., REML or REMAP).
-    xi : ndarray, shape (n, d)
+    xi : ndarray, shape (n, d), optional
         Locations of the observed data points.
-    zi : ndarray, shape (n,)
+    zi : ndarray, shape (n,), optional
         Observed values at the data points.
+    dataloader : DataLoader, optional
+        Mini-batch generator over the dataset.
     parameterized_mean : bool, optional
         Whether the mean is parameterized and included in the selection criterion.
         Default is False.
@@ -813,12 +888,12 @@ def update_parameters_with_criterion(
     info_ret : object, optional
         Additional information about the optimization (if info=True).
     """
-
     return select_parameters_with_criterion(
         model,
         criterion,
-        xi,
-        zi,
+        xi=xi,
+        zi=zi,
+        dataloader=dataloader,
         meanparam0=model.meanparam if parameterized_mean else None,
         covparam0=model.covparam,
         parameterized_mean=parameterized_mean,
@@ -827,6 +902,164 @@ def update_parameters_with_criterion(
     )
 
 
+# ............................................................
+def select_parameters_with_reml(
+    model, xi=None, zi=None, dataloader=None, covparam0=None, info=False, verbosity=0
+):
+    """Optimize Gaussian process model parameters using Restricted Maximum Likelihood (REML).
+
+    See select_parameters_with_criterion()
+    """
+    return select_parameters_with_criterion(
+        model,
+        negative_log_restricted_likelihood,
+        xi=xi,
+        zi=zi,
+        dataloader=dataloader,
+        covparam0=covparam0,
+        info=info,
+        verbosity=verbosity,
+    )
+
+
+def update_parameters_with_reml(model, xi=None, zi=None, dataloader=None, info=False):
+    """Update model parameters using Restricted Maximum Likelihood (REML).
+
+    See update_parameters_with_criterion()
+    """
+    return update_parameters_with_criterion(
+        model,
+        model.negative_log_restricted_likelihood,
+        xi=xi,
+        zi=zi,
+        dataloader=dataloader,
+        info=info,
+    )
+
+# ............................................................
+def select_parameters_with_remap(
+    model, xi=None, zi=None, dataloader=None, covparam0=None, info=False, verbosity=0
+):
+    """Optimize Gaussian process model parameters using Restricted Maximum A Posteriori (REMAP).
+
+    See select_parameters_with_criterion()
+    """
+    return select_parameters_with_criterion(
+        model,
+        neg_log_restricted_posterior_with_power_law_prior,
+        xi=xi,
+        zi=zi,
+        dataloader=dataloader,
+        covparam0=covparam0,
+        info=info,
+        verbosity=verbosity,
+    )
+
+
+def update_parameters_with_remap(model, xi=None, zi=None, dataloader=None, info=False):
+    """Update model parameters using Restricted Maximum A Posteriori (REMAP).
+
+    See update_parameters_with_criterion()
+    """
+    return update_parameters_with_criterion(
+        model,
+        neg_log_restricted_posterior_with_power_law_prior,
+        xi=xi,
+        zi=zi,
+        dataloader=dataloader,
+        info=info,
+    )
+
+
+# ............................................................ helper functions
+def _check_xi_zi_or_loader(xi, zi, dataloader):
+    """
+    Validate arguments and determine data source.
+
+    Parameters
+    ----------
+    xi : array_like or None
+        Input data locations.
+    zi : array_like or None
+        Output data values.
+    dataloader : DataLoader or None
+        DataLoader instance.
+
+    Returns
+    -------
+    source : str
+        'arrays' if (xi, zi) are provided, 'loader' if loader is provided.
+
+    Raises
+    ------
+    ValueError
+        If arguments are invalid (both or neither provided).
+    """
+    arrays_provided = xi is not None and zi is not None
+    loader_provided = dataloader is not None
+
+    if arrays_provided and loader_provided:
+        raise ValueError("Provide either (xi, zi) or dataloader, not both.")
+
+    if not arrays_provided and not loader_provided:
+        raise ValueError("Provide either (xi, zi) or dataloader.")
+
+    return "arrays" if arrays_provided else "dataloader"
+
+
+def _prepare_data(xi=None, zi=None, loader=None):
+    """
+    Prepare access to data either from (xi, zi) arrays or from a DataLoader.
+
+    If (xi, zi) are provided, xi_, zi_ are arrays.
+    If loader is provided, xi_, zi_ are None.
+
+    Parameters
+    ----------
+    xi : array_like, optional
+    zi : array_like, optional
+    loader : DataLoader, optional
+
+    Returns
+    -------
+    xi_ : Array or None
+        Covariates if xi, zi are provided. None if loader is used.
+    zi_ : Array or None
+        Observations if xi, zi are provided. None if loader is used.
+    n : int
+        Number of samples.
+    d : int
+        Input dimension.
+    source : str
+        'arrays' or 'loader'.
+
+    Raises
+    ------
+    ValueError
+        If input is invalid.
+    """
+    arrays_provided = xi is not None and zi is not None
+    loader_provided = loader is not None
+
+    if arrays_provided and loader_provided:
+        raise ValueError("Provide either (xi, zi) or loader, not both.")
+    if not arrays_provided and not loader_provided:
+        raise ValueError("Provide either (xi, zi) or loader.")
+
+    if arrays_provided:
+        xi_ = gnp.asarray(xi)
+        zi_ = gnp.asarray(zi).reshape(-1, 1)
+        n, d = xi_.shape
+        return xi_, zi_, n, d, "arrays"
+    else:
+        n = len(loader.dataset)
+        d = loader.dataset.x_list[0].shape[1]
+        return None, None, n, d, "loader"
+
+
+# ============================================================
+#                  selection criteria
+# ============================================================
 def negative_log_likelihood_zero_mean(model, covparam, xi, zi):
     """Wrapper to core.model.negative_log_likelihood_zero_mean."""
     return model.negative_log_likelihood_zero_mean(covparam, xi, zi)
@@ -840,32 +1073,6 @@ def negative_log_likelihood(model, meanparam, covparam, xi, zi):
 def negative_log_restricted_likelihood(model, covparam, xi, zi):
     """Wrapper to core.model.negative_log_restricted_likelihood."""
     return model.negative_log_restricted_likelihood(covparam, xi, zi)
-
-
-def select_parameters_with_reml(model, xi, zi, covparam0=None, info=False, verbosity=0):
-    """Optimize Gaussian process model parameters using Restricted Maximum Likelihood (REML).
-
-    See select_parameters_with_criterion()
-    """
-    return select_parameters_with_criterion(
-        model,
-        negative_log_restricted_likelihood,
-        xi,
-        zi,
-        covparam0=covparam0,
-        info=info,
-        verbosity=verbosity,
-    )
-
-
-def update_parameters_with_reml(model, xi, zi, info=False):
-    """Update model parameters using Restricted Maximum Likelihood (REML).
-
-    See update_parameters_with_criterion
-    """
-    return update_parameters_with_criterion(
-        model, model.negative_log_restricted_likelihood, xi, zi, info=info
-    )
 
 
 def log_prior_jeffrey_variance(covparam, lambda_var=1.0):
@@ -902,9 +1109,9 @@ def log_prior_jeffrey_variance(covparam, lambda_var=1.0):
 def log_prior_power_law(
     covparam,
     lambda_var=1.0,
-    cut_logvariance_high=9.21, # exp(9.21) ~= 10000
+    cut_logvariance_high=9.21,  # exp(9.21) ~= 10000
     lambda_lengthscales=0.0,
-    cut_loginvrho_low=-9.21,  
+    cut_loginvrho_low=-9.21,
     cut_loginvrho_high=9.21,
     penalty_factor=100,
 ):
@@ -940,7 +1147,9 @@ def log_prior_power_law(
     """
     log_sigma2 = covparam[0]
     log_prior_sigma2 = -lambda_var * log_sigma2
-    extra_penalty_sigma2 = penalty_factor * gnp.maximum(log_sigma2 - cut_logvariance_high, 0)
+    extra_penalty_sigma2 = penalty_factor * gnp.maximum(
+        log_sigma2 - cut_logvariance_high, 0
+    )
     p = covparam[1:]
     extra_penalty_low_invrhos = penalty_factor * gnp.maximum(cut_loginvrho_low - p, 0)
     extra_penalty_high_invrhos = penalty_factor * gnp.maximum(p - cut_loginvrho_high, 0)
@@ -1074,25 +1283,3 @@ def neg_log_restricted_posterior_with_power_law_prior(model, covparam, xi, zi):
 
     # Posterior = Likelihood * Prior, so negative log-posterior = nlrl - log_prior
     return nlrl - log_prior
-
-
-def select_parameters_with_remap(
-    model, xi, zi, covparam0=None, info=False, verbosity=0
-):
-    """Optimize Gaussian process model parameters using Restricted Maximum A Posteriori (REMAP)."""
-    return select_parameters_with_criterion(
-        model,
-        neg_log_restricted_posterior_with_power_law_prior,
-        xi,
-        zi,
-        covparam0=covparam0,
-        info=info,
-        verbosity=verbosity,
-    )
-
-
-def update_parameters_with_remap(model, xi, zi, info=False):
-    """Update model parameters using Restricted Maximum A Posteriori (REMAP)."""
-    return update_parameters_with_criterion(
-        model, neg_log_restricted_posterior_with_power_law_prior, xi, zi, info=info
-    )

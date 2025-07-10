@@ -4,9 +4,14 @@
 # License: GPLv3 (see LICENSE)
 ## --------------------------------------------------------------
 
+import math
 import numpy as np
+import gpmp.num as gnp
 
 def ftos(x, fp=3):
+    if gnp.isarray(x):
+        x = gnp.to_scalar(x)
+
     if x == float('inf'):
         return "+Inf"
     elif x == float('-inf'):
@@ -19,7 +24,7 @@ def ftos(x, fp=3):
     elif abs_x >= 0.01 and abs_x < 0.1:
         return f"{x:.{fp+1}f}"
     else:
-        exponent = int(np.floor(np.log10(abs_x)))
+        exponent = int(math.floor(math.log10(abs_x)))
         coeff = x / 10**exponent
         return f"{coeff:.{fp}f}e{exponent}"
 

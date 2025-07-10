@@ -1,26 +1,39 @@
-"""
+"""num.py — Numerical backend for GPmp.
+
+This module provides numerical operations for GPmp, with a unified API
+based on an underlying backend.
+
+The backend is selected automatically among:
+    1. torch
+    2. jax
+    3. numpy (default fallback)
+
+All basic array operations, linear algebra routines, random sampling,
+and differentiable functions are defined here.
+
+The active backend is stored in the environment variable 'GPMP_BACKEND'.
+
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2025, CentraleSupelec
+Copyright (c) 2022–2025, CentraleSupélec
 License: GPLv3 (see LICENSE)
---------------------------------------------------------------
-
-Description:
-    This module sets and prints the backend to be used by the GPmp (Gaussian
-    Process micro package) framework.
-
-    The backend is set by checking for the existence of certain libraries in
-    the system and, if available, sets an environment variable "GPMP_BACKEND" 
-    to the corresponding library's name.
-
-    The priority order for backends is: torch -> jax -> numpy. If neither 
-    torch nor jax are found in the system, numpy is set as the default backend.
 
 """
 
-import os, warnings
-import numpy
-from importlib import util as importlib_util
+import os
+import warnings
+import logging
+from importlib.util import find_spec
 
+# Setup a logger
+_logger = logging.getLogger("gpmp")
+if not _logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter("[%(levelname)s] %(message)s")
+    handler.setFormatter(formatter)
+    _logger.addHandler(handler)
+    _logger.setLevel(logging.INFO)
+
+# Detect backend
 _gpmp_backend_ = os.environ.get("GPMP_BACKEND")
 
 
@@ -30,16 +43,15 @@ def set_backend_env_var(backend):
     _gpmp_backend_ = backend
 
 
-# Automatically set the backend if not already set in the environment.
 if _gpmp_backend_ is None:
-    if importlib_util.find_spec("torch") is not None:
+    if find_spec("torch") is not None:
         set_backend_env_var("torch")
-    elif importlib_util.find_spec("jax") is not None:
+    elif find_spec("jax") is not None:
         set_backend_env_var("jax")
     else:
         set_backend_env_var("numpy")
 
-print(f"Using backend: {_gpmp_backend_}")
+_logger.info(f"Using backend: {_gpmp_backend_}")
 
 
 # -----------------------------------------------------
@@ -48,8 +60,10 @@ print(f"Using backend: {_gpmp_backend_}")
 #
 # -----------------------------------------------------
 if _gpmp_backend_ == "numpy":
+    import numpy
     from numpy import array, empty
     from numpy.typing import NDArray
+
     ndarray = NDArray[numpy.float64]
     from numpy import (
         copy,
@@ -61,6 +75,7 @@ if _gpmp_backend_ == "numpy":
         isnan,
         isinf,
         isfinite,
+        isclose,
         allclose,
         unique,
         hstack,
@@ -68,6 +83,7 @@ if _gpmp_backend_ == "numpy":
         stack,
         tile,
         concatenate,
+        split,
         expand_dims,
         empty,
         empty_like,
@@ -90,13 +106,19 @@ if _gpmp_backend_ == "numpy":
         log,
         log10,
         log1p,
+        sin,
+        cos,
+        tan,
+        tanh,
         diff,
         sum,
+        cumsum,
         prod,
         mean,
         std,
         var,
         cov,
+        percentile,
         sort,
         min,
         max,
@@ -123,8 +145,11 @@ if _gpmp_backend_ == "numpy":
     from scipy.stats import norm as normal
     from scipy.stats import multivariate_normal as scipy_mvnormal
 
+    # ..................................................
+
     eps = finfo(float64).eps
     fmax = numpy.finfo(numpy.float64).max
+    # ..................................................
 
     def set_elem_1d(x, index, v):
         x[index] = v
@@ -145,6 +170,20 @@ if _gpmp_backend_ == "numpy":
     def set_col_3d(A, index, x):
         A[:, :, index] = x
         return A
+
+    def index_select(x, dim, indices):
+        if dim == 0:
+            return x[indices]
+        elif dim == 1:
+            # manual slicing for dim=1
+            return x[:, indices]
+        else:
+            # general fallback: move dimension to front
+            x_moved = numpy.moveaxis(x, dim, 0)
+            x_selected = x_moved[indices]
+            return numpy.moveaxis(x_selected, 0, dim)
+
+    # ..................................................
 
     def asarray(x, dtype=None):
         if isinstance(x, numpy.ndarray):
@@ -173,33 +212,85 @@ if _gpmp_backend_ == "numpy":
         a = where(numpy.isinf(a), numpy.full_like(a, bigf), a)
         return a
 
+    # ..................................................
+
     class jax:
         @staticmethod
         def jit(f, *args, **kwargs):
             return f
 
+    # ..................................................
+
     def grad(f):
         return None
 
-    class DifferentiableFunction:
-        def __init__(self, f):
-            self.f = f
-            self.f_value = None
-            self.x_value = None
+    class DifferentiableSelectionCriterion:
+        def __init__(self, crit, x, z):
+            self.crit = crit
+            self.x, self.z = x, z
             self.gradient = None
 
-        def __call__(self, x):
-            return self.f(x)
+        def __call__(self, p):
+            return self.evaluate(p)
 
-        def evaluate(self, x):
-            return self.f(x)
-
-        def evaluate_no_grad(self, x):
+        def evaluate(self, p):
             try:
-                return self.f(x)
-            except:
+                return self.crit(p, self.x, self.z)
+            except Exception:
                 return inf
-        
+
+        def evaluate_no_grad(self, p):
+            return self.evaluate(p)
+
+    class BatchDifferentiableSelectionCriterion:
+        def __init__(self, crit, loader, reduction="mean"):
+            """
+            Batch differentiable function for parameter optimization.
+
+            Parameters
+            ----------
+            crit : callable
+                Function taking three arguments (p, xb, zb), where:
+                  - p : parameter array
+                  - xb : batch input
+                  - zb : batch output/targets
+                Returns a scalar loss.
+
+            loader : iterable
+                Iterable yielding batches (xb, zb).
+
+            reduction : str, optional
+                Reduction mode: 'mean' (default) or 'sum'.
+            """
+            self.crit = crit
+            self.loader = loader
+            self.reduction = reduction
+            self.gradient = None
+
+        def __call__(self, p):
+            return self.evaluate_no_grad(p)
+
+        def evaluate_no_grad(self, p):
+            return self.evaluate(p)
+
+        def evaluate(self, p):
+            try:
+                total_loss = 0.0
+                n_samples = 0
+                for xb, zb in self.loader:
+                    batch_size = xb.shape[0]
+                    total_loss += self.crit(p, xb, zb) * batch_size
+                    n_samples += batch_size
+                if n == 0:
+                    raise ValueError("Loader is empty.")
+                if self.reduction == "mean":
+                    total_loss /= n_samples
+                return total_loss
+            except Exception:
+                return inf
+
+    # ..................................................
+
     def scaled_distance(loginvrho, x, y):
         invrho = exp(loginvrho)
         xs = invrho * x
@@ -214,12 +305,16 @@ if _gpmp_backend_ == "numpy":
             d = sqrt(sum((invrho * (x - y)) ** 2, axis=1))
         return d
 
+    # ..................................................
+
     def logdet(A):
         sign, logabsdet = numpy.linalg.slogdet(A)
         if sign <= 0:
-            raise ValueError("Matrix is not positive definite (or has non-positive determinant).")
+            raise ValueError(
+                "Matrix is not positive definite (or has non-positive determinant)."
+            )
         return logabsdet
-    
+
     def cholesky_inv(A):
         # FIXME: slow!
         # n = A.shape[0]
@@ -232,6 +327,8 @@ if _gpmp_backend_ == "numpy":
         y = solve_triangular(L, b, lower=True)
         x = solve_triangular(L.T, y, lower=False)
         return x, L
+
+    # ..................................................
 
     # Build one global RNG (or let the user set the seed somewhere):
     _np_rng = numpy.random.default_rng(seed=1234)
@@ -249,7 +346,10 @@ if _gpmp_backend_ == "numpy":
 
     def choice(a, size=None, replace=True, p=None):
         return _np_rng.choice(a, size=size, replace=replace, p=p)
-    
+
+    def permutation(x):
+        return _np_rng.permutation(x)
+
     class multivariate_normal:
         @staticmethod
         def rvs(mean=0.0, cov=1.0, n=1):
@@ -295,8 +395,10 @@ if _gpmp_backend_ == "numpy":
 # -----------------------------------------------------
 elif _gpmp_backend_ == "torch":
     import torch
+
     torch.set_default_dtype(torch.float64)
     from torch import tensor, is_tensor
+
     ndarray = torch.Tensor
 
     from torch import (
@@ -306,6 +408,7 @@ elif _gpmp_backend_ == "torch":
         isnan,
         isinf,
         isfinite,
+        isclose,
         allclose,
         hstack,
         vstack,
@@ -349,8 +452,11 @@ elif _gpmp_backend_ == "torch":
     from scipy.stats import multivariate_normal as scipy_mvnormal
     from scipy.special import gammaln
 
+    # ..................................................
+
     eps = finfo(float64).eps
     fmax = finfo(float64).max
+    # ..................................................
 
     def copy(x):
         if isinstance(x, torch.Tensor):
@@ -381,8 +487,13 @@ elif _gpmp_backend_ == "torch":
         A[:, :, index] = x
         return A
 
+    def index_select(x, dim, indices):
+        return x.index_select(dim, indices)
+
     def expand_dims(tensor, axis):
         return tensor.unsqueeze(axis)
+
+    # ..................................................
 
     def array(x: list):
         return tensor(x)
@@ -402,7 +513,10 @@ elif _gpmp_backend_ == "torch":
         return x.to(torch.int)
 
     def to_np(x):
-        return x.numpy()
+        if is_tensor(x):
+            return x.numpy()
+        else:
+            return x
 
     def to_scalar(x):
         return x.item()
@@ -427,11 +541,73 @@ elif _gpmp_backend_ == "torch":
 
         return f_
 
+    # ..................................................
+
+    def _sizes_from_bounds(bounds, length):
+        """
+        Convert 1-D tensor of strictly increasing boundary indices
+        into chunk-size tensor expected by torch.split.
+
+        Example
+        -------
+        length = 12, bounds = [3, 6, 9]  ->  sizes = [3, 3, 3, 3]
+        """
+        # sizes = [bounds[0], diff(bounds), length - bounds[-1]]
+        return torch.cat(
+            (
+                bounds[:1],
+                torch.diff(bounds),
+                torch.tensor(
+                    [length - bounds[-1]], device=bounds.device, dtype=bounds.dtype
+                ),
+            )
+        )
+
+    def split(x, indices_or_sections, dim=0):
+        """
+        Accepts either
+        * **int n** -> chunks of size *n*   (Torch default)
+        * **list / 1-D tensor of sizes**
+        * **list / 1-D tensor of boundary indices** (NumPy/JAX style)
+
+        Heuristic: if the sum of the numbers == `x.size(dim)`, treat them
+        as *sizes*, otherwise as *boundary indices*.
+        """
+        # fast path: integer size
+        if isinstance(indices_or_sections, int):
+            return torch.split(x, indices_or_sections, dim=dim)
+        # convert to 1-D long tensor on same device
+        if torch.is_tensor(indices_or_sections):
+            vec = indices_or_sections.to(dtype=torch.long, device=x.device)
+        else:
+            vec = torch.as_tensor(
+                indices_or_sections, dtype=torch.long, device=x.device
+            )
+        if vec.numel() == 0:
+            raise ValueError("indices_or_sections must contain at least one element")
+        # decide “sizes” vs “bounds”
+        total = vec.sum()
+        length = x.size(dim)
+        if total == length:
+            sizes = vec  # already sizes
+        else:
+            sizes = _sizes_from_bounds(vec, length)
+        # torch.split needs a list
+        return torch.split(x, sizes.tolist(), dim=dim)
+
+    # ..................................................
+
     log = scalar_safe(torch.log)
     log10 = scalar_safe(torch.log10)
     log1p = scalar_safe(torch.log1p)
     exp = scalar_safe(torch.exp)
     sqrt = scalar_safe(torch.sqrt)
+    sin = scalar_safe(torch.sin)
+    cos = scalar_safe(torch.cos)
+    tan = scalar_safe(torch.tan)
+    tanh = scalar_safe(torch.tanh)
+
+    # ..................................................
 
     def axis_to_dim(f):
         def f_(x, axis=None, **kwargs):
@@ -446,21 +622,44 @@ elif _gpmp_backend_ == "torch":
     unique = axis_to_dim(torch.unique)
     diff = axis_to_dim(torch.diff)
     sum = axis_to_dim(torch.sum)
+    cumsum = axis_to_dim(torch.cumsum)
     prod = axis_to_dim(torch.prod)
     mean = axis_to_dim(torch.mean)
     std = axis_to_dim(torch.std)
     var = axis_to_dim(torch.var)
+    # ..................................................
+
+    def percentile(
+        x,
+        q,
+        axis=None,
+        out=None,
+        overwrite_input=False,
+        method="linear",
+        keepdims=False,
+        *,
+        weights=None,
+        interpolation=None,
+    ):
+        if interpolation is not None and interpolation != "linear":
+            raise ValueError("Only 'linear' interpolation is supported.")
+        if weights is not None:
+            raise NotImplementedError("weights not supported in torch percentile")
+        if method != "linear":
+            raise NotImplementedError("only 'linear' method supported in this wrapper")
+
+        return torch.quantile(x, q / 100.0, dim=axis, keepdim=keepdims, out=out)
 
     def norm(x, axis=None, ord=2):
         return torch.norm(x, dim=axis, p=ord)
 
-    def min(x, axis=0):
+    def min(x, axis=0, keepdims=False):
         m = torch.min(x, dim=axis)
-        return m.values
+        return m.values.unsqueeze(axis) if keepdims else m.values
 
-    def max(x, axis=0):
+    def max(x, axis=0, keepdims=False):
         m = torch.max(x, dim=axis)
-        return m.values
+        return m.values.unsqueeze(axis) if keepdims else m.values
 
     def maximum(x1, x2):
         if not torch.is_tensor(x1):
@@ -489,6 +688,8 @@ elif _gpmp_backend_ == "torch":
         a = torch.where(torch.isinf(a), torch.full_like(a, bigf), a)
         return a
 
+    # ..................................................
+
     def grad(f):
         def f_grad(x):
             if not torch.is_tensor(x):
@@ -507,50 +708,115 @@ elif _gpmp_backend_ == "torch":
         def jit(f, *args, **kwargs):
             return f
 
-    class DifferentiableFunction:
-        """Wraps a function f(x) -> scalar, allowing optional gradient computation."""
-        def __init__(self, f):
+    class DifferentiableSelectionCriterion:
+        """Wraps a selection criterion f(p, x, z) -> scalar, allowing gradient computation."""
+
+        def __init__(self, f, x, z):
             self.f = f
-            self._x_value = None
+            self.x = x
+            self.z = z
+            self._p_value = None
             self._f_value = None
 
-        def __call__(self, x):
-            return self.evaluate_no_grad(x)
-            
-        def evaluate(self, x):
-            if not torch.is_tensor(x):
-                self._x_value = torch.tensor(x, requires_grad=True)
+        def __call__(self, p):
+            return self.evaluate_no_grad(p)
+
+        def evaluate_no_grad(self, p):
+            if not torch.is_tensor(p):
+                p = torch.tensor(p)
+            try:
+                with torch.no_grad():
+                    f_value = self.f(p, self.x, self.z)
+                return f_value.item()
+            except Exception:
+                return inf
+
+        def evaluate(self, p):
+            if not torch.is_tensor(p):
+                self._p_value = torch.tensor(p, requires_grad=True)
             else:
-                self._x_value = x.detach().clone().requires_grad_(True)
+                self._p_value = p.detach().clone().requires_grad_(True)
 
-            self._f_value = self.f(self._x_value)
-            return self._f_value.item()
+            try:
+                self._f_value = self.f(self._p_value, self.x, self.z)
+                return self._f_value.item()
+            except Exception:
+                # construct inf with None gradient
+                self._f_value = gnp.tensor(float("inf"), requires_grad=True)
+                return self._f_value.item()
 
-        def evaluate_no_grad(self, x):
-            if not torch.is_tensor(x):
-                x = torch.tensor(x)
-            with torch.no_grad():
-                y = self.f(x)
-            return y.item()
-            
-        def gradient(self, x, retain=False, allow_unused=True):
+        def gradient(self, p, retain=False, allow_unused=True):
             if self._f_value is None:
-                raise ValueError("Call 'evaluate(x)' before 'gradient(x)'")
+                raise ValueError("Call 'evaluate(p)' before 'gradient(p)'")
 
-            if  not torch.equal(asarray(x), self._x_value):
+            if not torch.equal(asarray(p), self._p_value):
                 raise ValueError(
-                    "The input 'x' in 'gradient' must be the same as in 'evaluate'"
+                    "The input 'p' in 'gradient' must be the same as in 'evaluate'"
                 )
 
             gradients = torch.autograd.grad(
                 self._f_value,
-                self._x_value,
+                self._p_value,
                 retain_graph=retain,
-                allow_unused=allow_unused
+                allow_unused=allow_unused,
             )[0]
             if gradients is None:
                 raise RuntimeError("Gradient is None.")
             return gradients
+
+    class BatchDifferentiableSelectionCriterion:
+        def __init__(self, crit, loader, reduction="mean"):
+            self.crit = crit
+            self.loader = loader
+            self.reduction = reduction
+            self._gradient = None
+
+        def _prepare_param(self, param, ref_tensor, requires_grad=False):
+            if not isinstance(param, torch.Tensor):
+                param = torch.tensor(
+                    param, dtype=ref_tensor.dtype, device=ref_tensor.device
+                )
+            else:
+                param = param.to(dtype=ref_tensor.dtype, device=ref_tensor.device)
+            param.requires_grad_(requires_grad)
+            return param
+
+        def evaluate_no_grad(self, param):
+            total, n = 0.0, 0
+            with torch.no_grad():
+                for xb, zb in self.loader:
+                    p = self._prepare_param(param, xb)
+                    total += self.crit(p, xb, zb).item() * xb.size(0)
+                    n += xb.size(0)
+            if n == 0:
+                raise ValueError("Loader is empty.")
+            return total / n if self.reduction == "mean" else total
+
+        def evaluate(self, param):
+            total, n = 0.0, 0
+            first_batch = True
+            for xb, zb in self.loader:
+                p = self._prepare_param(param, xb, requires_grad=True)
+                loss = self.crit(p, xb, zb)
+                total += loss.item() * xb.size(0)
+                n += xb.size(0)
+                if first_batch:
+                    first_batch = False
+                    grad = torch.autograd.grad(loss, p, retain_graph=False)[0]
+                else:
+                    grad += torch.autograd.grad(loss, p, retain_graph=False)[0]
+            if n == 0:
+                raise ValueError("Loader is empty.")
+            if self.reduction == "mean":
+                total /= n
+                grad /= n
+            self._gradient = grad.detach()
+            return torch.tensor(total, dtype=grad.dtype, device=grad.device)
+
+        def gradient(self, param):
+            if self._gradient is None:
+                raise RuntimeError("Call 'evaluate' first.")
+            return self._gradient
 
     class SecondOrderDifferentiableFunction:
         """Helper class to compute second-order derivatives (Hessian) of scalar functions."""
@@ -587,7 +853,7 @@ elif _gpmp_backend_ == "torch":
             if self._y is None or self._x is None:
                 raise RuntimeError("Call evaluate(x) before calling gradient().")
 
-            grad, = torch.autograd.grad(
+            (grad,) = torch.autograd.grad(
                 self._y, self._x, create_graph=True, retain_graph=retain
             )
             self._grad = grad
@@ -604,17 +870,21 @@ elif _gpmp_backend_ == "torch":
             hessian = torch.zeros((n, n), dtype=torch.double)
 
             for idx in range(n):
-                grad2, = torch.autograd.grad(
+                (grad2,) = torch.autograd.grad(
                     grad[idx], x, retain_graph=True, allow_unused=True
                 )
                 if grad2 is None:
-                    raise RuntimeError(f"Second derivative for parameter {idx} is None.")
+                    raise RuntimeError(
+                        f"Second derivative for parameter {idx} is None."
+                    )
                 hessian[idx] = grad2
 
             # Ensure symmetry
             hessian = 0.5 * (hessian + hessian.T)
 
             return hessian.detach()
+
+    # ..................................................
 
     def custom_sqrt(x):
         arbitrary_value = 1.0
@@ -663,6 +933,8 @@ elif _gpmp_backend_ == "torch":
             d = sqrt(sum(invrho * (x - y) ** 2, axis=1))
         return d
 
+    # ..................................................
+
     def svd(A, full_matrices=True, hermitian=True):
         return torch.linalg.svd(A, full_matrices)
 
@@ -685,6 +957,8 @@ elif _gpmp_backend_ == "torch":
         C = cholesky(A)
         return torch.cholesky_inverse(C)
 
+    # ..................................................
+
     # Build a global Torch Generator
     _torch_gen = torch.Generator()
     _torch_gen.manual_seed(1234)
@@ -694,7 +968,7 @@ elif _gpmp_backend_ == "torch":
         global _torch_gen
         _torch_gen = torch.Generator()
         _torch_gen.manual_seed(seed)
-    
+
     def rand(*shape):
         return torch.rand(shape, generator=_torch_gen)
 
@@ -702,27 +976,42 @@ elif _gpmp_backend_ == "torch":
         return torch.randn(shape, generator=_torch_gen)
 
     def choice(a, size=None, replace=True, p=None):
-        """
-        Torch doesn't have a built-in direct 'choice' exactly like NumPy's,
-        but you can mimic it. For integer a, we can do something like:
-        """
-        a_tensor = torch.arange(a) if isinstance(a, int) else torch.tensor(a)
+        if size is None:
+            size = 1
 
-        # If p is not None, use torch.multinomial
+        if not torch.is_tensor(a):
+            a = (
+                torch.arange(a)
+                if isinstance(a, int)
+                else torch.tensor(a, dtype=torch.float64)
+            )
+
+        n = a.shape[0]
+
         if p is not None:
-            p_tensor = torch.tensor(p, dtype=torch.float64)
-            indices = torch.multinomial(p_tensor, num_samples=size, replacement=replace, generator=_torch_gen)
-            return a_tensor[indices]
-
-        # If p is None, uniform distribution
-        # for sampling 'size' elements from 'a'
-        n = len(a_tensor)
-        # sample with or w/o replacement
-        if replace:
-            indices = torch.randint(low=0, high=n, size=(size,), generator=_torch_gen)
+            p = torch.tensor(p, dtype=torch.float64, device=a.device)
+            p = p / p.sum()
+            indices = torch.multinomial(
+                p, num_samples=size, replacement=replace, generator=_torch_gen
+            )
         else:
-            indices = torch.randperm(n, generator=_torch_gen)[:size]
-        return a_tensor[indices]
+            if replace:
+                indices = torch.randint(
+                    0, n, (size,), generator=_torch_gen, device=a.device
+                )
+            else:
+                perm = torch.randperm(n, generator=_torch_gen, device=a.device)
+                indices = perm[:size]
+
+        return a.index_select(0, indices)
+
+    def permutation(x):
+        if isinstance(x, int):
+            return torch.randperm(x, generator=_torch_gen)
+        else:
+            n = x.shape[0]
+            perm = torch.randperm(n, generator=_torch_gen, device=x.device)
+            return x.index_select(0, perm)
 
     class normal:
         @staticmethod
@@ -811,6 +1100,14 @@ elif _gpmp_backend_ == "torch":
 #
 # ------------------------------------------------------
 elif _gpmp_backend_ == "jax":
+    import os
+    import numpy
+
+    os.environ.setdefault("JAX_PLATFORM_NAME", "cpu")  # stay on the GPU
+    os.environ.setdefault(
+        "XLA_PYTHON_CLIENT_PREALLOCATE", "false"
+    )  # tiny RAM footprint
+
     import jax
 
     # set multithreaded/multicore parallelism
@@ -820,6 +1117,7 @@ elif _gpmp_backend_ == "jax":
     # set double precision for floats
     jax.config.update("jax_enable_x64", True)
     from jax.numpy import array, empty
+
     ndarray = jax.numpy.ndarray
 
     from jax.numpy import (
@@ -831,6 +1129,7 @@ elif _gpmp_backend_ == "jax":
         isnan,
         isinf,
         isfinite,
+        isclose,
         allclose,
         unique,
         hstack,
@@ -838,6 +1137,7 @@ elif _gpmp_backend_ == "jax":
         stack,
         tile,
         concatenate,
+        split,
         expand_dims,
         empty,
         empty_like,
@@ -860,13 +1160,19 @@ elif _gpmp_backend_ == "jax":
         log,
         log10,
         log1p,
+        sin,
+        cos,
+        tan,
+        tanh,
         diff,
         sum,
+        cumsum,
         prod,
         mean,
         std,
         var,
         cov,
+        percentile,
         sort,
         min,
         max,
@@ -893,14 +1199,19 @@ elif _gpmp_backend_ == "jax":
     from jax.scipy.stats import norm as normal
     from scipy.stats import multivariate_normal as scipy_mvnormal
 
+    # ..................................................
+
     eps = finfo(float64).eps
     fmax = finfo(float64).max
+    # ..................................................
 
     def copy(x):
         return array(x, copy=True)
 
     def is_boolean_mask(mask):
-        return isinstance(mask, jax.numpy.ndarray) and jax.numpy.issubdtype(mask.dtype, jax.numpy.bool_)
+        return isinstance(mask, jax.numpy.ndarray) and jax.numpy.issubdtype(
+            mask.dtype, jax.numpy.bool_
+        )
 
     def set_elem_1d(x, index, v):
         return x.at[index].set(v)
@@ -917,8 +1228,10 @@ elif _gpmp_backend_ == "jax":
                 return A.at[rows].set(x)
             elif jax.numpy.issubdtype(index.dtype, jax.numpy.integer):
                 return A.at[index].set(x)
-        raise TypeError("Unsupported index type: must be int, integer array, or boolean mask")
-    
+        raise TypeError(
+            "Unsupported index type: must be int, integer array, or boolean mask"
+        )
+
     def set_col_2d(A, index, x):
         if isinstance(index, (int, jax.numpy.integer)):
             return A.at[:, index].set(x)
@@ -928,10 +1241,25 @@ elif _gpmp_backend_ == "jax":
                 return A.at[:, cols].set(x)
             elif jax.numpy.issubdtype(index.dtype, jax.numpy.integer):
                 return A.at[:, index].set(x)
-        raise TypeError("Unsupported index type: must be int, integer array, or boolean mask")
+        raise TypeError(
+            "Unsupported index type: must be int, integer array, or boolean mask"
+        )
 
     def set_col_3d(A, index, x):
         return A.at[:, :, index].set(x)
+
+    def index_select(x, dim, indices):
+        if dim == 0:
+            return jax.numpy.take(x, indices, axis=0)
+        elif dim == 1:
+            return jax.numpy.take(x, indices, axis=1)
+        else:
+            # General fallback for dim > 1
+            x_moved = jax.numpy.moveaxis(x, dim, 0)
+            x_selected = jax.numpy.take(x_moved, indices, axis=0)
+            return jax.numpy.moveaxis(x_selected, 0, dim)
+
+    # ..................................................
 
     def asarray(x, dtype=None):
         if isinstance(x, jax.numpy.ndarray):
@@ -948,7 +1276,10 @@ elif _gpmp_backend_ == "jax":
         return x.astype(int)
 
     def to_np(x):
-        return numpy.array(x)
+        if isinstance(x, jax.numpy.ndarray):
+            return numpy.array(x)
+        else:
+            return x
 
     def to_scalar(x):
         return x.item()
@@ -960,42 +1291,100 @@ elif _gpmp_backend_ == "jax":
         a = where(isinf(a), full_like(a, bigf), a)
         return a
 
-    from jax import grad
+    # ..................................................
 
-    class DifferentiableFunction:
-        def __init__(self, f):
-            self.f = f  # jax.jit(f) 
-            self.f_grad = jax.grad(self.f)  # jax.jit(jax.grad(self.f))
+    class DifferentiableSelectionCriterion:
+        def __init__(self, crit, x, z):
+            self.crit = jax.jit(lambda p: crit(p, x, z))  # jax.jit(f)
+            self.crit_grad = jax.jit(jax.grad(self.crit))  # jax.jit(jax.grad(self.f))
+
+        def __call__(self, p):
+            return self.evaluate_no_grad(p)
+
+        def evaluate_no_grad(self, p):
+            return self.evaluate(p)
+
+        def evaluate(self, p):
+            if not isinstance(p, jax.numpy.ndarray):
+                p = jax.numpy.array(p)
+            try:
+                return self.crit(p)
+            except Exception:
+                return inf
+
+        def gradient(self, p):
+            if not isinstance(p, jax.numpy.ndarray):
+                p = jax.numpy.array(p)
+            try:
+                return self.crit_grad(p)
+            except Exception:
+                return None
+
+    class BatchDifferentiableSelectionCriterion:
+        def __init__(self, f_single_batch):
+            """
+            Parameters
+            ----------
+            f_single_batch : callable
+                A function f_single_batch(x, batch) -> scalar loss for a single batch.
+                It must be JAX differentiable.
+            """
+            self.f_single_batch = f_single_batch  # single batch function
+            self.f_grad_single_batch = jax.grad(
+                self.f_single_batch
+            )  # grad of the batch function
             self.f_value = None
             self.x_value = None
+            self.loader_value = None
 
-        def __call__(self, x):
-            return self.evaluate_no_grad(x)
+        def __call__(self, x, loader):
+            return self.evaluate_no_grad(x, loader)
 
-        def evaluate(self, x):
-            if not isinstance(x, jax.numpy.ndarray):
-                x = jax.numpy.array(x)
+        def evaluate(self, x, loader):
+            if not isinstance(x, jax.Array):
+                x = jax.numpy.asarray(x)
 
             self.x_value = x
-            self.f_value = self.f(x)
+            self.loader_value = loader
+
+            loss_acc = 0.0
+            for batch in loader:
+                loss_b = self.f_single_batch(x, batch)
+                loss_acc += loss_b
+
+            self.f_value = loss_acc / len(loader)
             return self.f_value
 
-        def evaluate_no_grad(self, x):
-            if not isinstance(x, jax.numpy.ndarray):
-                x = jax.numpy.array(x)
+        def evaluate_no_grad(self, x, loader):
+            if not isinstance(x, jax.Array):
+                x = jax.numpy.asarray(x)
 
-            return self.f(x)
+            loss_acc = 0.0
+            for batch in loader:
+                loss_b = self.f_single_batch(x, batch)
+                loss_acc += loss_b
+
+            return loss_acc / len(loader)
 
         def gradient(self, x):
             if self.f_value is None:
-                raise ValueError("Call 'evaluate(x)' before 'gradient(x)'")
+                raise ValueError("Call 'evaluate(x, loader)' before 'gradient(x)'")
 
             if not jax.numpy.array_equal(x, self.x_value):
                 raise ValueError(
                     "The input 'x' in 'gradient' must be the same as in 'evaluate'"
                 )
 
-            return self.f_grad(self.x_value)
+            grad_acc = jax.numpy.zeros_like(self.x_value)
+
+            for batch in self.loader_value:
+                grad_b = self.f_grad_single_batch(self.x_value, batch)
+                grad_acc += grad_b
+
+            grad_acc = grad_acc / len(self.loader_value)
+            return grad_acc
+
+    # ..................................................
 
     def cdist(x, y):
         if y is None:
@@ -1046,14 +1435,17 @@ elif _gpmp_backend_ == "jax":
             loginvrho, x, y
         )
         return f
-    
+
+    # ..................................................
+
     def logdet(A):
         sign, logabsdet = slogdet(A)
         if sign <= 0:
-            raise ValueError("Matrix is not positive definite (or has non-positive determinant).")
+            raise ValueError(
+                "Matrix is not positive definite (or has non-positive determinant)."
+            )
         return logabsdet
 
-    
     def cholesky_inv(A):
         # FIXME: slow!
         # n = A.shape[0]
@@ -1066,6 +1458,8 @@ elif _gpmp_backend_ == "jax":
         y = solve_triangular(L, b, lower=True)
         x = solve_triangular(L.T, y, lower=False)
         return x, L
+
+    # ..................................................
 
     # One global key:
     _jax_key = jax.random.PRNGKey(1234)
@@ -1089,11 +1483,10 @@ elif _gpmp_backend_ == "jax":
         return jax.random.normal(subkey, shape=shape)
 
     def choice(a, size=None, replace=True, p=None):
-        """
-        We implement a NumPy-like choice in JAX. Suppose 'a' is an int or array.
-        We'll do a naive approach if a is an int => [0,1,...a-1].
-        """
         subkey = _update_key()
+
+        if size is None:
+            size = 1
 
         if isinstance(a, int):
             a_ar = jax.numpy.arange(a)
@@ -1101,26 +1494,33 @@ elif _gpmp_backend_ == "jax":
             a_ar = jax.numpy.asarray(a)
 
         n = a_ar.shape[0]
+
         if p is not None:
             p_ar = jax.numpy.asarray(p, dtype=jax.numpy.float32)
+            p_ar = p_ar / p_ar.sum()
             if replace:
-                # JAX doesn't have a built-in 'multinomial' for sampling items directly
-                # We'll do a simple gather approach:
-                indices = jax.random.categorical(subkey, jax.numpy.log(p_ar), shape=(size,))
+                indices = jax.random.categorical(
+                    subkey, jax.numpy.log(p_ar), shape=(size,)
+                )
             else:
-                # There's no direct built-in in JAX for 'choice' without replacement + p
-                # This may require a custom approach (Gumbel trick, etc.). For simplicity:
-                raise NotImplementedError("choice w/o replacement + p not trivially supported in JAX.")
+                raise NotImplementedError(
+                    "choice w/o replacement + p not supported in JAX."
+                )
         else:
-            # uniform distribution
             if replace:
                 indices = jax.random.randint(subkey, shape=(size,), minval=0, maxval=n)
             else:
-                # naive approach: random permutation then take first 'size'
                 perm = jax.random.permutation(subkey, n)
-                indices = perm[:size]
+                if size == n:
+                    indices = perm
+                else:
+                    indices = jax.lax.dynamic_slice(perm, (0,), (size,))
 
         return a_ar[indices]
+
+    def permutation(x):
+        subkey = _update_key()
+        return jax.random.permutation(subkey, x)
 
     class multivariate_normal:
         @staticmethod
@@ -1128,47 +1528,40 @@ elif _gpmp_backend_ == "jax":
             if isscalar(cov) or cov.ndim == 0:
                 cov = cov * eye(1)
             if isscalar(mean):
-                mean = array([mean])
-
-            d = cov.shape[0]  # Dimensionality from the covariance matrix
-            mean_vector = full((d,), mean)  # Expand mean to a vector
+                mean = full((cov.shape[0],), mean)
 
             subkey = _update_key()
             return jax.random.multivariate_normal(
-                subkey, mean=mean_vector, cov=cov, shape=(n,)
+                subkey, mean=mean, cov=cov, shape=(n,)
             )
 
         @staticmethod
         def logpdf(x, mean=0.0, cov=1.0, allow_singular=False):
-            mean_vector = full(
-                (x.shape[-1],), mean
-            )  # Expand mean to match x dimensions
+            mean_vector = full((x.shape[-1],), mean)
             return jax.scipy.stats.multivariate_normal.logpdf(
                 x, mean=mean_vector, cov=cov, allow_singular=allow_singular
             )
 
         @staticmethod
         def cdf(x, mean=0.0, cov=1.0):
-            # Convert JAX arrays to NumPy arrays for compatibility with SciPy
-            if isinstance(x, jax.numpy.ndarray):
-                x = numpy.array(x)
-            if isinstance(mean, jax.numpy.ndarray):
-                mean = numpy.array(mean)
-            if isinstance(cov, jax.numpy.ndarray):
-                cov = numpy.array(cov)
+            x = numpy.asarray(x)
+            mean = numpy.asarray(mean)
+            cov = numpy.asarray(cov)
 
-            # Check if cov is a scalar or 1x1 array, and use norm for the univariate case
-            if isscalar(cov) or (isinstance(cov, jax.numpy.ndarray) and cov.size == 1):
-                return normal.cdf(x, mean, sqrt(cov))
+            if isscalar(cov) or cov.size == 1:
+                return normal.cdf(x, mean, numpy.sqrt(cov))
 
-            # For dxd covariance matrix, use multivariate_normal
             if isscalar(mean):
-                d = cov.shape[0]  # Dimensionality from the covariance matrix
-                mean = full(d, mean)  # Expand mean to an array
+                d = cov.shape[0]
+                mean = full(d, mean)
 
             return scipy_mvnormal.cdf(x, mean, cov)
 
 
+# ------------------------------------------------------------------
+#
+# No more backends
+#
 # ------------------------------------------------------------------
 
 else:
@@ -1188,11 +1581,11 @@ def derivative_finite_diff(f, x, h):
     5-point central difference derivative of f w.r.t. scalar x.
     f(x) must return a NumPy (or similar) array/matrix/tensor.
     """
-    f_x_p2 = f(x + 2*h)
+    f_x_p2 = f(x + 2 * h)
     f_x_p1 = f(x + h)
     f_x_m1 = f(x - h)
-    f_x_m2 = f(x - 2*h)
-    return (-f_x_p2 + 8*f_x_p1 - 8*f_x_m1 + f_x_m2) / (12.0 * h)
+    f_x_m2 = f(x - 2 * h)
+    return (-f_x_p2 + 8 * f_x_p1 - 8 * f_x_m1 + f_x_m2) / (12.0 * h)
 
 
 def try_with_postmortem(func, *args, **kwargs):
@@ -1213,3 +1606,18 @@ def try_with_postmortem(func, *args, **kwargs):
         extype, value, tb = __import__("sys").exc_info()
         __import__("traceback").print_exc()
         __import__("pdb").post_mortem(tb)
+
+
+# ----------------------------------------------------------------------
+#                              TODO (roadmap)
+# ----------------------------------------------------------------------
+# * Maintain a state dictionary to hold: dtype, device, gpmp cache, gln... see also stk
+# * Heal Jax slow perfomances
+# * DifferentiableSelectionCriterion: avoid silent fail, do not catch
+#   all Exceptions and return inf. (That hides bugs, typos, device errors...).
+# * BatchDifferentiableSelectionCriterion: assume crit returns mean
+# * BatchDifferentiableSelectionCriterion: dtype and device consistency
+#    xb0, _ = next(iter(self.loader))
+#    param = torch.tensor(param, dtype=xb0.dtype, device=xb0.device, requires_grad=True)
+# * Fix dtypes and device not specified
+# ----------------------------------------------------------------------
