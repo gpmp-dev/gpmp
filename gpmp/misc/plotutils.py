@@ -5,6 +5,7 @@
 ## --------------------------------------------------------------
 import sys
 import numpy as np
+import gpmp.num as gnp
 import scipy.stats as stats
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -293,7 +294,8 @@ def plot_loo(zi, zloom, zloov):
         _description_
     """
     fig = Figure()
-    fig.ax.errorbar(zi, zloom, 1.96 * zloov.sqrt(), fmt="ko", ls="None")
+    zi, zloom, zloov = gnp.to_np(zi), gnp.to_np(zloom), gnp.to_np(zloov)
+    fig.ax.errorbar(zi, zloom, 1.96 * np.sqrt(zloov), fmt="ko", ls="None")
     fig.ax.set_xlabel("true values"), plt.ylabel("predicted")
     fig.ax.set_title("LOO predictions with 95% coverage intervals")
     (xmin, xmax), (ymin, ymax) = fig.ax.get_xlim(), fig.ax.get_ylim()

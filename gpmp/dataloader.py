@@ -489,7 +489,7 @@ class DataLoader:
         mean : Array
             Weighted mean over all samples.
         """
-        total = 0.0
+        total = gnp.array([0.0])
         total_weight = 0
 
         for x_batch, z_batch in self:

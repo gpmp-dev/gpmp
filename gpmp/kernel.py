@@ -267,7 +267,9 @@ def anisotropic_parameters_initial_guess_zero_mean(
     rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi**0.5) * delta
     covparam = gnp.concatenate((gnp.array([gnp.log(1.0)]), -gnp.log(rho)))
 
-    sigma2_GLS_fn = lambda x, z: 1.0 / x.shape[0] * model.norm_k_sqrd_with_zero_mean(x, z, covparam)
+    sigma2_GLS_fn = (
+        lambda x, z: 1.0 / x.shape[0] * model.norm_k_sqrd_with_zero_mean(x, z, covparam)
+    )
     if data_source == "arrays":
         sigma2_GLS = sigma2_GLS_fn(xi_, zi_)
     else:
@@ -333,6 +335,7 @@ def anisotropic_parameters_initial_guess_constant_mean(
         mean_GLS = gnp.sum(Kinvz) / gnp.sum(Kinv1)
         sigma2_GLS = (1.0 / n) * zTKinvz
     else:
+
         def per_batch_gls(x, z):
             zTKinvz, Kinv1, Kinvz = model.k_inverses(x, z, covparam)
             m_batch = gnp.sum(Kinvz) / gnp.sum(Kinv1)
@@ -407,7 +410,7 @@ def anisotropic_parameters_initial_guess(model, xi=None, zi=None, dataloader=Non
         delta = gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)
     else:
         delta = dataloader.dataset_x_max() - dataloader.dataset_x_min()
-        
+
     rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi**0.5) * delta
 
     covparam = gnp.concatenate((gnp.array([log(1.0)]), -gnp.log(rho)))
@@ -415,6 +418,7 @@ def anisotropic_parameters_initial_guess(model, xi=None, zi=None, dataloader=Non
     if data_source == "arrays":
         sigma2_GLS = (1.0 / n) * model.norm_k_sqrd(xi_, zi_, covparam)
     else:
+
         def per_batch_sigma2(x, z):
             return model.norm_k_sqrd(x, z, covparam) / x.shape[0]
 
@@ -430,6 +434,7 @@ def make_selection_criterion_with_gradient(
     xi=None,
     zi=None,
     dataloader=None,
+    batches_per_eval=0,
     parameterized_mean=False,
     meanparam_len=1,
 ):
@@ -447,6 +452,10 @@ def make_selection_criterion_with_gradient(
         Observed values at the data points.
     dataloader : DataLoader, optional
         A DataLoader instance providing access to input/output batches.
+    batches_per_eval : int, optional
+        0  -> run over the *whole* loader each call (default behaviour).
+        >0 -> run over exactly this many batches per call, cycling when
+            the iterator is exhausted.
     parameterized_mean : bool, optional
         Whether to use mean parameter in the selection criterion.
     meanparam_len : int, optional
@@ -498,7 +507,9 @@ def make_selection_criterion_with_gradient(
         zi_ = gnp.asarray(zi)
         crit = gnp.DifferentiableSelectionCriterion(crit_, xi_, zi_)
     else:
-        crit = gnp.BatchDifferentiableSelectionCriterion(crit_, dataloader)
+        crit = gnp.BatchDifferentiableSelectionCriterion(
+            crit_, dataloader, batches_per_eval=batches_per_eval
+        )
 
     return crit.evaluate, crit.gradient, crit.evaluate_no_grad
 
@@ -935,6 +946,7 @@ def update_parameters_with_reml(model, xi=None, zi=None, dataloader=None, info=F
         dataloader=dataloader,
         info=info,
     )
+
 
 # ............................................................
 def select_parameters_with_remap(

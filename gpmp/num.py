@@ -23,6 +23,7 @@ import os
 import warnings
 import logging
 from importlib.util import find_spec
+from typing import Iterable, Tuple, Union
 
 # Setup a logger
 _logger = logging.getLogger("gpmp")
@@ -250,15 +251,13 @@ if _gpmp_backend_ == "numpy":
             Parameters
             ----------
             crit : callable
-                Function taking three arguments (p, xb, zb), where:
+                Selection criterion of the form f(p, xb, zb) -> scalar, where:
                   - p : parameter array
                   - xb : batch input
                   - zb : batch output/targets
                 Returns a scalar loss.
-
             loader : iterable
                 Iterable yielding batches (xb, zb).
-
             reduction : str, optional
                 Reduction mode: 'mean' (default) or 'sum'.
             """
@@ -281,7 +280,7 @@ if _gpmp_backend_ == "numpy":
                     batch_size = xb.shape[0]
                     total_loss += self.crit(p, xb, zb) * batch_size
                     n_samples += batch_size
-                if n == 0:
+                if n_samples == 0:
                     raise ValueError("Loader is empty.")
                 if self.reduction == "mean":
                     total_loss /= n_samples
@@ -764,58 +763,107 @@ elif _gpmp_backend_ == "torch":
                 raise RuntimeError("Gradient is None.")
             return gradients
 
+    TensorLike = Union[torch.Tensor, float, int]
+
     class BatchDifferentiableSelectionCriterion:
-        def __init__(self, crit, loader, reduction="mean"):
+        """
+        Scalar selection criterion evaluated on mini-batches.
+
+        Parameters
+        ----------
+        crit : callable
+            `crit(param, x_batch, z_batch) -> scalar tensor` (only `param`
+            needs `requires_grad`).
+        loader : torch.utils.data.DataLoader
+        reduction : {'mean', 'sum'}, default 'mean'
+        batches_per_eval : int, default 0
+            0  -> run over the *whole* loader each call (legacy behaviour).
+            >0 -> run over exactly this many batches per call, cycling when
+                  the iterator is exhausted.
+        """
+
+        def __init__(
+            self,
+            crit: callable,
+            loader: Iterable[Tuple[torch.Tensor, torch.Tensor]],
+            reduction: str = "mean",
+            batches_per_eval: int = 0,
+        ):
+            if reduction not in ("mean", "sum"):
+                raise ValueError("reduction must be 'mean' or 'sum'")
+            if batches_per_eval < 0:
+                raise ValueError("batches_per_eval must be ≥ 0")
+            if len(loader) == 0:
+                raise ValueError("DataLoader is empty.")
+
             self.crit = crit
             self.loader = loader
             self.reduction = reduction
-            self._gradient = None
+            self.bpe = int(batches_per_eval)
 
-        def _prepare_param(self, param, ref_tensor, requires_grad=False):
+            self._batch_iter = iter(loader) if self.bpe > 0 else None
+            self._gradient = None  # cached grad from last evaluate
+
+        @staticmethod
+        def _prepare_param(
+            param: TensorLike, *, req_grad: bool = False
+        ) -> torch.Tensor:
+            """Convert to tensor and set `requires_grad` (no dtype/device casting)."""
             if not isinstance(param, torch.Tensor):
-                param = torch.tensor(
-                    param, dtype=ref_tensor.dtype, device=ref_tensor.device
-                )
-            else:
-                param = param.to(dtype=ref_tensor.dtype, device=ref_tensor.device)
-            param.requires_grad_(requires_grad)
+                param = torch.tensor(param)
+            param.requires_grad_(req_grad)
             return param
 
-        def evaluate_no_grad(self, param):
+        def _batches(self):
+            """Yield the next set of batches for one evaluation."""
+            if self.bpe == 0:  # full epoch
+                yield from self.loader
+            else:  # fixed count, cycling
+                for _ in range(self.bpe):
+                    try:
+                        yield next(self._batch_iter)
+                    except StopIteration:
+                        self._batch_iter = iter(self.loader)
+                        yield next(self._batch_iter)
+
+        def evaluate_no_grad(self, param: TensorLike):
             total, n = 0.0, 0
             with torch.no_grad():
-                for xb, zb in self.loader:
-                    p = self._prepare_param(param, xb)
-                    total += self.crit(p, xb, zb).item() * xb.size(0)
-                    n += xb.size(0)
+                p = self._prepare_param(param, req_grad=False)
+                for xb, zb in self._batches():
+                    bs = xb.shape[0]
+                    total += self.crit(p, xb, zb).item() * bs
+                    n += bs
             if n == 0:
                 raise ValueError("Loader is empty.")
             return total / n if self.reduction == "mean" else total
 
-        def evaluate(self, param):
+        def evaluate(self, param: TensorLike):
+            p = self._prepare_param(param, req_grad=True)
+            grad = None  # accumulated gradient
             total, n = 0.0, 0
-            first_batch = True
-            for xb, zb in self.loader:
-                p = self._prepare_param(param, xb, requires_grad=True)
-                loss = self.crit(p, xb, zb)
-                total += loss.item() * xb.size(0)
-                n += xb.size(0)
-                if first_batch:
-                    first_batch = False
-                    grad = torch.autograd.grad(loss, p, retain_graph=False)[0]
+            for xb, zb in self._batches():
+                bs = xb.shape[0]
+                loss = self.crit(p, xb, zb) * bs
+                g = torch.autograd.grad(loss, p, retain_graph=False)[0]
+                if grad is None:
+                    grad = g
                 else:
-                    grad += torch.autograd.grad(loss, p, retain_graph=False)[0]
+                    grad += g
+                total += loss.item()
+                n += bs
             if n == 0:
                 raise ValueError("Loader is empty.")
             if self.reduction == "mean":
                 total /= n
                 grad /= n
             self._gradient = grad.detach()
-            return torch.tensor(total, dtype=grad.dtype, device=grad.device)
+            return total
 
-        def gradient(self, param):
+        # -----------------------------------------------------------------
+        def gradient(self, _param):
             if self._gradient is None:
-                raise RuntimeError("Call 'evaluate' first.")
+                raise RuntimeError("Call `evaluate` first.")
             return self._gradient
 
     class SecondOrderDifferentiableFunction:
@@ -1321,68 +1369,69 @@ elif _gpmp_backend_ == "jax":
                 return None
 
     class BatchDifferentiableSelectionCriterion:
-        def __init__(self, f_single_batch):
-            """
-            Parameters
-            ----------
-            f_single_batch : callable
-                A function f_single_batch(x, batch) -> scalar loss for a single batch.
-                It must be JAX differentiable.
-            """
-            self.f_single_batch = f_single_batch  # single batch function
-            self.f_grad_single_batch = jax.grad(
-                self.f_single_batch
-            )  # grad of the batch function
-            self.f_value = None
-            self.x_value = None
-            self.loader_value = None
+        def __init__(self, crit, loader, reduction: str = "mean"):
+            if reduction not in ("mean", "sum"):
+                raise ValueError("reduction must be 'mean' or 'sum'")
+            self.crit = jax.jit(crit)
+            self._grad_fn = jax.jit(jax.grad(self.crit, argnums=0))
+            self.loader = loader
+            self.reduction = reduction
 
-        def __call__(self, x, loader):
-            return self.evaluate_no_grad(x, loader)
+            self._gradient = None
+            self._param_ref = None
 
-        def evaluate(self, x, loader):
-            if not isinstance(x, jax.Array):
-                x = jax.numpy.asarray(x)
+        @staticmethod
+        def _prepare_param(param):
+            return asarray(param)
 
-            self.x_value = x
-            self.loader_value = loader
+        def evaluate_no_grad(self, param):
+            p = self._prepare_param(param)
 
-            loss_acc = 0.0
-            for batch in loader:
-                loss_b = self.f_single_batch(x, batch)
-                loss_acc += loss_b
+            total, n = 0.0, 0
+            for xb, zb in self.loader:
+                loss_b = self.crit(p, xb, zb)
+                bs = xb.shape[0]
+                total += loss_b * bs
+                n += bs
 
-            self.f_value = loss_acc / len(loader)
-            return self.f_value
+            if n == 0:
+                raise ValueError("Loader is empty.")
 
-        def evaluate_no_grad(self, x, loader):
-            if not isinstance(x, jax.Array):
-                x = jax.numpy.asarray(x)
+            return (total / n) if self.reduction == "mean" else total
 
-            loss_acc = 0.0
-            for batch in loader:
-                loss_b = self.f_single_batch(x, batch)
-                loss_acc += loss_b
+        def evaluate(self, param):
+            p = self._prepare_param(param)
+            self._param_ref = p
 
-            return loss_acc / len(loader)
+            total, grad_acc, n = 0.0, None, 0
+            for xb, zb in self.loader:
+                bs = xb.shape[0]
+                
+                loss_b = self.crit(p, xb, zb)
+                grad_b = self._grad_fn(p, xb, zb)
 
-        def gradient(self, x):
-            if self.f_value is None:
-                raise ValueError("Call 'evaluate(x, loader)' before 'gradient(x)'")
+                total += loss_b * bs
+                grad_acc = grad_b * bs if grad_acc is None else grad_acc + grad_b * bs
+                n += bs
 
-            if not jax.numpy.array_equal(x, self.x_value):
-                raise ValueError(
-                    "The input 'x' in 'gradient' must be the same as in 'evaluate'"
-                )
+            if n == 0:
+                raise ValueError("Loader is empty.")
 
-            grad_acc = jax.numpy.zeros_like(self.x_value)
+            if self.reduction == "mean":
+                total /= n
+                grad_acc = grad_acc / n
 
-            for batch in self.loader_value:
-                grad_b = self.f_grad_single_batch(self.x_value, batch)
-                grad_acc += grad_b
+            self._gradient = grad_acc
+            return total
 
-            grad_acc = grad_acc / len(self.loader_value)
-            return grad_acc
+        def gradient(self, param):
+            if self._gradient is None:
+                raise RuntimeError("Call `evaluate` before `gradient`.")
+
+            if not array_equal(self._prepare_param(param), self._param_ref):
+                raise ValueError("Parameter changed between evaluate() and gradient().")
+
+            return self._gradient
 
     # ..................................................
 

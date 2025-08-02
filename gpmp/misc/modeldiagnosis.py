@@ -803,12 +803,15 @@ def plot_pit_ecdf(pit, fig=None):
 
 
 def plot_selection_criterion_crossections(
+    *,
     info=None,
     selection_criterion=None,
+    selection_criteria=None,
     covparam=None,
     n_points=100,
     param_names=None,
     criterion_name="selection criterion",
+    criterion_names=None,
     criterion_name_full="Cross sections for negative log restricted likelihood",
     ind=None,
     ind_pooled=None,
@@ -817,27 +820,32 @@ def plot_selection_criterion_crossections(
     delta=5.0,
 ):
     """
-    Plot cross-sections of the selection criterion.
+    Plot cross-sections of one or several selection criteria.
 
     Each selected parameter is varied while the others remain fixed and the criterion is computed.
     Two options allow you to specify the variation range:
       - param_box: a 2D array with two rows (first row for min values, second row for max values)
                    for the individual plots.
       - param_box_pooled: a similar 2D array for the pooled plot.
-    If neither is provided, the default range for each parameter is [-delta, +delta.0].
+    If neither is provided, the default range for each parameter is [-delta, +delta].
     These ranges are used exclusively for their respective plots.
 
     Parameters:
         info: Object that may hold optimal parameters (covparam) and a function
-              selection_criterion_nograd(param).
-              If not provided, you must supply selection_criterion and covparam explicitly.
-        selection_criterion: A callable of the form f(param) -> scalar. If info is given,
+              selection_criterion_nograd(param). If not provided, you must supply
+              selection_criterion or selection_criteria and covparam explicitly.
+        selection_criterion: A single callable of the form f(param) -> scalar.
+                             If info is given and selection_criteria is not provided,
                              it defaults to info.selection_criterion_nograd.
+        selection_criteria: Optional list or tuple of several callables, each of the
+                            form f(param) -> scalar. If provided, overrides
+                            selection_criterion.
         covparam: Optional override for info.covparam (if info is provided).
                   If info is None, covparam must not be None.
         n_points: Number of points in each cross-section.
         param_names: List of parameter names.
-        criterion_name: Label for criterion curves.
+        criterion_name: Label or base label for criterion curves (if one criterion).
+        criterion_names: List of labels for each criterion (if multiple criteria).
         criterion_name_full: Figure title.
         ind: List of indices for individual subplots.
         ind_pooled: List of indices for the pooled plot.
@@ -845,9 +853,11 @@ def plot_selection_criterion_crossections(
         param_box_pooled: 2D array of shape (2, n_params) for pooled plot bounds.
         delta: Default +/- range to scan around the reference parameter.
 
+    If multiple criteria are provided, all will be plotted on the same axes for
+    each parameter index. Legends will show corresponding names from criterion_names.
+
     Displays the plots.
     """
-
     # Decide which interpreter mode we are in, to possibly use interactive mode.
     try:
         interpreter = sys.ps1
@@ -856,119 +866,286 @@ def plot_selection_criterion_crossections(
     if interpreter:
         plt.ion()
 
-    # ---------------------
-    # Handle info vs. no info
-    # ---------------------
-    if info is None:
-        # Must have selection_criterion and covparam
-        if selection_criterion is None:
-            raise ValueError(
-                "selection_criterion must be provided if info is not given."
-            )
-        if covparam is None:
-            raise ValueError("covparam must be provided if info is not given.")
-        param_opt = gnp.asarray(covparam)
-    else:
-        # If an info object is provided, default from it:
+    if selection_criteria is None:
+        if selection_criterion is None and info is None:
+            raise ValueError("Provide at least one selection criterion.")
         if selection_criterion is None:
             selection_criterion = info.selection_criterion_nograd
-        if covparam is None:
-            param_opt = gnp.asarray(info.covparam)
+        selection_criteria = (selection_criterion,)
+    else:
+        selection_criteria = tuple(selection_criteria)
+
+    n_crit = len(selection_criteria)
+
+    if criterion_names is None:
+        if isinstance(criterion_name, (list, tuple)):
+            criterion_names = list(criterion_name)
         else:
-            param_opt = gnp.asarray(covparam)
+            criterion_names = [
+                f"{criterion_name} #{k}" if n_crit > 1 else criterion_name
+                for k in range(n_crit)
+            ]
+    if len(criterion_names) != n_crit:
+        raise ValueError("criterion_names length must match number of criteria.")
+
+    if info is None:
+        if covparam is None:
+            raise ValueError("covparam must be supplied when info is None.")
+        param_opt = gnp.asarray(covparam)
+    else:
+        param_opt = gnp.asarray(covparam if covparam is not None else info.covparam)
 
     n_params = param_opt.shape[0]
 
-    # If neither ind nor ind_pooled are provided, use all parameters.
     if ind is None and ind_pooled is None:
         ind = list(range(n_params))
 
-    # Helper function to generate p values, using provided box or [opt_value - delta, opt_value + delta].
-    def get_p_values(param_index, opt_value, box):
+    def get_p_values(param_idx, opt_val, box):
         if box is not None:
-            lower_bound = float(box[0][param_index])
-            upper_bound = float(box[1][param_index])
+            lo = float(box[0][param_idx])
+            hi = float(box[1][param_idx])
         else:
-            lower_bound = opt_value - delta
-            upper_bound = opt_value + delta
-        return gnp.linspace(lower_bound, upper_bound, n_points)
+            lo = opt_val - delta
+            hi = opt_val + delta
+        return gnp.linspace(lo, hi, n_points)
 
-    # ----------------------------------------------------------
     # Plot individual cross-sections if 'ind' is specified
-    # ----------------------------------------------------------
     if ind is not None:
         n_ind = len(ind)
         fig, axes = plt.subplots(n_ind, 1, figsize=(8, min(9, 3 * n_ind)))
         if n_ind == 1:
             axes = [axes]
-        for idx, param_index in enumerate(ind):
-            opt_value = param_opt[param_index]
+        for idx, param_idx in enumerate(ind):
+            opt_value = param_opt[param_idx]
             p_values = get_p_values(idx, opt_value, param_box)
-            crit_values = gnp.zeros(n_points)
+            crit_values = gnp.zeros((n_crit, n_points))
             for j, x_val in enumerate(p_values):
                 param = gnp.copy(param_opt)
-                param = gnp.set_elem_1d(param, param_index, x_val)
-                crit = selection_criterion(param)
-                crit_values = gnp.set_elem_1d(crit_values, j, crit)
-
+                param = gnp.set_elem_1d(param, param_idx, x_val)
+                for k, f in enumerate(selection_criteria):
+                    v = f(param)
+                    crit_values = gnp.set_elem_2d(crit_values, k, j, v)
             ax = axes[idx]
-            ax.plot(p_values, crit_values, label=criterion_name)
+            for k in range(n_crit):
+                ax.plot(p_values, crit_values[k], label=criterion_names[k])
             ax.axvline(
                 opt_value,
                 color="red",
                 linestyle="--",
-                label=("reference" if covparam is not None else "optimal"),
+                label="reference" if covparam is not None else "optimal",
             )
-            # Label for the parameter
             name = (
-                param_names[param_index]
-                if (param_names is not None and param_index < len(param_names))
-                else f"param {param_index}"
+                param_names[param_idx]
+                if param_names is not None and param_idx < len(param_names)
+                else f"param {param_idx}"
             )
-            ax.set_ylabel("Criterion value")
+            ax.set_ylabel("criterion value")
             if idx == n_ind - 1:
-                ax.set_xlabel("Param value")
+                ax.set_xlabel("parameter value")
             if idx == 0:
                 ax.legend()
-            ax.set_title(f"{name}")
+            ax.set_title(name)
+
         fig.suptitle(criterion_name_full, fontsize=12)
         plt.tight_layout(rect=[0, 0, 1, 0.95])
         plt.show()
 
-    # ----------------------------------------------------------
     # Plot pooled cross-sections if 'ind_pooled' is specified
-    # ----------------------------------------------------------
     if ind_pooled is not None:
         fig, ax = plt.subplots(figsize=(8, 6))
-        for idx, param_index in enumerate(ind_pooled):
-            opt_value = param_opt[param_index]
-            p_values = get_p_values(0, opt_value, param_box_pooled)
-            crit_values = gnp.zeros(n_points)
+        for idx, param_idx in enumerate(ind_pooled):
+            opt_value = param_opt[param_idx]
+            p_values = get_p_values(idx, opt_value, param_box_pooled)
+            crit_values = gnp.zeros((n_crit, n_points))
             for j, x_val in enumerate(p_values):
                 param = gnp.copy(param_opt)
-                param = gnp.set_elem_1d(param, param_index, x_val)
-                crit = selection_criterion(param)
-                crit_values = gnp.set_elem_1d(crit_values, j, crit)
+                param = gnp.set_elem_1d(param, param_idx, x_val)
+                for k, f in enumerate(selection_criteria):
+                    v = f(param)
+                    crit_values = gnp.set_elem_2d(crit_values, k, j, v)
 
             name = (
-                param_names[param_index]
-                if (param_names is not None and param_index < len(param_names))
-                else f"param {param_index}"
+                param_names[param_idx]
+                if param_names is not None and param_idx < len(param_names)
+                else f"param {param_idx}"
             )
-            ax.plot(p_values, crit_values, label=name)
-            if covparam is None and idx == len(ind_pooled) - 1:
-                label_ref = "optimal"
-            elif idx == len(ind_pooled) - 1:
-                label_ref = "ref"
-            else:
-                label_ref = None
-            ax.axvline(opt_value, color="red", linestyle="--", label=label_ref)
-        ax.set_xlabel("Parameter value")
-        ax.set_ylabel("Criterion value")
-        ax.set_title(f"Pooled cross sections of {criterion_name}")
+            for k in range(n_crit):
+                ax.plot(p_values, crit_values[k], label=f"{name} - {criterion_names[k]}")
+            ax.axvline(opt_value, color="red", linestyle="--")
+        ax.set_xlabel("parameter value")
+        ax.set_ylabel("criterion value")
+        ax.set_title(f"Pooled cross sections of {criterion_name_full}")
         ax.legend()
         plt.tight_layout()
         plt.show()
+
+# def plot_selection_criterion_crossections(
+#     info=None,
+#     selection_criterion=None,
+#     covparam=None,
+#     n_points=100,
+#     param_names=None,
+#     criterion_name="selection criterion",
+#     criterion_name_full="Cross sections for negative log restricted likelihood",
+#     ind=None,
+#     ind_pooled=None,
+#     param_box=None,
+#     param_box_pooled=None,
+#     delta=5.0,
+# ):
+#     """
+#     Plot cross-sections of the selection criterion.
+
+#     Each selected parameter is varied while the others remain fixed and the criterion is computed.
+#     Two options allow you to specify the variation range:
+#       - param_box: a 2D array with two rows (first row for min values, second row for max values)
+#                    for the individual plots.
+#       - param_box_pooled: a similar 2D array for the pooled plot.
+#     If neither is provided, the default range for each parameter is [-delta, +delta.0].
+#     These ranges are used exclusively for their respective plots.
+
+#     Parameters:
+#         info: Object that may hold optimal parameters (covparam) and a function
+#               selection_criterion_nograd(param).
+#               If not provided, you must supply selection_criterion and covparam explicitly.
+#         selection_criterion: A callable of the form f(param) -> scalar. If info is given,
+#                              it defaults to info.selection_criterion_nograd.
+#         covparam: Optional override for info.covparam (if info is provided).
+#                   If info is None, covparam must not be None.
+#         n_points: Number of points in each cross-section.
+#         param_names: List of parameter names.
+#         criterion_name: Label for criterion curves.
+#         criterion_name_full: Figure title.
+#         ind: List of indices for individual subplots.
+#         ind_pooled: List of indices for the pooled plot.
+#         param_box: 2D array of shape (2, n_params) for individual plot bounds.
+#         param_box_pooled: 2D array of shape (2, n_params) for pooled plot bounds.
+#         delta: Default +/- range to scan around the reference parameter.
+
+#     Displays the plots.
+#     """
+
+#     # Decide which interpreter mode we are in, to possibly use interactive mode.
+#     try:
+#         interpreter = sys.ps1
+#     except AttributeError:
+#         interpreter = sys.flags.interactive
+#     if interpreter:
+#         plt.ion()
+
+#     # ---------------------
+#     # Handle info vs. no info
+#     # ---------------------
+#     if info is None:
+#         # Must have selection_criterion and covparam
+#         if selection_criterion is None:
+#             raise ValueError(
+#                 "selection_criterion must be provided if info is not given."
+#             )
+#         if covparam is None:
+#             raise ValueError("covparam must be provided if info is not given.")
+#         param_opt = gnp.asarray(covparam)
+#     else:
+#         # If an info object is provided, default from it:
+#         if selection_criterion is None:
+#             selection_criterion = info.selection_criterion_nograd
+#         if covparam is None:
+#             param_opt = gnp.asarray(info.covparam)
+#         else:
+#             param_opt = gnp.asarray(covparam)
+
+#     n_params = param_opt.shape[0]
+
+#     # If neither ind nor ind_pooled are provided, use all parameters.
+#     if ind is None and ind_pooled is None:
+#         ind = list(range(n_params))
+
+#     # Helper function to generate p values, using provided box or [opt_value - delta, opt_value + delta].
+#     def get_p_values(param_index, opt_value, box):
+#         if box is not None:
+#             lower_bound = float(box[0][param_index])
+#             upper_bound = float(box[1][param_index])
+#         else:
+#             lower_bound = opt_value - delta
+#             upper_bound = opt_value + delta
+#         return gnp.linspace(lower_bound, upper_bound, n_points)
+
+#     # ----------------------------------------------------------
+#     # Plot individual cross-sections if 'ind' is specified
+#     # ----------------------------------------------------------
+#     if ind is not None:
+#         n_ind = len(ind)
+#         fig, axes = plt.subplots(n_ind, 1, figsize=(8, min(9, 3 * n_ind)))
+#         if n_ind == 1:
+#             axes = [axes]
+#         for idx, param_index in enumerate(ind):
+#             opt_value = param_opt[param_index]
+#             p_values = get_p_values(idx, opt_value, param_box)
+#             crit_values = gnp.zeros(n_points)
+#             for j, x_val in enumerate(p_values):
+#                 param = gnp.copy(param_opt)
+#                 param = gnp.set_elem_1d(param, param_index, x_val)
+#                 crit = selection_criterion(param)
+#                 crit_values = gnp.set_elem_1d(crit_values, j, crit)
+
+#             ax = axes[idx]
+#             ax.plot(p_values, crit_values, label=criterion_name)
+#             ax.axvline(
+#                 opt_value,
+#                 color="red",
+#                 linestyle="--",
+#                 label=("reference" if covparam is not None else "optimal"),
+#             )
+#             # Label for the parameter
+#             name = (
+#                 param_names[param_index]
+#                 if (param_names is not None and param_index < len(param_names))
+#                 else f"param {param_index}"
+#             )
+#             ax.set_ylabel("Criterion value")
+#             if idx == n_ind - 1:
+#                 ax.set_xlabel("Param value")
+#             if idx == 0:
+#                 ax.legend()
+#             ax.set_title(f"{name}")
+#         fig.suptitle(criterion_name_full, fontsize=12)
+#         plt.tight_layout(rect=[0, 0, 1, 0.95])
+#         plt.show()
+
+#     # ----------------------------------------------------------
+#     # Plot pooled cross-sections if 'ind_pooled' is specified
+#     # ----------------------------------------------------------
+#     if ind_pooled is not None:
+#         fig, ax = plt.subplots(figsize=(8, 6))
+#         for idx, param_index in enumerate(ind_pooled):
+#             opt_value = param_opt[param_index]
+#             p_values = get_p_values(0, opt_value, param_box_pooled)
+#             crit_values = gnp.zeros(n_points)
+#             for j, x_val in enumerate(p_values):
+#                 param = gnp.copy(param_opt)
+#                 param = gnp.set_elem_1d(param, param_index, x_val)
+#                 crit = selection_criterion(param)
+#                 crit_values = gnp.set_elem_1d(crit_values, j, crit)
+
+#             name = (
+#                 param_names[param_index]
+#                 if (param_names is not None and param_index < len(param_names))
+#                 else f"param {param_index}"
+#             )
+#             ax.plot(p_values, crit_values, label=name)
+#             if covparam is None and idx == len(ind_pooled) - 1:
+#                 label_ref = "optimal"
+#             elif idx == len(ind_pooled) - 1:
+#                 label_ref = "ref"
+#             else:
+#                 label_ref = None
+#             ax.axvline(opt_value, color="red", linestyle="--", label=label_ref)
+#         ax.set_xlabel("Parameter value")
+#         ax.set_ylabel("Criterion value")
+#         ax.set_title(f"Pooled cross sections of {criterion_name}")
+#         ax.legend()
+#         plt.tight_layout()
+#         plt.show()
 
 
 def plot_selection_criterion_2d(

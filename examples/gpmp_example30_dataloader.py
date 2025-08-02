@@ -1,15 +1,13 @@
-"""Prediction of some classical test functions in dimension > 2
+"""
+Prediction of some classical test functions in dimension > 2
 
 An anisotropic Matern covariance function is used for the Gaussian
 Process (GP) prior. The parameters of this covariance function
 (variance and ranges) are estimated using the Restricted Maximum
 A Posteriori (ReMAP).
 
-The mean function of the GP prior is assumed to be constant and
-unknown.
-
-The function is sampled on a space-filling Latin Hypercube design, and
-the data is assumed to be noiseless.
+This script uses a DataLoader object to structure the input dataset
+into fixed-size batches for parameter estimation.
 
 ----
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
@@ -22,13 +20,12 @@ from gpmp.dataloader import Dataset, DataLoader
 import matplotlib.pyplot as plt
 
 
-def choose_test_case(problem):
+def choose_test_case(problem, ni=2000):
     if problem == 1:
         problem_name = "Hartmann4"
         f = gp.misc.testfunctions.hartmann4
         dim = 4
         box = [[0.0] * 4, [1.0] * 4]
-        ni = 5000
         xi = gp.misc.designs.ldrandunif(dim, ni, box)
         nt = 1000
         xt = gp.misc.designs.ldrandunif(dim, nt, box)
@@ -38,7 +35,6 @@ def choose_test_case(problem):
         f = gp.misc.testfunctions.hartmann6
         dim = 6
         box = [[0.0] * 6, [1.0] * 6]
-        ni = 5000
         xi = gp.misc.designs.ldrandunif(dim, ni, box)
         nt = 1000
         xt = gp.misc.designs.ldrandunif(dim, nt, box)
@@ -51,7 +47,6 @@ def choose_test_case(problem):
             [0.05, 100.0, 63070.0, 990.0, 63.1, 700.0, 1120.0, 9855.0],
             [0.15, 50000.0, 115600.0, 1110.0, 116.0, 820.0, 1680.0, 12045.0],
         ]
-        ni = 5000
         xi = gp.misc.designs.maximinldlhs(dim, ni, box)
         nt = 1000
         xt = gp.misc.designs.ldrandunif(dim, nt, box)
@@ -61,7 +56,6 @@ def choose_test_case(problem):
         f = gp.misc.testfunctions.detpep8d
         dim = 8
         box = [[0.0] * 8, [1.0] * 8]
-        ni = 5000
         xi = gp.misc.designs.maximinldlhs(dim, ni, box)
         nt = 1000
         xt = gp.misc.designs.ldrandunif(dim, nt, box)
@@ -91,29 +85,42 @@ def visualize_predictions(problem_name, zt, zpm):
 
 def main():
     problem = 2
-    problem_name, f, dim, box, ni, xi, nt, xt = choose_test_case(problem)
+    problem_name, f, dim, box, ni, xi, nt, xt = choose_test_case(problem, ni=1000)
 
     zi = f(xi)
     zt = f(xt)
     dataset = Dataset(xi, zi)
-    loader = DataLoader(dataset, batch_size = 1000, shuffle=False)
-    
+    loader = DataLoader(dataset, batch_size=200, shuffle=False)
+
     model = gp.core.Model(constant_mean, kernel)
 
-    model, info = gp.kernel.select_parameters_with_remap(model, dataloader=loader, info=True)
+    model, info = gp.kernel.select_parameters_with_remap(
+        model, dataloader=loader, info=True
+    )
 
     gp.misc.modeldiagnosis.diag(model, info, xi, zi)
 
+    gp.misc.modeldiagnosis.plot_selection_criterion_crossections(
+        info=info,
+        selection_criterion=info.selection_criterion_nograd,
+        covparam=None,
+        n_points=100,
+        param_names=None,
+        criterion_name="selection criterion",
+        criterion_name_full="Cross sections for negative log restricted likelihood",
+        ind=[0, 1, 2],
+        ind_pooled=None,
+        param_box=None,
+        param_box_pooled=None,
+        delta=5.0,
+    )
+    
     (zpm, zpv) = model.predict(xi, zi, xt)
 
     visualize_predictions(problem_name, zt, zpm)
 
     zloom, zloov, eloo = model.loo(xi, zi)
     gp.misc.plotutils.plot_loo(zi, zloom, zloov)
-
-    gp.misc.plotutils.crosssections(
-        model, xi, zi, box, ind_i=[0, 1], ind_dim=list(range(dim))
-    )
 
     gp.misc.modeldiagnosis.perf(
         model,
