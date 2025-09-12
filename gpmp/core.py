@@ -241,7 +241,7 @@ class Model:
         Pt = self.mean(xt, self.meanparam)
         RHS = gnp.vstack((Kit, Pt.T))
 
-        # lambdamu_t = RHS^(-1) LHS
+        # lambdamu_t = LHS^(-1) RHS
         lambdamu_t = gnp.solve(
             LHS, RHS, overwrite_a=True, overwrite_b=False, assume_a="sym"
         )
@@ -413,7 +413,7 @@ class Model:
         try:
             Kinv_zi, C = gnp.cholesky_solve(K, zi)
         except RuntimeError:
-            self._return_inf()
+            return self._return_inf()
         norm2 = gnp.einsum("i..., i...", zi, Kinv_zi)
         ldetK = 2.0 * gnp.sum(gnp.log(gnp.diag(C)))
         L = 0.5 * (n * gnp.log(2.0 * gnp.pi) + ldetK + norm2)
@@ -603,7 +603,7 @@ class Model:
             Covariance parameters at which to compute Fisher information.
             If None, uses self.covparam.
         epsilon : float, optional
-            Step size for finite-difference approximation. Default is 1e-5.
+            Step size for finite-difference approximation. Default is 1e-3.
 
         Returns
         -------
@@ -744,9 +744,9 @@ class Model:
             Unconditional sample paths.
         zi : ndarray, shape (ni, 1) or (ni, )
             Observed values corresponding to the input data points xi.
-        xi_ind : ndarray, shape (ni, 1), dtype=int
+        xi_ind : ndarray, shape (ni), dtype=int
             Indices of observed data points in ztsim.
-        xt_ind : ndarray, shape (nt, 1), dtype=int
+        xt_ind : ndarray, shape (nt), dtype=int
             Indices of prediction data points in ztsim.
         lambda_t : ndarray, shape (ni, nt)
             Kriging weights.
@@ -761,6 +761,8 @@ class Model:
         """
         zi_ = gnp.asarray(zi).reshape(-1, 1)
         ztsim_ = gnp.asarray(ztsim)
+        xi_ind = gnp.asarray(xi_ind).reshape(-1)
+        xt_ind = gnp.asarray(xt_ind).reshape(-1)
 
         delta = zi_ - ztsim_[xi_ind, :]
 
