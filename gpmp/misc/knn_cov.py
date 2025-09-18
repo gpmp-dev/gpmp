@@ -5,9 +5,9 @@ try:
     HNSWLIB_AVAILABLE = True
 except ImportError:
     HNSWLIB_AVAILABLE = False
-    print(
-        "hnswlib is not installed. estimate_cov_matrix_knn will fall back to classical covariance estimation."
-    )
+#    print(
+#        "hnswlib is not installed. estimate_cov_matrix_knn will fall back to classical covariance estimation."
+#    )
 
 def estimate_cov_matrix(x):
     """

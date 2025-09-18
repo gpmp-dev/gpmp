@@ -96,7 +96,6 @@ def main():
     zt = f(xt)
 
     model = gp.core.Model(constant_mean, kernel)
-
     model, info = gp.kernel.select_parameters_with_remap(model, xi, zi, info=True)
     gp.misc.modeldiagnosis.diag(model, info, xi, zi)
 

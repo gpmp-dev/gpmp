@@ -217,7 +217,7 @@ class Param:
         for name, val in kwargs.items():
             idx = self.names.index(name)
             self._values[idx] = self._normalize(val, self.normalizations[idx])
-
+            
     def check_bounds(self) -> List[bool]:
         return [
             True if b is None else (b[0] <= v <= b[1])

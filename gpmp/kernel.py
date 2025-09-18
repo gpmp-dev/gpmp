@@ -428,6 +428,102 @@ def anisotropic_parameters_initial_guess(model, xi=None, zi=None, dataloader=Non
 
 
 # ............................................................
+def _minimum_nonzero_gap_distance_1d(xj):
+    """
+    Smallest positive spacing among observation points in 1D.
+    Returns gnp.inf if all points are identical or there is no positive gap.
+    """
+    xj = xj.reshape(-1)
+    if xj.shape[0] < 2:
+        return gnp.inf
+    xs = gnp.sort(xj)
+    diffs = gnp.diff(xs)
+    diffs = diffs[diffs > 0.0]
+    if diffs.shape[0] == 0:
+        return gnp.inf
+    return gnp.min(diffs)
+
+
+def empirical_bounds_factory(
+    xi,
+    zi,
+    *,
+    mean_paramlength=0,
+    var_lower_factor=2.0,
+    var_upper_factor=10.0,
+    length_lower_factor=2.0,
+):
+    """
+    Build bounds in the optimizer's normalized space for a typical anisotropic kernel
+    whose covariance parameter vector is ordered as:
+        [ log(sigma2), -log(rho_1), ..., -log(rho_d) ]
+
+    Bounds enforced:
+      - Variance: sigma2 in [var_lower_factor * Var(zi), var_upper_factor * Var(zi)],
+        where Var(zi) is the empirical variance of the observed values.
+      - Length-scales: rho_j >= length_lower_factor * min_positive_gap(xi[:, j]),
+        where min_positive_gap is the smallest positive spacing between observation
+        points along axis j.
+
+    These are transformed to the normalized coordinates:
+      - log(sigma2) in [log(lower), log(upper)]
+      - -log(rho_j) <= -log(rho_lower_j)   (i.e., (-inf, -log(rho_lower_j)])
+
+    Mean parameters are left unconstrained: (-inf, +inf).
+
+    Parameters
+    ----------
+    xi : array, shape (n, d)
+        Observation points.
+    zi : array, shape (n,)
+        Observed values for the specific output (1D).
+    mean_paramlength : int, optional
+        Number of mean parameters at the head of the optimizer vector. Default is 0.
+    var_lower_factor : float
+        Lower multiplicative factor on empirical variance for sigma2.
+    var_upper_factor : float
+        Upper multiplicative factor on empirical variance for sigma2.
+    length_lower_factor : float
+        Lower multiplicative factor applied to the minimal positive spacing per axis.
+
+    Returns
+    -------
+    bounds : array, shape (mean_paramlength + d + 1, 2)
+        Bounds in normalized coordinates for
+        [mean..., log(sigma2), -log(rho_1), ..., -log(rho_d)].
+        Use None to indicate "no bounds" for the optimizer if it supports that;
+        otherwise you can pass +/- np.inf for unbounded sides.
+    """
+    xi = gnp.asarray(xi)
+    zi = gnp.asarray(zi).reshape(-1)
+    n, d = xi.shape
+    neg_inf = -gnp.inf
+    pos_inf = gnp.inf
+    bounds = []
+    # 1) Mean parameter bounds: unconstrained.
+    for _ in range(int(mean_paramlength)):
+        bounds.append((neg_inf, pos_inf))
+
+    # 2) Variance bounds from empirical variance of observed values.
+    emp_var = gnp.var(zi)
+    sigma2_lower = var_lower_factor * emp_var
+    sigma2_upper = var_upper_factor * emp_var
+    bounds.append((gnp.log(sigma2_lower), gnp.log(sigma2_upper)))
+
+    # 3) Length-scale bounds from spacing between observation points.
+    for j in range(d):
+        min_gap = _minimum_nonzero_gap_distance_1d(xi[:, j])
+        if gnp.isfinite(min_gap):
+            rho_lower = length_lower_factor * min_gap
+            upper_on_neglogrho = -gnp.log(rho_lower)
+            bounds.append((neg_inf, upper_on_neglogrho))
+        else:
+            bounds.append((neg_inf, pos_inf))
+
+    return gnp.asarray(bounds, dtype=float)
+
+
+# ............................................................
 def make_selection_criterion_with_gradient(
     model,
     selection_criterion,
@@ -669,6 +765,7 @@ def autoselect_parameters(
     r.history_criterion = history_criterion
     r.initial_params = p0
     r.final_params = r.x
+    r.bounds = bounds
     r.selection_criterion = criterion
     r.total_time = time.time() - tic
 
@@ -703,6 +800,12 @@ def select_parameters_with_criterion(
     meanparam_len=1,
     info=False,
     verbosity=0,
+    *,
+    bounds=None,
+    bounds_auto=True,
+    bounds_delta=10.0,
+    method="SLSQP",
+    method_options=None,
 ):
     """Optimize Gaussian process model parameters using a specified
     selection criterion.
@@ -720,95 +823,84 @@ def select_parameters_with_criterion(
         Instance of a Gaussian process model that needs parameter
         optimization.
     criterion : function
-        The selection criterion function (e.g., ML, REML or
-        REMAP). The function must follow one of two forms:
-
-        - For models without a parameterized mean:
-          `criterion(model, covparam, xi, zi)` where `covparam` are
-          the covariance parameters.
-
-        - For models with a parameterized mean:
-          `criterion(model, meanparam, covparam, xi, zi)` where both
-          `meanparam` and `covparam` are passed.
+        The selection criterion function (e.g., ML, REML or REMAP). See Notes.
     xi : ndarray, shape (n, d), optional
-        Locations of the observed data points in the input space.
-        (If not using dataloader.)
+        Observation points.
     zi : ndarray, shape (n,), optional
-        Observed values corresponding to the data points `xi`.
+        Observed values at those points.
     dataloader : DataLoader, optional
-        Batch generator over the dataset
+        Batch generator over the dataset.
     meanparam0 : ndarray, shape (meanparam_len,), optional
-        Initial guess for the mean parameters. Required if
-        `parameterized_mean=True`. Default is None.
+        Initial guess for mean parameters if `parameterized_mean=True`.
     covparam0 : ndarray, shape (covparam_dim,), optional
-        Initial guess for the covariance parameters. If not provided,
-        the function defaults to the
-        `anisotropic_parameters_initial_guess` method for
-        initialization.  Default is None.
+        Initial guess for covariance parameters. If None, an internal
+        initializer is used (e.g. anisotropic_parameters_initial_guess).
     parameterized_mean : bool, optional
-        Whether the mean is parameterized and included in the
-        selection criterion.  Default is False.
+        Whether the mean is parameterized and included in the criterion.
     meanparam_len : int, optional
-        Length of the mean parameter vector if `parameterized_mean` is
-        True. Default is 1.
+        Length of the mean parameter vector if `parameterized_mean` is True.
     info : bool, optional
-        Controls the return of additional optimization information. If
-        set to True, the function returns an info dictionary with
-        details about the optimization process.  Default is False.
+        If True, return additional optimization information.
     verbosity : int, optional, values in {0, 1, 2}
-        Sets the verbosity level for the function.
-        - 0: No output messages (default).
-        - 1: Minimal output messages.
-        - 2: Detailed output messages.
+        0: silent; 1: minimal; 2: detailed (passes through to optimizer output).
+    bounds : None | array_like(n_params, 2), optional
+        Manual bounds in the optimizer's normalized space. The number of rows
+        must equal the total parameter length used by the optimizer:
+        - if parameterized_mean is False: n_params = len(covparam)
+        - if True: n_params = meanparam_len + len(covparam)
+        If None and `bounds_auto=True`, an automatic tube around p0 is built.
+    bounds_auto : bool, optional
+        If True and `bounds` is None, automatically create bounds as
+        [p0 - bounds_delta, p0 + bounds_delta] intersected with a safe range
+        used inside `autoselect_parameters`.
+    bounds_delta : float, optional
+        Half-width of the automatic local interval around p0 when `bounds_auto=True`
+        and `bounds` is None.
+    method : str, optional
+        Optimizer method; forwarded to `autoselect_parameters` (default "SLSQP").
+    method_options : dict, optional
+        Extra options for the optimizer; forwarded to `autoselect_parameters`.
 
     Returns
     -------
     model : object
-        The input Gaussian process model object, updated with the
-        optimized parameters.
-    info_ret : dict, optional
-        A dictionary with additional details about the optimization
-        process. It contains fields like initial parameters
-        (`covparam0`), final optimized parameters (`covparam`),
-        selection criterion used, and the total time taken for
-        optimization.  This dictionary is only returned if `info` is
-        set to True.
+        The input model updated with the optimized parameters.
+    info_ret : object, optional
+        Optimizer info (only if `info=True`).
 
     Notes
     -----
-    The `criterion` function should follow one of the following two forms:
+    The `criterion` function should be of one of the two forms:
 
-    - For models without a parameterized mean:
-      `criterion(model, covparam, xi, zi)` where `covparam` are the
-      covariance parameters.
-
-    - For models with a parameterized mean:
-      `criterion(model, meanparam, covparam, xi, zi)` where both
-      `meanparam` and `covparam` are passed.
-
+    - No parameterized mean:
+        criterion(model, covparam, xi, zi)
+    - Parameterized mean:
+        criterion(model, meanparam, covparam, xi, zi)
     """
+    if method_options is None:
+        method_options = {}
+
     tic = time.time()
 
-    # Check input
+    # Check input source (xi/zi or dataloader)
     data_source = _check_xi_zi_or_loader(xi, zi, dataloader)
 
-    # Intial guess
+    # Initial guess for covparam
     if covparam0 is None:
         covparam0 = anisotropic_parameters_initial_guess(model, xi, zi, dataloader)
 
-    # If model has parameterized mean, we need an initial guess
-    # for the mean parameters
+    # If model has parameterized mean, require meanparam0
     if parameterized_mean:
         if meanparam0 is None:
             raise ValueError(
-                """meanparam0 must be provided when parameterized_mean is True.
-                Use anisotropic_parameters_initial_guess_constant_mean if needed."""
+                "meanparam0 must be provided when parameterized_mean is True. "
+                "Use a suitable initializer for the mean."
             )
         param0 = gnp.concatenate([meanparam0, covparam0])
     else:
         param0 = covparam0
 
-    # Criterion constructor
+    # Build criterion with gradient
     (criterion_func, criterion_grad, criterion_func_nograd) = (
         make_selection_criterion_with_gradient(
             model,
@@ -829,7 +921,16 @@ def select_parameters_with_criterion(
         silent = False
 
     param_opt, info_ret = autoselect_parameters(
-        param0, criterion_func, criterion_grad, silent=silent, info=True
+        param0,
+        criterion_func,
+        criterion_grad,
+        bounds=bounds,
+        bounds_auto=bounds_auto,
+        bounds_delta=bounds_delta,
+        silent=silent,
+        info=True,
+        method=method,
+        method_options=method_options,
     )
 
     if verbosity == 1:
@@ -846,19 +947,18 @@ def select_parameters_with_criterion(
 
     model.covparam = gnp.asarray(covparam_opt)
 
-    # NB: info_ret has attribute accessors
+    # NB: info has attribute accessors
     if info:
-        info_ret["meanparam0"] = gnp.to_np(meanparam0)
-        info_ret["covparam0"] = gnp.to_np(covparam0)
-        info_ret["meanparam"] = meanparam_opt
-        info_ret["covparam"] = covparam_opt
+        info_ret["meanparam0"] = gnp.to_np(meanparam0) if parameterized_mean else None
+        info_ret["covparam0"]  = gnp.to_np(covparam0)
+        info_ret["meanparam"]  = meanparam_opt
+        info_ret["covparam"]   = covparam_opt
         info_ret["selection_criterion"] = criterion_func
         info_ret["selection_criterion_nograd"] = criterion_func_nograd
         info_ret["time"] = time.time() - tic
         return model, info_ret
     else:
         return model
-
 
 def update_parameters_with_criterion(
     model,
@@ -869,35 +969,16 @@ def update_parameters_with_criterion(
     parameterized_mean=False,
     meanparam_len=1,
     info=False,
+    *,
+    bounds=None,
+    bounds_auto=True,
+    bounds_delta=10.0,
+    method="SLSQP",
+    method_options=None,
 ):
     """Update model parameters using a specified selection criterion.
 
-    Parameters
-    ----------
-    model : object
-        Gaussian process model.
-    criterion : function
-        The selection criterion function (e.g., REML or REMAP).
-    xi : ndarray, shape (n, d), optional
-        Locations of the observed data points.
-    zi : ndarray, shape (n,), optional
-        Observed values at the data points.
-    dataloader : DataLoader, optional
-        Mini-batch generator over the dataset.
-    parameterized_mean : bool, optional
-        Whether the mean is parameterized and included in the selection criterion.
-        Default is False.
-    meanparam_len : int, optional
-        Length of the mean parameter vector if `parameterized_mean` is True. Default is 1.
-    info : bool, optional
-        If True, returns additional information. Default is False.
-
-    Returns
-    -------
-    model : object
-        Updated Gaussian process model object with optimized parameters.
-    info_ret : object, optional
-        Additional information about the optimization (if info=True).
+    See `select_parameters_with_criterion` for argument semantics.
     """
     return select_parameters_with_criterion(
         model,
@@ -910,14 +991,20 @@ def update_parameters_with_criterion(
         parameterized_mean=parameterized_mean,
         meanparam_len=meanparam_len,
         info=info,
+        verbosity=0,
+        bounds=bounds,
+        bounds_auto=bounds_auto,
+        bounds_delta=bounds_delta,
+        method=method,
+        method_options=method_options,
     )
-
 
 # ............................................................
 def select_parameters_with_reml(
-    model, xi=None, zi=None, dataloader=None, covparam0=None, info=False, verbosity=0
+    model, xi=None, zi=None, dataloader=None, covparam0=None, info=False, verbosity=0,
+    *, bounds=None, bounds_auto=True, bounds_delta=10.0, method="SLSQP", method_options=None
 ):
-    """Optimize Gaussian process model parameters using Restricted Maximum Likelihood (REML).
+    """Optimize Gaussian process model parameters using REML.
 
     See select_parameters_with_criterion()
     """
@@ -930,11 +1017,19 @@ def select_parameters_with_reml(
         covparam0=covparam0,
         info=info,
         verbosity=verbosity,
+        bounds=bounds,
+        bounds_auto=bounds_auto,
+        bounds_delta=bounds_delta,
+        method=method,
+        method_options=method_options,
     )
 
 
-def update_parameters_with_reml(model, xi=None, zi=None, dataloader=None, info=False):
-    """Update model parameters using Restricted Maximum Likelihood (REML).
+def update_parameters_with_reml(
+    model, xi=None, zi=None, dataloader=None, info=False,
+    *, bounds=None, bounds_auto=True, bounds_delta=10.0, method="SLSQP", method_options=None
+):
+    """Update model parameters using REML.
 
     See update_parameters_with_criterion()
     """
@@ -945,14 +1040,19 @@ def update_parameters_with_reml(model, xi=None, zi=None, dataloader=None, info=F
         zi=zi,
         dataloader=dataloader,
         info=info,
+        bounds=bounds,
+        bounds_auto=bounds_auto,
+        bounds_delta=bounds_delta,
+        method=method,
+        method_options=method_options,
     )
-
 
 # ............................................................
 def select_parameters_with_remap(
-    model, xi=None, zi=None, dataloader=None, covparam0=None, info=False, verbosity=0
+    model, xi=None, zi=None, dataloader=None, covparam0=None, info=False, verbosity=0,
+    *, bounds=None, bounds_auto=True, bounds_delta=10.0, method="SLSQP", method_options=None
 ):
-    """Optimize Gaussian process model parameters using Restricted Maximum A Posteriori (REMAP).
+    """Optimize Gaussian process model parameters using REMAP.
 
     See select_parameters_with_criterion()
     """
@@ -965,11 +1065,19 @@ def select_parameters_with_remap(
         covparam0=covparam0,
         info=info,
         verbosity=verbosity,
+        bounds=bounds,
+        bounds_auto=bounds_auto,
+        bounds_delta=bounds_delta,
+        method=method,
+        method_options=method_options,
     )
 
 
-def update_parameters_with_remap(model, xi=None, zi=None, dataloader=None, info=False):
-    """Update model parameters using Restricted Maximum A Posteriori (REMAP).
+def update_parameters_with_remap(
+    model, xi=None, zi=None, dataloader=None, info=False,
+    *, bounds=None, bounds_auto=True, bounds_delta=10.0, method="SLSQP", method_options=None
+):
+    """Update model parameters using REMAP.
 
     See update_parameters_with_criterion()
     """
@@ -980,8 +1088,12 @@ def update_parameters_with_remap(model, xi=None, zi=None, dataloader=None, info=
         zi=zi,
         dataloader=dataloader,
         info=info,
+        bounds=bounds,
+        bounds_auto=bounds_auto,
+        bounds_delta=bounds_delta,
+        method=method,
+        method_options=method_options,
     )
-
 
 # ............................................................ helper functions
 def _check_xi_zi_or_loader(xi, zi, dataloader):

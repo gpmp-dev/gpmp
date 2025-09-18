@@ -677,6 +677,10 @@ elif _gpmp_backend_ == "torch":
     def clip(x, min=None, max=None, out=None):
         if not torch.is_tensor(x):
             x = tensor(x)
+        if min is not None and not torch.is_tensor(min):
+            min = tensor(min)
+        if max is not None and not torch.is_tensor(max):
+            max = tensor(max)
         return torch.clamp(x, min, max, out)
 
     def sort(x, axis=-1):

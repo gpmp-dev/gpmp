@@ -651,7 +651,15 @@ def perf(model, xi, zi, loo=True, loo_res=None, xtzt=None, zpmzpv=None):
     pretty_print_dictionnary(perf_disp)
 
 
-def diag(model, info_select_parameters, xi, zi, model_type="linear_mean_matern_anisotropic"):
+def diag(
+    model,
+    info_select_parameters,
+    xi,
+    zi,
+    *,
+    model_type="linear_mean_matern_anisotropic",
+    param_obj=None,
+):
     """Run model diagnosis and display the results.
 
     Parameters
@@ -665,30 +673,48 @@ def diag(model, info_select_parameters, xi, zi, model_type="linear_mean_matern_a
     zi : array-like
         Output data matrix.
     model_type : str, optional
-        Type of the model (default is "linear_mean_matern_anisotropic").
+        Type of the model (default "linear_mean_matern_anisotropic").
+    param_obj : Param, optional
+        If provided, this Param object is used directly (no reconstruction).
     """
-    md = modeldiagnosis_init(model, info_select_parameters, model_type=model_type)
+    md = modeldiagnosis_init(
+        model,
+        info_select_parameters,
+        model_type=model_type,
+        param_obj=param_obj,
+    )
     model_diagnosis_disp(md, xi, zi, model_type=model_type)
 
 
-def modeldiagnosis_init(model, info, model_type="linear_mean_matern_anisotropic"):
-    """Build model diagnosis based on the provided model and information.
+def modeldiagnosis_init(
+    model,
+    info,
+    *,
+    model_type="linear_mean_matern_anisotropic",
+    param_obj=None,
+):
+    """Build model diagnosis based on the provided model/info.
 
     Parameters
     ----------
     model : object
-        Model object.
+        Model object (must expose `meanparam` and `covparam`).
     info : object
-        Information object containing the parameter selection process.
+        Parameter selection info. If it has an attribute `bounds`
+        shaped (n_params, 2) in the optimizer's normalized space,
+        those bounds will be applied to the returned Param.
+        The expected optimizer param order is [meanparam, covparam].
     model_type : str
-        Type of the model.
+        Type of the model. Used only when `param_obj` is not provided.
+    param_obj : Param, optional
+        If provided, use this Param directly (bounds from `info.bounds`
+        will still be applied if possible).
 
     Returns
     -------
     dict
         Model diagnosis information.
     """
-
     md = {
         "optim_info": info,
         "param_selection": {},
@@ -707,21 +733,59 @@ def modeldiagnosis_init(model, info, model_type="linear_mean_matern_anisotropic"
         "final_val": info.fun,
     }
 
-    covparam = gnp.asarray(model.covparam)
+    # Helper: apply a (k,2) bounds array to the covariance portion of a Param
+    def _apply_cov_bounds_to_param(param_obj, cov_bounds):
+        """
+        param_obj : Param
+            Must contain cov entries in order (sigma2, then rhos, etc.)
+        cov_bounds : array_like (k,2)
+            Bounds for the covariance vector in optimizer's normalized space.
+            (-inf, +inf) entries are treated as "no bound" and stored as None.
+        """
+        import numpy as _np
 
-    param_builders = {
-        "linear_mean_matern_anisotropic": param_from_covparam_anisotropic,
-        "linear_mean_matern_anisotropic_noisy": param_from_covparam_anisotropic_noisy,
-    }
+        cov_bounds = _np.asarray(cov_bounds, dtype=float)
+        # Find indices in Param that belong to 'covparam' (in the same order)
+        cov_inds = [j for j, p in enumerate(param_obj.paths) if p and p[0] == "covparam"]
+        if len(cov_inds) != cov_bounds.shape[0]:
+            # If shapes mismatch, bail out silently rather than corrupting Param
+            # (could also raise, but diagnosis should be robust).
+            return param_obj
 
-    try:
-        param_obj = param_builders[model_type](covparam)
-    except KeyError:
-        raise ValueError(f"Unknown model type: {model_type}")
+        for dst_idx, (lo, hi) in zip(cov_inds, cov_bounds):
+            # Treat fully unbounded as None; keep one-sided bounds if present
+            if _np.isinf(lo) and _np.isinf(hi):
+                param_obj.bounds[dst_idx] = None
+            else:
+                param_obj.bounds[dst_idx] = (float(lo), float(hi))
+        return param_obj
+
+    # If caller did not pass a Param, build one from the covariance vector.
+    if param_obj is None:
+        covparam = gnp.asarray(model.covparam)
+        param_builders = {
+            "linear_mean_matern_anisotropic": param_from_covparam_anisotropic,
+            "linear_mean_matern_anisotropic_noisy": param_from_covparam_anisotropic_noisy,
+        }
+        builder = param_builders.get(model_type, None)
+        if builder is None:
+            raise ValueError(f"Unknown model type: {model_type}")
+        # Build WITHOUT bounds first; we will inject bounds from info.bounds below.
+        param_obj = builder(covparam, None, None, name_prefix="")
+
+    # If `info.bounds` is present, project it onto the covariance part of the Param.
+    bounds_arr = getattr(info, "bounds", None)
+    if bounds_arr is not None:
+        # optimizer order is [meanparam, covparam]; determine mean length
+        mpl = int(0 if getattr(model, "meanparam", None) is None else len(gnp.asarray(model.meanparam)))
+        cov_len = int(len(gnp.asarray(model.covparam)))
+        bounds_arr = gnp.asarray(bounds_arr)
+        if bounds_arr.ndim == 2 and bounds_arr.shape[1] == 2 and bounds_arr.shape[0] >= mpl + cov_len:
+            cov_bounds = bounds_arr[mpl: mpl + cov_len]
+            param_obj = _apply_cov_bounds_to_param(param_obj, cov_bounds)
 
     md["parameters"] = param_obj.to_simple_dict()
     md["param_obj"] = param_obj
-
     return md
 
 
@@ -731,7 +795,7 @@ def model_diagnosis_disp(md, xi, zi, model_type="linear_mean_matern_anisotropic"
     Parameters
     ----------
     md : dict
-        Model diagnosis information.
+        Model diagnosis information (must contain 'param_obj').
     xi : array-like
         Input data matrix.
     zi : array-like
@@ -743,21 +807,22 @@ def model_diagnosis_disp(md, xi, zi, model_type="linear_mean_matern_anisotropic"
     print("  * Parameter selection")
     pretty_print_dictionnary(md["param_selection"])
 
-    print("  * Parameters")  # Uses Param.__repr__ to display
+    print("  * Parameters")
+    # Uses Param.__repr__ to display as a table-like block
     print("\n".join("    " + line for line in str(md["param_obj"]).splitlines()))
 
     print("  * Data")
     print("    {:>0}: {:d}".format("count", zi.shape[0]))
     print("    -----")
 
+    # Scale factors derived from the provided/built Param
     param_values = np.array(list(md["parameters"].values()))
 
     # zi
-    if zi.ndim == 1:
+    if getattr(zi, "ndim", 1) == 1:
         rownames = ["zi"]
     else:
         rownames = [f"zi_{j}" for j in range(zi.shape[1])]
-
     df_zi = describe_array(zi, rownames, 1 / param_values[0])
 
     # xi
