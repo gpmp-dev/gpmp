@@ -57,7 +57,7 @@ def create_model():
         p = 6
         return gp.kernel.maternp_covariance(x, y, p, covparam, pairwise)
 
-    return gp.core.Model(constant_mean, kernel)
+    return gp.Model(constant_mean, kernel)
 
 
 def main():

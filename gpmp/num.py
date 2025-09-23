@@ -21,38 +21,13 @@ License: GPLv3 (see LICENSE)
 
 import os
 import warnings
-import logging
-from importlib.util import find_spec
 from typing import Iterable, Tuple, Union
+from gpmp.config import get_config, init_backend, get_logger
 
-# Setup a logger
-_logger = logging.getLogger("gpmp")
-if not _logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter("[%(levelname)s] %(message)s")
-    handler.setFormatter(formatter)
-    _logger.addHandler(handler)
-    _logger.setLevel(logging.INFO)
-
-# Detect backend
-_gpmp_backend_ = os.environ.get("GPMP_BACKEND")
-
-
-def set_backend_env_var(backend):
-    global _gpmp_backend_
-    os.environ["GPMP_BACKEND"] = backend
-    _gpmp_backend_ = backend
-
-
-if _gpmp_backend_ is None:
-    if find_spec("torch") is not None:
-        set_backend_env_var("torch")
-    elif find_spec("jax") is not None:
-        set_backend_env_var("jax")
-    else:
-        set_backend_env_var("numpy")
-
-_logger.info(f"Using backend: {_gpmp_backend_}")
+_gpmp_backend_ = init_backend()
+_config = get_config()
+_logger = get_logger()
+_logger.info("Using backend: %s", _gpmp_backend_)
 
 
 # -----------------------------------------------------
@@ -993,18 +968,20 @@ elif _gpmp_backend_ == "torch":
     def solve(A, B, overwrite_a=True, overwrite_b=True, assume_a="gen", sym_pos=False):
         return torch.linalg.solve(A, B)
 
-    def solve_triangular(A,
-                         B,
-                         trans=0,
-                         lower=False,
-                         unit_diagonal=False,
-                         overwrite_b=False,
-                         check_finite=False):
-        if trans in (0, 'N', 'n'):
+    def solve_triangular(
+        A,
+        B,
+        trans=0,
+        lower=False,
+        unit_diagonal=False,
+        overwrite_b=False,
+        check_finite=False,
+    ):
+        if trans in (0, "N", "n"):
             Aop = A
-        elif trans in (1, 'T', 't'):
+        elif trans in (1, "T", "t"):
             Aop = A.mT
-        elif trans in (2, 'C', 'c'):
+        elif trans in (2, "C", "c"):
             Aop = A.mH
         else:
             raise ValueError(f"Invalid trans={trans!r}; expected 0/1/2 or 'N'/'T'/'C'.")
@@ -1016,7 +993,7 @@ elif _gpmp_backend_ == "torch":
             unitriangular=unit_diagonal,
         )
         return x
-    
+
     def cho_factor(A, lower=False, overwrite_a=False, check_finite=True):
         # torch.linalg does not have cho_factor(), use cholesky() instead.
         return cholesky(A, upper=not (lower))
@@ -1434,7 +1411,7 @@ elif _gpmp_backend_ == "jax":
             total, grad_acc, n = 0.0, None, 0
             for xb, zb in self.loader:
                 bs = xb.shape[0]
-                
+
                 loss_b = self.crit(p, xb, zb)
                 grad_b = self._grad_fn(p, xb, zb)
 
@@ -1653,6 +1630,29 @@ else:
 # ------------------------------------------------------------------
 
 
+def compute_gammaln(up_to_p):
+    """
+    Return gammaln(k) for k = 0, ..., 2*up_to_p + 1 as a 1D backend array.
+    Grows and caches a single table in _config.caches["gammaln"]["table"].
+    """
+    n = 2 * up_to_p + 2
+    cache = _config.caches.setdefault("gammaln", {})
+    table = cache.get("table")
+
+    if table is None:
+        xs = arange(n)  # 0..n-1
+        table = asarray(gammaln(xs))  # vectorized, backend -> backend array
+        cache["table"] = table
+    elif table.shape[0] < n:
+        old_n = table.shape[0]
+        xs_tail = arange(old_n, n)  # only missing tail
+        tail = asarray(gammaln(xs_tail))
+        table = concatenate((table, tail))
+        cache["table"] = table
+
+    return table[:n]
+
+
 def derivative_finite_diff(f, x, h):
     """
     5-point central difference derivative of f w.r.t. scalar x.
@@ -1688,7 +1688,7 @@ def try_with_postmortem(func, *args, **kwargs):
 # ----------------------------------------------------------------------
 #                              TODO (roadmap)
 # ----------------------------------------------------------------------
-# * Maintain a state dictionary to hold: dtype, device, gpmp cache, gln... see also stk
+# * Maintain a state dictionary to hold: dtype, device, gpmp cache, gln... V
 # * Heal Jax slow perfomances
 # * DifferentiableSelectionCriterion: avoid silent fail, do not catch
 #   all Exceptions and return inf. (That hides bugs, typos, device errors...).

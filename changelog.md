@@ -1,3 +1,6 @@
+- 0.9.27 use a a global config object
+- 0.9.26 improve bound management
+- 0.9.25 dataloader implementation + several improvements
 - 0.9.24 update smc code
 - 0.9.23 update mcmc code and implement Fisher information matrix
 - 0.9.22 implement sampling from posterior

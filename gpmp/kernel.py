@@ -5,7 +5,6 @@
 # --------------------------------------------------------------
 import time
 import numpy as np
-from functools import lru_cache
 import gpmp.num as gnp
 from scipy.optimize import minimize, OptimizeWarning
 from math import log, sqrt
@@ -66,12 +65,6 @@ def matern32_kernel(h):
     return (1.0 + t) * gnp.exp(-t)
 
 
-@lru_cache(maxsize=32)
-def compute_gammaln(up_to_p):
-    """Compute gammaln values."""
-    return [gnp.asarray(gnp.gammaln(i)) for i in range(2 * up_to_p + 2)]
-
-
 def maternp_kernel(p: int, h):
     """Matérn kernel with half-integer regularity nu = p + 1/2.
 
@@ -102,7 +95,7 @@ def maternp_kernel(p: int, h):
         \\frac{(p+i)!}{i!(p-i)!} (4\\sqrt{\\nu}h)^{p-i}
 
     """
-    gln = compute_gammaln(p)
+    gln = gnp.compute_gammaln(p)
 
     h = gnp.inftobigf(h)
     c = 2.0 * sqrt(p + 0.5)

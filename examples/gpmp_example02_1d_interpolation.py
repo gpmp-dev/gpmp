@@ -1,4 +1,4 @@
-"""
+q"""
 Plot and optimize the restricted negative log-likelihood
 
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
@@ -74,7 +74,7 @@ def visualize_results(xt, zt, xi, zi, zpm, zpv):
 def main():
     xt, zt, xi, zi = generate_data()
 
-    model = gp.core.Model(constant_mean, kernel)
+    model = gp.Model(constant_mean, kernel)
 
     # Automatic selection of parameters using REML
     model, info = gp.kernel.select_parameters_with_reml(model, xi, zi, info=True)
