@@ -44,8 +44,10 @@ class Model:
 
         K = self.covariance(x, y, self.covparam, pairwise),
 
-        where x and y are (n x d) and (m x d) arrays of data points,
-        and pairwise indicates if an (n x m) covariance matrix
+        where x is (n x d) and y is either:
+           - (m x d) array of points, or
+           - None, meaning y := x (specialized “tt/ii” path).
+        Pairwise indicates if an (n x m) covariance matrix
         (pairwise == False) or an (n x 1) vector (n == m, pairwise =
         True) should be returned
 
@@ -372,7 +374,7 @@ class Model:
                 self.meanparam, self.covparam, xi_, zi_
             )
         elif self.meantype == "linear_predictor":
-            zloo, sigma2loo, eloo = self._loo_with_linear_predictor_mean(
+            zloo, sigma2loo, eloo = self._loo_with_linear_predictor_mean_cpd(
                 self.meanparam, self.covparam, xi_, zi_
             )
         else:
@@ -548,8 +550,8 @@ class Model:
         K = self.covariance(xi, xi, covparam)
         ones_vector = gnp.ones(zi.shape)
         Kinv = gnp.cholesky_inv(K)
-        Kinv_zi = gnp.einsum("...i, i... ", Kinv, zi)
-        Kinv_1 = gnp.einsum("...i, i... ", Kinv, ones_vector)
+        Kinv_zi = gnp.einsum("...i, i...", Kinv, zi)
+        Kinv_1 = gnp.einsum("...i, i...", Kinv, ones_vector)
         zTKinvz = gnp.einsum("i..., i...", zi, Kinv_zi)
         return zTKinvz, Kinv_1, Kinv_zi
 
@@ -633,11 +635,14 @@ class Model:
         try:
             K_inv = gnp.inv(K)
         except:
-            raise RuntimeError("Covariance matrix not invertible; adjust hyperparameters or add jitter.")
+            raise RuntimeError(
+                "Covariance matrix not invertible; adjust hyperparameters or add jitter."
+            )
 
         # 2) Partial derivatives of K w.r.t. each parameter (finite differences)
         dK = []
         for i in range(param_dim):
+
             def f(tmp_val):
                 param_copy = gnp.copy(covparam)
                 param_copy = gnp.set_elem_1d(param_copy, i, tmp_val)
@@ -655,7 +660,93 @@ class Model:
                 fisher_info = gnp.set_elem_2d(fisher_info, j, i, term)
 
         return fisher_info
-    
+
+    def fisher_information_cpd(self, xi, covparam=None, epsilon=1e-3):
+        """
+        Fisher information for covariance parameters with CPD kernels.
+
+        If the mean is of type "linear_predictor", the information is computed
+        in contrast space with G = Wᵀ K W, where W spans Null(Pᵀ). Otherwise,
+        the standard SPD formula with K is used.
+
+        I_ij = 0.5 * Tr( M^{-1} ∂M/∂θ_i M^{-1} ∂M/∂θ_j ),
+        with M = G (CPD case) or M = K (SPD case).
+
+        Parameters
+        ----------
+        xi : (n, d) array
+            Design points.
+        covparam : (p,) array, optional
+            Covariance parameters (default: self.covparam).
+        epsilon : float, optional
+            Step for central finite differences (default: 1e-3).
+
+        Returns
+        -------
+        I : (p, p) array
+            Fisher information matrix.
+        """
+        if covparam is None:
+            covparam = self.covparam
+        covparam = gnp.asarray(covparam)
+        p = covparam.shape[0]
+
+        K = self.covariance(xi, xi, covparam)
+        # Build contrasts
+        P = (
+            self.mean(xi, self.meanparam)
+            if self.meantype == "linear_predictor"
+            else None
+        )
+        if P is not None:
+            Q, _ = gnp.qr(P, mode="complete")
+            W = Q[:, P.shape[1] :]
+            G = gnp.matmul(W.T, gnp.matmul(K, W))
+            Cg = gnp.cholesky(G)
+        else:
+            Ck = gnp.cholesky(K)  # SPD case
+
+        # finite differences for dK_i (central)
+        dK = []
+        for i in range(p):
+
+            def f(tmp):
+                theta = gnp.copy(covparam)
+                theta = gnp.set_elem_1d(theta, i, tmp)
+                return self.covariance(xi, xi, theta)
+
+            dK_i = gnp.derivative_finite_diff(f, covparam[i], epsilon)
+            dK.append(dK_i)
+
+        I = gnp.empty((p, p))
+        if P is not None:  # CPD / linear_predictor
+            dG = [gnp.matmul(W.T, gnp.matmul(dK_i, W)) for dK_i in dK]
+
+            # Helper: solve G^{-1} A via Cholesky
+            def Gsolve(A):
+                X, _ = gnp.cholesky_solve(G, A)
+                return X
+
+            for i in range(p):
+                Gi = Gsolve(dG[i])
+                for j in range(i, p):
+                    term = 0.5 * gnp.trace(gnp.matmul(Gi, Gsolve(dG[j])))
+                    I = gnp.set_elem_2d(I, i, j, term)
+                    I = gnp.set_elem_2d(I, j, i, term)
+        else:  # SPD case
+
+            def Ksolve(A):
+                X, _ = gnp.cholesky_solve(K, A)
+                return X
+
+            Ai = [Ksolve(dK_i) for dK_i in dK]
+            for i in range(p):
+                for j in range(i, p):
+                    term = 0.5 * gnp.trace(gnp.matmul(Ai[i], Ai[j]))
+                    I = gnp.set_elem_2d(I, i, j, term)
+                    I = gnp.set_elem_2d(I, j, i, term)
+        return I
+
     def fisher_information_torch(self, xi, covparam):
         """Compute Fisher Information matrix using second-order differentiation."""
         xi_tensor = gnp.asarray(xi)
@@ -671,7 +762,7 @@ class Model:
         fisher_info = 0.5 * sodf.hessian()
 
         return fisher_info
-    
+
     def sample_paths(self, xt, nb_paths, method="chol", check_result=True):
         """Generates nb_paths sample paths on xt from the zero-mean GP model GP(0, k),
         where k is the covariance specified by Model.covariance.
@@ -809,6 +900,8 @@ class Model:
         """
         xi_, zi_, xt_ = Model._ensure_shapes_and_type(xi=xi, zi=zi, xt=xt)
         ztsim_ = gnp.asarray(ztsim)
+        xi_ind = gnp.asarray(xi_ind).reshape(-1)
+        xt_ind = gnp.asarray(xt_ind).reshape(-1)
 
         zi_prior_mean_ = self.mean(xi_, self.meanparam).reshape(-1)
         zi_centered_ = zi_ - zi_prior_mean_
@@ -918,10 +1011,11 @@ class Model:
 
         Returns
         -------
+            zi_centered : centered observed values.
+            zt_prior_mean : prior mean adjustment for zt.
             lambda_t : kriging weights.
             zt_posterior_variance : posterior variance.
-            adjusted_zi : possibly centered observations.
-            zt_prior_mean : prior mean adjustment for xt.
+
         """
         # Default: no mean adjustment.
         zt_prior_mean = 0.0
@@ -964,23 +1058,23 @@ class Model:
             return zt_prior_variance - gnp.matmul(lambdamu_t.T, RHS)
 
     def _loo_with_zero_mean(self, covparam, xi, zi):
-        """Compute LOO prediction error for zero mean."""
-        K = self.covariance(xi, xi, covparam)  # shape (n, n)
+        """Compute LOO prediction error for zero mean.
 
-        # Use the "virtual cross-validation" formula
-        Kinv = gnp.cholesky_inv(K)
+        LOO predictions based on the "virtual cross-validation" formula
+        """
+        K = self.covariance(xi, xi, covparam)
+        # K^{-1} z and the Cholesky C
+        Kinv_zi, C = gnp.cholesky_solve(K, zi)  # returns (K^{-1} z, C)
+
+        # diag(K^{-1}) via triangular inverse
+        Kinvdiag = _diag_kinv_from_chol(C)
 
         # e_loo,i  = 1 / Kinv_i,i ( Kinv  z )_i
-        Kinvzi = gnp.matmul(Kinv, zi)  # shape (n, )
-        Kinvdiag = gnp.diag(Kinv)  # shape (n, )
-        eloo = Kinvzi / Kinvdiag  # shape (n, )
-
+        eloo = Kinv_zi / Kinvdiag
         # sigma2_loo,i = 1 / Kinv_i,i
-        sigma2loo = 1.0 / Kinvdiag  # shape (n, )
-
+        sigma2loo = 1.0 / Kinvdiag
         # zloo_i = z_i - e_loo,i
-        zloo = zi - eloo  # shape (n, )
-
+        zloo = zi - eloo
         return zloo, sigma2loo, eloo
 
     def _loo_with_parameterized_mean(self, meanparam, covparam, xi, zi):
@@ -1019,6 +1113,25 @@ class Model:
 
         return zloo, sigma2loo, eloo
 
+    def _loo_with_linear_predictor_mean_cpd(self, meanparam, covparam, xi, zi):
+        """Compute LOO prediction error for linear_predictor mean. CPD-safe version."""
+        K = self.covariance(xi, xi, covparam)
+        P = self.mean(xi, meanparam)
+        Q, _R = gnp.qr(P, mode="complete")
+        W = Q[:, P.shape[1] :]  # (n, n-q)
+        G = gnp.matmul(W.T, gnp.matmul(K, W))  # (n-q, n-q), SPD
+        # Solve S = G^{-1} W^T  (n-q x n)
+        S, _ = gnp.cholesky_solve(G, W.T)
+        # Qinv z = W S z
+        Qinvzi = gnp.matmul(W, gnp.matmul(S, zi))
+        # diag(Qinv) = row-wise inner products w_i^T (G^{-1} w_i)
+        # which equals sum_r W[i,r] * S[r,i]
+        Qinvdiag = gnp.sum(W * S.T, axis=1)
+        eloo = Qinvzi / Qinvdiag
+        sigma2loo = 1.0 / Qinvdiag
+        zloo = zi - eloo
+        return zloo, sigma2loo, eloo
+
     def _compute_contrast_matrix(self, P):
         """Compute a matrix of contrasts from design matrix P."""
         n, q = P.shape
@@ -1028,3 +1141,64 @@ class Model:
     def _compute_contrast_covariance(self, W, K):
         """Compute covariance matrix of contrasts G = W' * (K * W)."""
         return gnp.matmul(W.T, gnp.matmul(K, W))
+
+    def _kriging_predictor_alternative(self, xi, xt, return_type=0):
+        Kii = self.covariance(xi, xi, self.covparam)
+        Pi = self.mean(xi, self.meanparam)
+        (ni, q) = Pi.shape
+        Kit = self.covariance(xi, xt, self.covparam)
+        Pt = self.mean(xt, self.meanparam)
+        LHS = gnp.vstack((gnp.hstack((Kii, Pi)), gnp.hstack((Pi.T, gnp.zeros((q, q))))))
+        RHS = gnp.vstack((Kit, Pt.T))
+        try:
+            lambdamu_t = gnp.solve(
+                LHS, RHS, overwrite_a=True, overwrite_b=False, assume_a="sym"
+            )
+        except Exception:
+            # Fallback: nullspace/contrast route (SPD on Wᵀ K W)
+            return self._kriging_predictor_nullspace(xi, xt, return_type)
+        lambda_t = lambdamu_t[0:ni, :]
+        zt_posterior_variance = self._compute_posterior_variance(
+            xt, lambdamu_t, RHS, return_type
+        )
+        return lambda_t, zt_posterior_variance
+
+    def _kriging_predictor_nullspace(self, xi, xt, return_type=0):
+        # CPD-safe universal kriging using contrasts
+        K = self.covariance(xi, xi, self.covparam)
+        P = self.mean(xi, self.meanparam)
+        n, q = P.shape
+        Kit = self.covariance(xi, xt, self.covparam)
+        Pt = self.mean(xt, self.meanparam)  # (m, q)
+        Q, R = gnp.qr(P, mode="complete")
+        Q1, W = Q[:, :q], Q[:, q:]
+        Rq = R[:q, :q]
+        KW = gnp.matmul(K, W)
+        G = gnp.matmul(W.T, KW)  # SPD
+        alpha, _ = gnp.cholesky_solve(G, gnp.matmul(W.T, Kit))
+        beta = gnp.solve(Rq.T, Pt.T, assume_a="sym")
+        lambda_t = gnp.matmul(W, alpha) + gnp.matmul(Q1, beta)
+        if return_type == -1:
+            zt_posterior_variance = None
+        elif return_type == 0:
+            v0 = self.covariance(xt, xt, self.covparam, pairwise=True)
+            RHS = gnp.vstack((Kit, Pt.T))
+            LM = gnp.vstack((lambda_t, beta))
+            zt_posterior_variance = v0 - gnp.einsum("i..., i...", LM, RHS)
+        elif return_type == 1:
+            V0 = self.covariance(xt, xt, self.covparam, pairwise=False)
+            RHS = gnp.vstack((Kit, Pt.T))
+            LM = gnp.vstack((lambda_t, beta))
+            zt_posterior_variance = V0 - gnp.matmul(LM.T, RHS)
+        else:
+            raise ValueError("return_type must be in {-1,0,1}")
+        return lambda_t, zt_posterior_variance
+
+    def _diag_kinv_from_chol(C, lower=True):
+        """Return diag(K^{-1}) from Cholesky factor C (K = C Cᵀ if lower else Cᵀ C)."""
+        n = C.shape[0]
+        I = gnp.eye(n)
+        Tinv = gnp.solve_triangular(C, I, lower=lower)  # C^{-1}
+        # If lower: K^{-1} = C^{-T} C^{-1} ⇒ diag = column-wise sum of squares of C^{-1}
+        # If upper: K^{-1} = C^{-1} C^{-T} ⇒ diag = row-wise   sum of squares of C^{-1}
+        return gnp.sum(Tinv * Tinv, axis=0) if lower else gnp.sum(Tinv * Tinv, axis=1)

@@ -993,6 +993,30 @@ elif _gpmp_backend_ == "torch":
     def solve(A, B, overwrite_a=True, overwrite_b=True, assume_a="gen", sym_pos=False):
         return torch.linalg.solve(A, B)
 
+    def solve_triangular(A,
+                         B,
+                         trans=0,
+                         lower=False,
+                         unit_diagonal=False,
+                         overwrite_b=False,
+                         check_finite=False):
+        if trans in (0, 'N', 'n'):
+            Aop = A
+        elif trans in (1, 'T', 't'):
+            Aop = A.mT
+        elif trans in (2, 'C', 'c'):
+            Aop = A.mH
+        else:
+            raise ValueError(f"Invalid trans={trans!r}; expected 0/1/2 or 'N'/'T'/'C'.")
+        x = torch.linalg.solve_triangular(
+            Aop,
+            B,
+            upper=not lower,
+            left=True,
+            unitriangular=unit_diagonal,
+        )
+        return x
+    
     def cho_factor(A, lower=False, overwrite_a=False, check_finite=True):
         # torch.linalg does not have cho_factor(), use cholesky() instead.
         return cholesky(A, upper=not (lower))
