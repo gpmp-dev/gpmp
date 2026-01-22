@@ -3,7 +3,7 @@ Demonstrates ReMAP-based GP parameter selection, posterior sampling,
 and visualization of a 1D Gaussian process model.
 
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2025, CentraleSupelec
+Copyright (c) 2022-2026, CentraleSupelec
 License: GPLv3 (see LICENSE)
 """
 
@@ -101,7 +101,7 @@ def main():
     plot_likelihood_cross_sections = True
     plot_likelihood_2d_profile = True
     if plot_likelihood_cross_sections:
-        gp.misc.modeldiagnosis.plot_selection_criterion_crossections(
+        gp.misc.modeldiagnosis.plot_selection_criterion_crosssections(
             info=info, delta=0.6, param_names=["sigma^2 (log)", "rho (log)"]
         )
     if plot_likelihood_2d_profile:

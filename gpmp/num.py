@@ -14,7 +14,7 @@ and differentiable functions are defined here.
 The active backend is stored in the environment variable 'GPMP_BACKEND'.
 
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022–2025, CentraleSupélec
+Copyright (c) 2022–2026, CentraleSupélec
 License: GPLv3 (see LICENSE)
 
 """
@@ -656,7 +656,7 @@ elif _gpmp_backend_ == "torch":
             min = tensor(min)
         if max is not None and not torch.is_tensor(max):
             max = tensor(max)
-        return torch.clamp(x, min, max, out)
+        return torch.clamp(x, min, max, out=out)
 
     def sort(x, axis=-1):
         xsorted = torch.sort(x, dim=axis)
@@ -1688,7 +1688,7 @@ def try_with_postmortem(func, *args, **kwargs):
 # ----------------------------------------------------------------------
 #                              TODO (roadmap)
 # ----------------------------------------------------------------------
-# * Maintain a state dictionary to hold: dtype, device, gpmp cache, gln... V
+# * Maintain a state dictionary to hold: dtype, device, gpmp cache, gln...
 # * Heal Jax slow perfomances
 # * DifferentiableSelectionCriterion: avoid silent fail, do not catch
 #   all Exceptions and return inf. (That hides bugs, typos, device errors...).

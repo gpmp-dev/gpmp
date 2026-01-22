@@ -2,7 +2,7 @@
 Plot and optimize the restricted negative log-likelihood
 
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2025, CentraleSupelec
+Copyright (c) 2022-2026, CentraleSupelec
 License: GPLv3 (see LICENSE)
 """
 
@@ -28,7 +28,7 @@ def generate_data():
     xt = gp.misc.designs.regulargrid(dim, nt, box)
     zt = gp.misc.testfunctions.twobumps(xt) + c
 
-    ni = 7
+    ni = 8
     xi = gp.misc.designs.ldrandunif(dim, ni, box)
     zi = gp.misc.testfunctions.twobumps(xi) + c
 

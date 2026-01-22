@@ -31,7 +31,7 @@ Design note
   is asserted at construction.
 
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2025, CentraleSupelec
+Copyright (c) 2022-2026, CentraleSupelec
 License: GPLv3 (see LICENSE)
 """
 

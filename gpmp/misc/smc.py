@@ -9,7 +9,7 @@ Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
 Contributions:
     Julien Bect <julien.bect@centralesupelec.fr>, 2024
     Sébastien Petit, 2024
-Copyright (c) 2023, 2025 CentraleSupelec
+Copyright (c) 2022-2026 CentraleSupelec
 License: GPLv3 (see LICENSE)
 
 """

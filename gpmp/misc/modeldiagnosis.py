@@ -29,7 +29,7 @@ models. The functions are organized into the following sections:
 3. Visualization and Plotting Tools:
    - plot_pit_ecdf: Plots the empirical cumulative distribution
      function (ECDF) for PIT values.
-   - plot_selection_criterion_crossections: Generates 1D cross-section
+   - plot_selection_criterion_crosssections: Generates 1D cross-section
      plots of the selection criterion.
    - plot_selection_criterion_2d: Creates a 2D contour plot for two
      selected parameters.
@@ -45,7 +45,7 @@ models. The functions are organized into the following sections:
      readable manner.
 
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2025, CentraleSupelec
+Copyright (c) 2022-2026, CentraleSupelec
 License: GPLv3 (see LICENSE)
 """
 
@@ -867,7 +867,7 @@ def plot_pit_ecdf(pit, fig=None):
     plt.show()
 
 
-def plot_selection_criterion_crossections(
+def plot_selection_criterion_crosssections(
     *,
     info=None,
     selection_criterion=None,
@@ -1044,7 +1044,7 @@ def plot_selection_criterion_crossections(
         plt.tight_layout()
         plt.show()
 
-# def plot_selection_criterion_crossections(
+# def plot_selection_criterion_crosssections(
 #     info=None,
 #     selection_criterion=None,
 #     covparam=None,

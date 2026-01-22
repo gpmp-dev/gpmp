@@ -11,7 +11,7 @@ into fixed-size batches for parameter estimation.
 
 ----
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2025, CentraleSupelec
+Copyright (c) 2022-2026, CentraleSupelec
 License: GPLv3 (see LICENSE)
 """
 import gpmp.num as gnp
@@ -100,7 +100,7 @@ def main():
 
     gp.misc.modeldiagnosis.diag(model, info, xi, zi)
 
-    gp.misc.modeldiagnosis.plot_selection_criterion_crossections(
+    gp.misc.modeldiagnosis.plot_selection_criterion_crosssections(
         info=info,
         selection_criterion=info.selection_criterion_nograd,
         covparam=None,

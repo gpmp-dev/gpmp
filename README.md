@@ -84,10 +84,10 @@ make html
 If you use GPmp in your research, please cite it as follows:
 
 ```bibtex
-@software{gpmp2025,
+@software{gpmp2026,
   author       = {Emmanuel Vazquez},
   title        = {GPmp: the Gaussian Process micro package},
-  year         = {2025},
+  year         = {2026},
   url          = {https://github.com/gpmp-dev/gpmp},
   note         = {Version x.y},
 }

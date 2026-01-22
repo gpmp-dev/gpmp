@@ -6,7 +6,7 @@ the GP parameters using a Metropolis–Hastings sampler. The negative log-poster
 is defined by info.selection_criterion.
 
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2025, CentraleSupelec
+Copyright (c) 2022-2026, CentraleSupelec
 License: GPLv3 (see LICENSE)
 """
 

@@ -31,7 +31,7 @@ def twobumps(x):
 
 
 def wave(x):
-    """Computes the Wave function.
+    r"""Computes the Wave function.
     
     The Wave function is a popular test function used in optimization problems. It has multiple local minima and a single global minimum. It is defined as follows:
     
@@ -126,7 +126,7 @@ def hartmann4(x):
 
     .. [2] Picheny, V., Wagner, T., & Ginsbourger, D. (2012). A benchmark
         of kriging-based infill criteria for noisy optimization.
-        Based on https://www.sfu.ca/\~ssurjano/hart6.html
+        Based on https://www.sfu.ca/~ssurjano/hart6.html
 
     Authors: Sonja Surjanovic and Derek Bingham, Simon Fraser University
 
@@ -167,14 +167,14 @@ def hartmann4(x):
 
 
 def hartmann6(x):
-    """Hartmann 6-dimensional function [1]
+    r"""Hartmann 6-dimensional function [1]
 
     The 6-dimensional Hartmann function has 6 local minima and a
     a global minimum f(x*) = -3.32237.
 
     .. math::
 
-        f(x) = - \\sum_{i=1}^4 \\alpha_i \\exp \\bigl(-\\sum_{j=1}^6 A_{ij}(x_j - P_{ij})^2 \\bigr) 
+        f(x) = - \sum_{i=1}^4 \alpha_i \exp \bigl(-\sum_{j=1}^6 A_{ij}(x_j - P_{ij})^2 \bigr) 
 
     where :math:`x_i \in (0, 1)` for all :math:`i = 1, \ldots, 6`.
 
@@ -310,7 +310,7 @@ def borehole(x):
 
 
 def detpep8d(x):
-    """Dette & Pepelyshev (2010) 8-Dimensional Function
+    r"""Dette & Pepelyshev (2010) 8-Dimensional Function
 
     This function is used for the comparison of computer experiment
     designs. It is highly curved in some variables and less in others
