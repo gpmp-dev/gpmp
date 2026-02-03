@@ -132,7 +132,7 @@ def autoselect_parameters(
 
     return (r.x, r) if info else (r.x, None)
 
-# ------------------------------ high-level fit ------------------------
+# -------------------- high-level parameter selection procedures  ------------
 def select_parameters_with_criterion(
     model,
     criterion,

@@ -720,7 +720,7 @@ elif _gpmp_backend_ == "torch":
                 return self._f_value.item()
             except Exception:
                 # construct inf with None gradient
-                self._f_value = gnp.tensor(float("inf"), requires_grad=True)
+                self._f_value = torch.tensor(float("inf"), requires_grad=True)
                 return self._f_value.item()
 
         def gradient(self, p, retain=False, allow_unused=True):

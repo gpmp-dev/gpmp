@@ -54,6 +54,8 @@ from .parameter_selection import (
     negative_log_restricted_likelihood,
     make_selection_criterion_with_gradient,
     autoselect_parameters,
+    select_parameters_with_criterion,
+    update_parameters_with_criterion,
     select_parameters_with_reml,
     update_parameters_with_reml,
     select_parameters_with_remap,
