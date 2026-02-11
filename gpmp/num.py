@@ -34,6 +34,23 @@ _config = get_config()
 _logger = get_logger()
 _logger.info("Using backend: %s", _gpmp_backend_)
 
+_LINALG_ERROR_KEYWORDS = (
+    "singular",
+    "not positive definite",
+    "not positive-definite",
+    "cholesky",
+    "decomposition",
+    "factorization",
+    "matrix is not invertible",
+    "matrix inversion",
+    "inverse",
+    "svd did not converge",
+    "ill-conditioned",
+    "linalg",
+    "lapack",
+    "cusolver",
+)
+
 
 # -----------------------------------------------------
 #
@@ -205,6 +222,12 @@ if _gpmp_backend_ == "numpy":
     def grad(f: Callable[[ArrayLike], ArrayLike]) -> None:
         return None
 
+    def _is_linalg_exception(exc: Exception) -> bool:
+        if isinstance(exc, numpy.linalg.LinAlgError):
+            return True
+        msg = str(exc).lower()
+        return any(keyword in msg for keyword in _LINALG_ERROR_KEYWORDS)
+
     class DifferentiableSelectionCriterion:
         def __init__(self, crit: CriterionCallable, x: ArrayLike, z: ArrayLike):
             self.crit = crit
@@ -217,8 +240,10 @@ if _gpmp_backend_ == "numpy":
         def evaluate(self, p: ArrayLike) -> ArrayLike:
             try:
                 return self.crit(p, self.x, self.z)
-            except Exception:
-                return inf
+            except Exception as exc:
+                if _is_linalg_exception(exc):
+                    return inf
+                raise
 
         def evaluate_no_grad(self, p: ArrayLike) -> ArrayLike:
             return self.evaluate(p)
@@ -270,8 +295,10 @@ if _gpmp_backend_ == "numpy":
                 if self.reduction == "mean":
                     total_loss /= n_samples
                 return total_loss
-            except Exception:
-                return inf
+            except Exception as exc:
+                if _is_linalg_exception(exc):
+                    return inf
+                raise
 
     # ..................................................
 
@@ -698,6 +725,18 @@ elif _gpmp_backend_ == "torch":
 
         return f_grad
 
+    _torch_linalg_error = (
+        (torch.linalg.LinAlgError,)
+        if hasattr(torch.linalg, "LinAlgError")
+        else tuple()
+    )
+
+    def _is_linalg_exception(exc: Exception) -> bool:
+        if _torch_linalg_error and isinstance(exc, _torch_linalg_error):
+            return True
+        msg = str(exc).lower()
+        return any(keyword in msg for keyword in _LINALG_ERROR_KEYWORDS)
+
     class jax:
         @staticmethod
         def jit(
@@ -725,8 +764,10 @@ elif _gpmp_backend_ == "torch":
                 with torch.no_grad():
                     f_value = self.f(p, self.x, self.z)
                 return f_value.item()
-            except Exception:
-                return inf
+            except Exception as exc:
+                if _is_linalg_exception(exc):
+                    return inf
+                raise
 
         def evaluate(self, p: ArrayLike) -> float:
             if not torch.is_tensor(p):
@@ -737,10 +778,12 @@ elif _gpmp_backend_ == "torch":
             try:
                 self._f_value = self.f(self._p_value, self.x, self.z)
                 return self._f_value.item()
-            except Exception:
-                # construct inf with None gradient
-                self._f_value = torch.tensor(float("inf"), requires_grad=True)
-                return self._f_value.item()
+            except Exception as exc:
+                if _is_linalg_exception(exc):
+                    # construct inf with None gradient
+                    self._f_value = torch.tensor(float("inf"), requires_grad=True)
+                    return self._f_value.item()
+                raise
 
         def gradient(
             self, p: ArrayLike, retain: bool = False, allow_unused: bool = True
@@ -1367,6 +1410,12 @@ elif _gpmp_backend_ == "jax":
 
     # ..................................................
 
+    def _is_linalg_exception(exc: Exception) -> bool:
+        if isinstance(exc, numpy.linalg.LinAlgError):
+            return True
+        msg = str(exc).lower()
+        return any(keyword in msg for keyword in _LINALG_ERROR_KEYWORDS)
+
     class DifferentiableSelectionCriterion:
         def __init__(self, crit, x, z):
             self.crit = jax.jit(lambda p: crit(p, x, z))  # jax.jit(f)
@@ -1383,16 +1432,20 @@ elif _gpmp_backend_ == "jax":
                 p = jax.numpy.array(p)
             try:
                 return self.crit(p)
-            except Exception:
-                return inf
+            except Exception as exc:
+                if _is_linalg_exception(exc):
+                    return inf
+                raise
 
         def gradient(self, p):
             if not isinstance(p, jax.numpy.ndarray):
                 p = jax.numpy.array(p)
             try:
                 return self.crit_grad(p)
-            except Exception:
-                return None
+            except Exception as exc:
+                if _is_linalg_exception(exc):
+                    return None
+                raise
 
     class BatchDifferentiableSelectionCriterion:
         def __init__(self, crit, loader, reduction: str = "mean"):
@@ -1715,8 +1768,8 @@ def try_with_postmortem(
 # ----------------------------------------------------------------------
 # * Maintain a state dictionary to hold: dtype, device, gpmp cache, gln...
 # * Heal Jax slow perfomances
-# * DifferentiableSelectionCriterion: avoid silent fail, do not catch
-#   all Exceptions and return inf. (That hides bugs, typos, device errors...).
+# * DifferentiableSelectionCriterion: avoid silent fail, do not catch [done]
+#   all Exceptions and return inf. (That hides bugs, typos, device errors...)
 # * BatchDifferentiableSelectionCriterion: assume crit returns mean
 # * BatchDifferentiableSelectionCriterion: dtype and device consistency
 #    xb0, _ = next(iter(self.loader))
