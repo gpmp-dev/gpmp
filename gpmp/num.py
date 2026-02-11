@@ -21,10 +21,15 @@ License: GPLv3 (see LICENSE)
 
 import os
 import warnings
-from typing import Iterable, Tuple, Union
+from typing import Any, Callable, Iterable, Optional, Tuple, Union
 from gpmp.config import get_config, init_backend, get_logger
 
-_gpmp_backend_ = init_backend()
+Scalar = Union[int, float]
+ArrayLike = Any
+CriterionCallable = Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]
+LoaderLike = Iterable[Tuple[ArrayLike, ArrayLike]]
+
+_gpmp_backend_: str = init_backend()
 _config = get_config()
 _logger = get_logger()
 _logger.info("Using backend: %s", _gpmp_backend_)
@@ -197,29 +202,34 @@ if _gpmp_backend_ == "numpy":
 
     # ..................................................
 
-    def grad(f):
+    def grad(f: Callable[[ArrayLike], ArrayLike]) -> None:
         return None
 
     class DifferentiableSelectionCriterion:
-        def __init__(self, crit, x, z):
+        def __init__(self, crit: CriterionCallable, x: ArrayLike, z: ArrayLike):
             self.crit = crit
             self.x, self.z = x, z
             self.gradient = None
 
-        def __call__(self, p):
+        def __call__(self, p: ArrayLike) -> ArrayLike:
             return self.evaluate(p)
 
-        def evaluate(self, p):
+        def evaluate(self, p: ArrayLike) -> ArrayLike:
             try:
                 return self.crit(p, self.x, self.z)
             except Exception:
                 return inf
 
-        def evaluate_no_grad(self, p):
+        def evaluate_no_grad(self, p: ArrayLike) -> ArrayLike:
             return self.evaluate(p)
 
     class BatchDifferentiableSelectionCriterion:
-        def __init__(self, crit, loader, reduction="mean"):
+        def __init__(
+            self,
+            crit: CriterionCallable,
+            loader: LoaderLike,
+            reduction: str = "mean",
+        ):
             """
             Batch differentiable function for parameter optimization.
 
@@ -241,13 +251,13 @@ if _gpmp_backend_ == "numpy":
             self.reduction = reduction
             self.gradient = None
 
-        def __call__(self, p):
+        def __call__(self, p: ArrayLike) -> ArrayLike:
             return self.evaluate_no_grad(p)
 
-        def evaluate_no_grad(self, p):
+        def evaluate_no_grad(self, p: ArrayLike) -> ArrayLike:
             return self.evaluate(p)
 
-        def evaluate(self, p):
+        def evaluate(self, p: ArrayLike) -> ArrayLike:
             try:
                 total_loss = 0.0
                 n_samples = 0
@@ -265,13 +275,15 @@ if _gpmp_backend_ == "numpy":
 
     # ..................................................
 
-    def scaled_distance(loginvrho, x, y):
+    def scaled_distance(loginvrho: ArrayLike, x: ArrayLike, y: ArrayLike) -> ArrayLike:
         invrho = exp(loginvrho)
         xs = invrho * x
         ys = invrho * y
         return cdist(xs, ys)
 
-    def scaled_distance_elementwise(loginvrho, x, y):
+    def scaled_distance_elementwise(
+        loginvrho: ArrayLike, x: ArrayLike, y: Optional[ArrayLike]
+    ) -> ArrayLike:
         if x is y or y is None:
             d = zeros((x.shape[0],))
         else:
@@ -307,21 +319,26 @@ if _gpmp_backend_ == "numpy":
     # Build one global RNG (or let the user set the seed somewhere):
     _np_rng = numpy.random.default_rng(seed=1234)
 
-    def set_seed(seed):
+    def set_seed(seed: int) -> None:
         """Set the global NumPy generator seed."""
         global _np_rng
         _np_rng = numpy.random.default_rng(seed=seed)
 
-    def rand(*shape):
+    def rand(*shape: int) -> ArrayLike:
         return _np_rng.random(shape)
 
-    def randn(*shape):
+    def randn(*shape: int) -> ArrayLike:
         return _np_rng.normal(loc=0, scale=1, size=shape)
 
-    def choice(a, size=None, replace=True, p=None):
+    def choice(
+        a: ArrayLike,
+        size: Optional[int] = None,
+        replace: bool = True,
+        p: Optional[ArrayLike] = None,
+    ) -> ArrayLike:
         return _np_rng.choice(a, size=size, replace=replace, p=p)
 
-    def permutation(x):
+    def permutation(x: ArrayLike) -> ArrayLike:
         return _np_rng.permutation(x)
 
     class multivariate_normal:
@@ -668,7 +685,7 @@ elif _gpmp_backend_ == "torch":
 
     # ..................................................
 
-    def grad(f):
+    def grad(f: Callable[[ArrayLike], ArrayLike]) -> Callable[[ArrayLike], ArrayLike]:
         def f_grad(x):
             if not torch.is_tensor(x):
                 x = torch.tensor(x, requires_grad=True)
@@ -683,23 +700,25 @@ elif _gpmp_backend_ == "torch":
 
     class jax:
         @staticmethod
-        def jit(f, *args, **kwargs):
+        def jit(
+            f: Callable[..., ArrayLike], *args: Any, **kwargs: Any
+        ) -> Callable[..., ArrayLike]:
             return f
 
     class DifferentiableSelectionCriterion:
         """Wraps a selection criterion f(p, x, z) -> scalar, allowing gradient computation."""
 
-        def __init__(self, f, x, z):
+        def __init__(self, f: CriterionCallable, x: ArrayLike, z: ArrayLike):
             self.f = f
             self.x = x
             self.z = z
             self._p_value = None
             self._f_value = None
 
-        def __call__(self, p):
+        def __call__(self, p: ArrayLike) -> float:
             return self.evaluate_no_grad(p)
 
-        def evaluate_no_grad(self, p):
+        def evaluate_no_grad(self, p: ArrayLike) -> float:
             if not torch.is_tensor(p):
                 p = torch.tensor(p)
             try:
@@ -709,7 +728,7 @@ elif _gpmp_backend_ == "torch":
             except Exception:
                 return inf
 
-        def evaluate(self, p):
+        def evaluate(self, p: ArrayLike) -> float:
             if not torch.is_tensor(p):
                 self._p_value = torch.tensor(p, requires_grad=True)
             else:
@@ -723,7 +742,9 @@ elif _gpmp_backend_ == "torch":
                 self._f_value = torch.tensor(float("inf"), requires_grad=True)
                 return self._f_value.item()
 
-        def gradient(self, p, retain=False, allow_unused=True):
+        def gradient(
+            self, p: ArrayLike, retain: bool = False, allow_unused: bool = True
+        ) -> ArrayLike:
             if self._f_value is None:
                 raise ValueError("Call 'evaluate(p)' before 'gradient(p)'")
 
@@ -763,7 +784,7 @@ elif _gpmp_backend_ == "torch":
 
         def __init__(
             self,
-            crit: callable,
+            crit: CriterionCallable,
             loader: Iterable[Tuple[torch.Tensor, torch.Tensor]],
             reduction: str = "mean",
             batches_per_eval: int = 0,
@@ -793,7 +814,7 @@ elif _gpmp_backend_ == "torch":
             param.requires_grad_(req_grad)
             return param
 
-        def _batches(self):
+        def _batches(self) -> Iterable[Tuple[torch.Tensor, torch.Tensor]]:
             """Yield the next set of batches for one evaluation."""
             if self.bpe == 0:  # full epoch
                 yield from self.loader
@@ -805,7 +826,7 @@ elif _gpmp_backend_ == "torch":
                         self._batch_iter = iter(self.loader)
                         yield next(self._batch_iter)
 
-        def evaluate_no_grad(self, param: TensorLike):
+        def evaluate_no_grad(self, param: TensorLike) -> float:
             total, n = 0.0, 0
             with torch.no_grad():
                 p = self._prepare_param(param, req_grad=False)
@@ -817,7 +838,7 @@ elif _gpmp_backend_ == "torch":
                 raise ValueError("Loader is empty.")
             return total / n if self.reduction == "mean" else total
 
-        def evaluate(self, param: TensorLike):
+        def evaluate(self, param: TensorLike) -> float:
             p = self._prepare_param(param, req_grad=True)
             grad = None  # accumulated gradient
             total, n = 0.0, 0
@@ -840,7 +861,7 @@ elif _gpmp_backend_ == "torch":
             return total
 
         # -----------------------------------------------------------------
-        def gradient(self, _param):
+        def gradient(self, _param: TensorLike) -> torch.Tensor:
             if self._gradient is None:
                 raise RuntimeError("Call `evaluate` first.")
             return self._gradient
@@ -848,7 +869,7 @@ elif _gpmp_backend_ == "torch":
     class SecondOrderDifferentiableFunction:
         """Helper class to compute second-order derivatives (Hessian) of scalar functions."""
 
-        def __init__(self, f):
+        def __init__(self, f: Callable[[torch.Tensor], torch.Tensor]):
             """
             Parameters
             ----------
@@ -860,7 +881,7 @@ elif _gpmp_backend_ == "torch":
             self._y = None
             self._grad = None
 
-        def evaluate(self, x):
+        def evaluate(self, x: TensorLike) -> torch.Tensor:
             """Evaluate the function at x and store gradient graph."""
             if not torch.is_tensor(x):
                 x = torch.tensor(x, requires_grad=True, dtype=torch.double)
@@ -875,7 +896,7 @@ elif _gpmp_backend_ == "torch":
 
             return self._y
 
-        def gradient(self, retain=True):
+        def gradient(self, retain: bool = True) -> torch.Tensor:
             """Compute and return gradient of the function at stored x."""
             if self._y is None or self._x is None:
                 raise RuntimeError("Call evaluate(x) before calling gradient().")
@@ -886,7 +907,7 @@ elif _gpmp_backend_ == "torch":
             self._grad = grad
             return grad.detach()
 
-        def hessian(self):
+        def hessian(self) -> torch.Tensor:
             """Compute and return Hessian of the function at stored x."""
             if self._grad is None:
                 raise RuntimeError("Call gradient() before calling hessian().")
@@ -1630,7 +1651,7 @@ else:
 # ------------------------------------------------------------------
 
 
-def compute_gammaln(up_to_p):
+def compute_gammaln(up_to_p: int) -> ArrayLike:
     """
     Return gammaln(k) for k = 0, ..., 2*up_to_p + 1 as a 1D backend array.
     Grows and caches a single table in _config.caches["gammaln"]["table"].
@@ -1653,7 +1674,9 @@ def compute_gammaln(up_to_p):
     return table[:n]
 
 
-def derivative_finite_diff(f, x, h):
+def derivative_finite_diff(
+    f: Callable[[Scalar], ArrayLike], x: Scalar, h: Scalar
+) -> ArrayLike:
     """
     5-point central difference derivative of f w.r.t. scalar x.
     f(x) must return a NumPy (or similar) array/matrix/tensor.
@@ -1665,7 +1688,9 @@ def derivative_finite_diff(f, x, h):
     return (-f_x_p2 + 8 * f_x_p1 - 8 * f_x_m1 + f_x_m2) / (12.0 * h)
 
 
-def try_with_postmortem(func, *args, **kwargs):
+def try_with_postmortem(
+    func: Callable[..., ArrayLike], *args: Any, **kwargs: Any
+) -> ArrayLike:
     """
     Executes `func(*args, **kwargs)` with a try/except block.
     If an exception is raised, it prints the traceback and drops into pdb post-mortem.
