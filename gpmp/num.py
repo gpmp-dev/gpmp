@@ -21,6 +21,7 @@ License: GPLv3 (see LICENSE)
 
 import os
 import warnings
+import builtins
 from typing import Any, Callable, Iterable, Optional, Tuple, Union
 from gpmp.config import _normalize_dtype_spec, get_config, init_backend, get_logger
 
@@ -283,7 +284,7 @@ if _gpmp_backend_ == "numpy":
         if isinstance(exc, numpy.linalg.LinAlgError):
             return True
         msg = str(exc).lower()
-        return any(keyword in msg for keyword in _LINALG_ERROR_KEYWORDS)
+        return builtins.any(keyword in msg for keyword in _LINALG_ERROR_KEYWORDS)
 
     class DifferentiableSelectionCriterion:
         def __init__(self, crit: CriterionCallable, x: ArrayLike, z: ArrayLike):
@@ -667,20 +668,22 @@ elif _gpmp_backend_ == "torch":
     def asarray(x, dtype=None):
         dtype = _resolve_torch_dtype(dtype)
         if isinstance(x, torch.Tensor):
-            t = x
-            if dtype is not None:
-                return t.to(dtype=dtype)
-            if t.is_floating_point() and t.dtype != _torch_dtype:
-                return t.to(dtype=_torch_dtype)
-            return t
+            if dtype is None:
+                return x
+            return x if x.dtype == dtype else x.to(dtype=dtype)
+        if isinstance(x, numpy.ndarray):
+            if dtype is None:
+                try:
+                    return torch.from_numpy(x)
+                except (TypeError, ValueError):
+                    return torch.as_tensor(x)
+            return torch.as_tensor(x, dtype=dtype)
         if isinstance(x, (int, float)):
-            if dtype is None and isinstance(x, float):
-                dtype = _torch_dtype
-            return torch.tensor([x], dtype=dtype)
-        t = torch.as_tensor(x, dtype=dtype) if dtype is not None else torch.as_tensor(x)
-        if dtype is None and t.is_floating_point() and t.dtype != _torch_dtype:
-            t = t.to(dtype=_torch_dtype)
-        return t
+            return torch.tensor(x, dtype=dtype)
+        t = torch.as_tensor(x)
+        if dtype is None:
+            return t
+        return t if t.dtype == dtype else t.to(dtype=dtype)
 
     def asdouble(x):
         return asarray(x).to(torch.double)
@@ -876,7 +879,7 @@ elif _gpmp_backend_ == "torch":
         if _torch_linalg_error and isinstance(exc, _torch_linalg_error):
             return True
         msg = str(exc).lower()
-        return any(keyword in msg for keyword in _LINALG_ERROR_KEYWORDS)
+        return builtins.any(keyword in msg for keyword in _LINALG_ERROR_KEYWORDS)
 
     class jax:
         @staticmethod
@@ -1294,9 +1297,7 @@ elif _gpmp_backend_ == "torch":
     class multivariate_normal:
         @staticmethod
         def _as_torch_float(x, *, device=None) -> torch.Tensor:
-            t = asarray(x)
-            if not t.is_floating_point() or t.dtype != _torch_dtype:
-                t = t.to(dtype=_torch_dtype)
+            t = asarray(x, dtype=_torch_dtype)
             if device is not None and t.device != device:
                 t = t.to(device=device)
             return t
@@ -1402,10 +1403,11 @@ elif _gpmp_backend_ == "jax":
     import numpy
 
     os.environ.setdefault("JAX_PLATFORM_NAME", "cpu")  # force CPU
-    os.environ.setdefault(
-        "XLA_PYTHON_CLIENT_PREALLOCATE", "false"
-    )  # tiny RAM footprint
-
+    # os.environ.setdefault(
+    #     "XLA_PYTHON_CLIENT_PREALLOCATE", "false"
+    # )  # tiny RAM footprint
+    os.environ["XLA_FLAGS"] = "--xla_cpu_multi_thread_eigen=true intra_op_parallelism_threads=8"
+    
     import jax
 
     # set multithreaded/multicore parallelism
@@ -1504,6 +1506,9 @@ elif _gpmp_backend_ == "jax":
 
     eps = finfo(_jax_dtype).eps
     fmax = finfo(_jax_dtype).max
+    _jax_array_types = tuple(
+        t for t in (getattr(jax, "Array", None), jax.numpy.ndarray) if t is not None
+    )
     # ..................................................
 
     def copy(x):
@@ -1571,7 +1576,17 @@ elif _gpmp_backend_ == "jax":
         return out
 
     def asarray(x, dtype=None):
-        return jax.numpy.asarray(x, dtype=dtype) if dtype is not None else array(x)
+        if isinstance(x, _jax_array_types):
+            if dtype is not None:
+                return x if x.dtype == dtype else x.astype(dtype)
+            if jax.numpy.issubdtype(x.dtype, jax.numpy.floating) and x.dtype != _jax_dtype:
+                return x.astype(_jax_dtype)
+            return x
+
+        out = jax.numpy.asarray(x, dtype=dtype)
+        if dtype is None and jax.numpy.issubdtype(out.dtype, jax.numpy.floating) and out.dtype != _jax_dtype:
+            out = out.astype(_jax_dtype)
+        return out
 
     def asdouble(x):
         return asarray(x).astype(float64)
@@ -1601,7 +1616,7 @@ elif _gpmp_backend_ == "jax":
         if isinstance(exc, numpy.linalg.LinAlgError):
             return True
         msg = str(exc).lower()
-        return any(keyword in msg for keyword in _LINALG_ERROR_KEYWORDS)
+        return builtins.any(keyword in msg for keyword in _LINALG_ERROR_KEYWORDS)
 
     class DifferentiableSelectionCriterion:
         def __init__(self, crit, x, z):
@@ -1712,13 +1727,22 @@ elif _gpmp_backend_ == "jax":
             return total
 
         def gradient(self, param):
-            if self._gradient is None:
-                raise RuntimeError("Call `evaluate` before `gradient`.")
+            p = self._prepare_param(param)
 
-            if not array_equal(self._prepare_param(param), self._param_ref):
-                raise ValueError("Parameter changed between evaluate() and gradient().")
+            grad_acc, n = None, 0
+            for xb, zb in self._batches():
+                bs = xb.shape[0]
+                grad_b = self._grad_fn(p, xb, zb)
+                grad_acc = grad_b * bs if grad_acc is None else grad_acc + grad_b * bs
+                n += bs
 
-            return self._gradient
+            if n == 0:
+                raise ValueError("Loader is empty.")
+
+            if self.reduction == "mean":
+                grad_acc = grad_acc / n
+
+            return grad_acc
 
     # ..................................................
 
@@ -1736,35 +1760,87 @@ elif _gpmp_backend_ == "jax":
         return sqrt(maximum(sq, 0.0))
 
     @jax.custom_vjp
-    def scaled_distance_(loginvrho, x, y):
+    def scaled_distance(loginvrho, x, y):
         invrho = exp(loginvrho)
-        hs2 = (invrho * (x - y)) ** 2
-        d = sqrt(sum(hs2))
+        xs = x * invrho
+        ys = y * invrho
+        x2 = sum(xs * xs, axis=1)[:, None]
+        y2 = sum(ys * ys, axis=1)[None, :]
+        sq = maximum(x2 + y2 - 2.0 * (xs @ ys.T), 0.0)
+        return sqrt(sq)
+
+    def _sd_fwd(loginvrho, x, y):
+        invrho = exp(loginvrho)
+        xs = x * invrho
+        ys = y * invrho
+        x2 = sum(xs * xs, axis=1)[:, None]
+        y2 = sum(ys * ys, axis=1)[None, :]
+        sq = maximum(x2 + y2 - 2.0 * (xs @ ys.T), 0.0)
+        d = sqrt(sq)
+        return d, (d, invrho, x, y)
+
+    def _sd_bwd(res, g):
+        d, invrho, x, y = res
+        u = g / (d + eps)              # (n,m)
+        row = sum(u, axis=1)       # (n,)
+        col = sum(u, axis=0)       # (m,)
+
+        # per-dimension: sum_{i,j} u_ij (x_ik - y_jk)^2
+        term1 = sum((x * x) * row[:, None], axis=0)     # (d,)
+        term2 = sum((y * y) * col[:, None], axis=0)     # (d,)
+        uy = u @ y                                          # (n,d)
+        term3 = sum(x * uy, axis=0)                     # (d,)
+
+        grad_loginvrho = (invrho * invrho) * (term1 + term2 - 2.0 * term3)
+        return (grad_loginvrho, None, None)
+
+    scaled_distance.defvjp(_sd_fwd, _sd_bwd)
+    
+    # @jax.custom_vjp
+    # def scaled_distance(loginvrho, x, y):
+    #     invrho = exp(loginvrho)
+    #     dif = (x[:, None, :] - y[None, :, :]) * invrho
+    #     sq = sum(dif * dif, axis=-1)
+    #     d = sqrt(sq)
+    #     return d
+
+    # def _scaled_distance_fwd(loginvrho, x, y):
+    #     invrho = exp(loginvrho)
+    #     dif = (x[:, None, :] - y[None, :, :]) * invrho
+    #     hs2 = dif * dif
+    #     d = sqrt(sum(hs2, axis=-1))
+    #     return d, (d, hs2)
+
+    # def _scaled_distance_bwd(res, g):
+    #     d, hs2 = res
+    #     denom = d[..., None] + eps
+    #     grad_loginvrho = sum(g[..., None] * hs2 / denom, axis=(0, 1))
+    #     return (grad_loginvrho, None, None)
+
+    # scaled_distance.defvjp(_scaled_distance_fwd, _scaled_distance_bwd)
+
+    @jax.custom_vjp
+    def scaled_distance_elementwise(loginvrho, x, y):
+        invrho = exp(loginvrho)
+        dif = (x - y) * invrho
+        hs2 = dif * dif
+        d = sqrt(sum(hs2, axis=-1))
         return d
 
-    def scaled_distance__fwd(loginvrho, x, y):
+    def _sde_fwd(loginvrho, x, y):
         invrho = exp(loginvrho)
-        hs2 = (invrho * (x - y)) ** 2
-        d = sqrt(sum(hs2))
-        intermediates = (d, hs2)
-        return d, intermediates
+        dif = (x - y) * invrho
+        hs2 = dif * dif
+        d = sqrt(sum(hs2, axis=-1))
+        return d, (d, hs2)
 
-    def scaled_distance__bwd(intermediates, g):
-        d, hs2 = intermediates
-        grad_loginvrho = g * hs2 / (d + eps)
-        grad_x = None  # Not computed, since we only need the gradient with respect to loginvrho
-        grad_y = None
-        return (grad_loginvrho, grad_x, grad_y)
+    def _sde_bwd(res, g):
+        d, hs2 = res
+        denom = d[:, None] + eps
+        grad_loginvrho = sum(g[:, None] * hs2 / denom, axis=0)
+        return (grad_loginvrho, None, None)
 
-    scaled_distance_.defvjp(scaled_distance__fwd, scaled_distance__bwd)
-
-    def scaled_distance(loginvrho, x, y):
-        return jax.vmap(
-            lambda x1: jax.vmap(lambda y1: scaled_distance_(loginvrho, x1, y1))(y)
-        )(x)
-
-    def scaled_distance_elementwise(loginvrho, x, y):
-        return jax.vmap(lambda x1, y1: scaled_distance_(loginvrho, x1, y1))(x, y)
+    scaled_distance_elementwise.defvjp(_sde_fwd, _sde_bwd)
 
     # ..................................................
 

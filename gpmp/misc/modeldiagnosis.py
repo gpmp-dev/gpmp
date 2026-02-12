@@ -781,7 +781,7 @@ def modeldiagnosis_init(
             mpl = 0
         else:
             mpl = int(gnp.asarray(model.meanparam).reshape(-1).shape[0])
-        cov_len = int(len(gnp.asarray(model.covparam)))
+        cov_len = int(gnp.asarray(model.covparam).reshape(-1).shape[0])
         bounds_arr = gnp.asarray(bounds_arr)
         if bounds_arr.ndim == 2 and bounds_arr.shape[1] == 2 and bounds_arr.shape[0] >= mpl + cov_len:
             cov_bounds = bounds_arr[mpl: mpl + cov_len]
