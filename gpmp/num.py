@@ -311,6 +311,7 @@ if _gpmp_backend_ == "numpy":
             crit: CriterionCallable,
             loader: LoaderLike,
             reduction: str = "mean",
+            batches_per_eval: int = 0,
         ):
             """
             Batch differentiable function for parameter optimization.
@@ -327,10 +328,20 @@ if _gpmp_backend_ == "numpy":
                 Iterable yielding batches (xb, zb).
             reduction : str, optional
                 Reduction mode: 'mean' (default) or 'sum'.
+            batches_per_eval : int, default 0
+                0  -> run over the whole loader each call (legacy behavior).
+                >0 -> run over exactly this many batches per call, cycling when
+                      the iterator is exhausted.
             """
+            if reduction not in ("mean", "sum"):
+                raise ValueError("reduction must be 'mean' or 'sum'")
+            if batches_per_eval < 0:
+                raise ValueError("batches_per_eval must be ≥ 0")
             self.crit = crit
             self.loader = loader
             self.reduction = reduction
+            self.bpe = int(batches_per_eval)
+            self._batch_iter = iter(loader) if self.bpe > 0 else None
             self.gradient = None
 
         def __call__(self, p: ArrayLike) -> ArrayLike:
@@ -339,11 +350,22 @@ if _gpmp_backend_ == "numpy":
         def evaluate_no_grad(self, p: ArrayLike) -> ArrayLike:
             return self.evaluate(p)
 
+        def _batches(self):
+            if self.bpe == 0:
+                yield from self.loader
+            else:
+                for _ in range(self.bpe):
+                    try:
+                        yield next(self._batch_iter)
+                    except StopIteration:
+                        self._batch_iter = iter(self.loader)
+                        yield next(self._batch_iter)
+
         def evaluate(self, p: ArrayLike) -> ArrayLike:
             try:
                 total_loss = 0.0
                 n_samples = 0
-                for xb, zb in self.loader:
+                for xb, zb in self._batches():
                     batch_size = xb.shape[0]
                     total_loss += self.crit(p, xb, zb) * batch_size
                     n_samples += batch_size
@@ -430,14 +452,27 @@ if _gpmp_backend_ == "numpy":
 
     class multivariate_normal:
         @staticmethod
+        def _mean_array(mean, d: int):
+            m = numpy.asarray(mean)
+            if m.ndim == 0:
+                return numpy.full((d,), float(m), dtype=_np_dtype)
+            m = m.astype(_np_dtype, copy=False).reshape(-1)
+            if m.size != d:
+                raise ValueError("mean has incompatible length.")
+            return m
+
+        @staticmethod
         def rvs(mean=0.0, cov=1.0, n=1):
             # Check if cov is a scalar or 1x1 array, and use norm if so
             if isscalar(cov) or (isinstance(cov, numpy.ndarray) and cov.size == 1):
                 return normal.rvs(mean, numpy.sqrt(cov), size=n).astype(_np_dtype, copy=False)
 
             # For dxd covariance matrix, use multivariate_normal
-            d = cov.shape[0]  # Dimensionality from the covariance matrix
-            mean_array = numpy.full(d, mean, dtype=_np_dtype)
+            cov = numpy.asarray(cov)
+            if cov.ndim != 2 or cov.shape[0] != cov.shape[1]:
+                raise ValueError("cov must be a scalar or a square 2D matrix.")
+            d = cov.shape[0]
+            mean_array = multivariate_normal._mean_array(mean, d)
             return numpy.asarray(
                 scipy_mvnormal.rvs(mean=mean_array, cov=cov, size=n), dtype=_np_dtype
             )
@@ -451,8 +486,18 @@ if _gpmp_backend_ == "numpy":
                 return normal.logpdf(x, mean, numpy.sqrt(cov))
 
             # For dxd covariance matrix, use multivariate_normal
-            d = x.shape[-1] if x.ndim > 1 else 1  # Infer dimensionality from x
-            mean_array = numpy.full(d, mean, dtype=_np_dtype)
+            x = numpy.asarray(x)
+            cov = numpy.asarray(cov)
+            if cov.ndim != 2 or cov.shape[0] != cov.shape[1]:
+                raise ValueError("cov must be a scalar or a square 2D matrix.")
+            d = cov.shape[0]
+            if x.ndim == 1:
+                if x.shape[0] != d:
+                    raise ValueError("x has incompatible length.")
+            else:
+                if x.shape[-1] != d:
+                    raise ValueError("x has incompatible last dimension.")
+            mean_array = multivariate_normal._mean_array(mean, d)
             return scipy_mvnormal.logpdf(x, mean=mean_array, cov=cov)
 
         @staticmethod
@@ -462,9 +507,18 @@ if _gpmp_backend_ == "numpy":
                 return normal.cdf(x, mean, sqrt(cov))
 
             # For dxd covariance matrix, use multivariate_normal
-            if isinstance(mean, (float, int)):
-                d = cov.shape[0]  # Dimensionality from the covariance matrix
-                mean = full(d, mean)  # Expand mean to an array
+            x = numpy.asarray(x)
+            cov = numpy.asarray(cov)
+            if cov.ndim != 2 or cov.shape[0] != cov.shape[1]:
+                raise ValueError("cov must be a scalar or a square 2D matrix.")
+            d = cov.shape[0]
+            if x.ndim == 1:
+                if x.shape[0] != d:
+                    raise ValueError("x has incompatible length.")
+            else:
+                if x.shape[-1] != d:
+                    raise ValueError("x has incompatible last dimension.")
+            mean = multivariate_normal._mean_array(mean, d)
             return scipy_mvnormal.cdf(x, mean=mean, cov=cov)
 
 
@@ -533,8 +587,6 @@ elif _gpmp_backend_ == "torch":
     from torch import finfo, float64
     from torch.distributions.multivariate_normal import MultivariateNormal
     from torch.distributions.normal import Normal
-    from scipy.stats import norm as scipy_norm
-    from scipy.stats import multivariate_normal as scipy_mvnormal
 
     # ..................................................
 
@@ -638,9 +690,8 @@ elif _gpmp_backend_ == "torch":
 
     def to_np(x):
         if is_tensor(x):
-            return x.numpy()
-        else:
-            return x
+            return x.detach().cpu().numpy()
+        return x
 
     def to_scalar(x):
         return x.item()
@@ -1102,7 +1153,7 @@ elif _gpmp_backend_ == "torch":
             d = zeros((x.shape[0],))
         else:
             invrho = exp(loginvrho)
-            d = sqrt(sum(invrho * (x - y) ** 2, axis=1))
+            d = sqrt(sum((invrho * (x - y)) ** 2, axis=1))
         return d
 
     # ..................................................
@@ -1140,8 +1191,13 @@ elif _gpmp_backend_ == "torch":
         return x
 
     def cho_factor(A, lower=False, overwrite_a=False, check_finite=True):
-        # torch.linalg does not have cho_factor(), use cholesky() instead.
-        return cholesky(A, upper=not (lower))
+        C = cholesky(A, upper=not lower)
+        return (C, lower)
+
+    def cho_solve(c_and_lower, b, overwrite_b=False, check_finite=True):
+        C, lower = c_and_lower
+        b = asarray(b)
+        return torch.cholesky_solve(b, C, upper=not lower)
 
     def cholesky_solve(A, b):
         if b.dim() == 1:
@@ -1214,16 +1270,19 @@ elif _gpmp_backend_ == "torch":
     class normal:
         @staticmethod
         def cdf(x, loc=0.0, scale=1.0):
+            x = asarray(x)
             d = Normal(loc, scale)
             return d.cdf(x)
 
         @staticmethod
         def logcdf(x, loc=0.0, scale=1.0):
+            x = asarray(x)
             d = Normal(loc, scale)
             return log(d.cdf(x))
 
         @staticmethod
         def pdf(x, loc=0.0, scale=1.0):
+            x = asarray(x)
             t = (x - loc) / scale
             return 1 / sqrt(2 * pi) * exp(-0.5 * t**2)
 
@@ -1280,7 +1339,8 @@ elif _gpmp_backend_ == "torch":
 
         @staticmethod
         def logpdf(x, mean=0.0, cov=1.0):
-            cov_t = multivariate_normal._as_torch_float(cov)
+            x_t = multivariate_normal._as_torch_float(x)
+            cov_t = multivariate_normal._as_torch_float(cov, device=x_t.device)
 
             # scalar variance
             if cov_t.numel() == 1:
@@ -1289,8 +1349,8 @@ elif _gpmp_backend_ == "torch":
                     mean, device=var.device
                 ).reshape(())
                 dist = Normal(mean_s, var.sqrt())
-                x_t = multivariate_normal._as_torch_float(x, device=var.device)
-                return dist.log_prob(x_t.squeeze(-1))
+                x_u = x_t.squeeze(-1) if (x_t.ndim > 0 and x_t.shape[-1] == 1) else x_t
+                return dist.log_prob(x_u)
 
             # matrix covariance
             if cov_t.ndim != 2 or cov_t.shape[0] != cov_t.shape[1]:
@@ -1298,7 +1358,6 @@ elif _gpmp_backend_ == "torch":
             d = cov_t.shape[0]
             mean_vec = multivariate_normal._mean_vector(mean, d, cov_t.device)
 
-            x_t = multivariate_normal._as_torch_float(x, device=cov_t.device)
             if x_t.shape[-1] != d:
                 raise ValueError("x has incompatible last dimension.")
 
@@ -1308,18 +1367,29 @@ elif _gpmp_backend_ == "torch":
         @staticmethod
         def cdf(x, mean=0.0, cov=1.0):
             # SciPy backend, CPU only.
-            x_np = x.detach().cpu().numpy() if torch.is_tensor(x) else np.asarray(x)
-            mean_np = mean.detach().cpu().numpy() if torch.is_tensor(mean) else mean
-            cov_np = cov.detach().cpu().numpy() if torch.is_tensor(cov) else np.asarray(cov)
+            try:
+                from scipy.stats import norm as _sp_norm
+                from scipy.stats import multivariate_normal as _sp_mvn
+            except Exception as exc:
+                raise ImportError(
+                    "SciPy is required for multivariate_normal.cdf in the torch backend."
+                ) from exc
 
-            # scalar variance
-            if np.isscalar(cov_np) or np.size(cov_np) == 1:
-                return scipy_norm.cdf(x_np, loc=mean_np, scale=np.sqrt(cov_np))
+            x_np = to_np(asarray(x)) if torch.is_tensor(x) else np.asarray(x)
+            cov_np = to_np(asarray(cov)) if torch.is_tensor(cov) else np.asarray(cov)
+            mean_np = (
+                to_np(asarray(mean)) if torch.is_tensor(mean) else np.asarray(mean)
+            )
 
-            # matrix covariance
-            if np.isscalar(mean_np):
-                mean_np = np.full((cov_np.shape[0],), mean_np)
-            return scipy_mvnormal.cdf(x_np, mean=mean_np, cov=cov_np)
+            if np.isscalar(cov_np) or cov_np.size == 1:
+                m0 = float(np.asarray(mean_np).reshape(()))
+                s0 = float(np.sqrt(np.asarray(cov_np).reshape(())))
+                return asarray(_sp_norm.cdf(x_np, loc=m0, scale=s0))
+
+            if np.isscalar(mean_np) or np.asarray(mean_np).ndim == 0:
+                d = cov_np.shape[0]
+                mean_np = np.full((d,), float(np.asarray(mean_np).reshape(())))
+            return asarray(_sp_mvn.cdf(x_np, mean=mean_np, cov=cov_np))
 
 
 # ------------------------------------------------------
@@ -1331,7 +1401,7 @@ elif _gpmp_backend_ == "jax":
     import os
     import numpy
 
-    os.environ.setdefault("JAX_PLATFORM_NAME", "cpu")  # stay on the GPU
+    os.environ.setdefault("JAX_PLATFORM_NAME", "cpu")  # force CPU
     os.environ.setdefault(
         "XLA_PYTHON_CLIENT_PREALLOCATE", "false"
     )  # tiny RAM footprint
@@ -1565,16 +1635,37 @@ elif _gpmp_backend_ == "jax":
                 raise
 
     class BatchDifferentiableSelectionCriterion:
-        def __init__(self, crit, loader, reduction: str = "mean"):
+        def __init__(
+            self,
+            crit,
+            loader,
+            reduction: str = "mean",
+            batches_per_eval: int = 0,
+        ):
             if reduction not in ("mean", "sum"):
                 raise ValueError("reduction must be 'mean' or 'sum'")
+            if batches_per_eval < 0:
+                raise ValueError("batches_per_eval must be ≥ 0")
             self.crit = jax.jit(crit)
             self._grad_fn = jax.jit(jax.grad(self.crit, argnums=0))
             self.loader = loader
             self.reduction = reduction
+            self.bpe = int(batches_per_eval)
+            self._batch_iter = iter(loader) if self.bpe > 0 else None
 
             self._gradient = None
             self._param_ref = None
+
+        def _batches(self):
+            if self.bpe == 0:
+                yield from self.loader
+            else:
+                for _ in range(self.bpe):
+                    try:
+                        yield next(self._batch_iter)
+                    except StopIteration:
+                        self._batch_iter = iter(self.loader)
+                        yield next(self._batch_iter)
 
         @staticmethod
         def _prepare_param(param):
@@ -1584,7 +1675,7 @@ elif _gpmp_backend_ == "jax":
             p = self._prepare_param(param)
 
             total, n = 0.0, 0
-            for xb, zb in self.loader:
+            for xb, zb in self._batches():
                 loss_b = self.crit(p, xb, zb)
                 bs = xb.shape[0]
                 total += loss_b * bs
@@ -1600,7 +1691,7 @@ elif _gpmp_backend_ == "jax":
             self._param_ref = p
 
             total, grad_acc, n = 0.0, None, 0
-            for xb, zb in self.loader:
+            for xb, zb in self._batches():
                 bs = xb.shape[0]
 
                 loss_b = self.crit(p, xb, zb)
@@ -1638,11 +1729,11 @@ elif _gpmp_backend_ == "jax":
         # Debug: check if x is y
         # print("&x = {}, &y = {}".format(hex(id(x)), hex(id(y))))
         if x is y:
-            d = sqrt(reshape(y2, [-1, 1]) + y2 - 2 * inner(x, y))
+            sq = reshape(y2, [-1, 1]) + y2 - 2 * inner(x, y)
         else:
             x2 = reshape(sum(x**2, axis=1), [-1, 1])
-            d = sqrt(x2 + y2 - 2 * inner(x, y))
-        return d
+            sq = x2 + y2 - 2 * inner(x, y)
+        return sqrt(maximum(sq, 0.0))
 
     @jax.custom_vjp
     def scaled_distance_(loginvrho, x, y):
@@ -1668,18 +1759,12 @@ elif _gpmp_backend_ == "jax":
     scaled_distance_.defvjp(scaled_distance__fwd, scaled_distance__bwd)
 
     def scaled_distance(loginvrho, x, y):
-        f = jax.vmap(
-            lambda x1: jax.vmap(
-                lambda y1: jax.jit(scaled_distance_)(loginvrho, x1, y1)
-            )(y)
+        return jax.vmap(
+            lambda x1: jax.vmap(lambda y1: scaled_distance_(loginvrho, x1, y1))(y)
         )(x)
-        return f
 
     def scaled_distance_elementwise(loginvrho, x, y):
-        f = jax.vmap(jax.jit(scaled_distance), in_axes=(None, 0, 0), out_axes=0)(
-            loginvrho, x, y
-        )
-        return f
+        return jax.vmap(lambda x1, y1: scaled_distance_(loginvrho, x1, y1))(x, y)
 
     # ..................................................
 
@@ -1769,6 +1854,16 @@ elif _gpmp_backend_ == "jax":
 
     class multivariate_normal:
         @staticmethod
+        def _mean_array(mean, d: int):
+            m = asarray(mean)
+            if m.ndim == 0:
+                return full((d,), m, dtype=_jax_dtype)
+            m = m.astype(_jax_dtype).reshape(-1)
+            if m.size != d:
+                raise ValueError("mean has incompatible length.")
+            return m
+
+        @staticmethod
         def rvs(mean=0.0, cov=1.0, n=1):
             if isscalar(cov) or cov.ndim == 0:
                 cov = cov * eye(1)
@@ -1782,7 +1877,15 @@ elif _gpmp_backend_ == "jax":
 
         @staticmethod
         def logpdf(x, mean=0.0, cov=1.0, allow_singular=False):
-            mean_vector = full((x.shape[-1],), mean)
+            x = asarray(x)
+            # scalar cov -> univariate semantics
+            cov_a = asarray(cov)
+            if isscalar(cov_a) or cov_a.ndim == 0 or cov_a.size == 1:
+                if not isscalar(mean):
+                    raise ValueError("For scalar cov, mean must be a scalar.")
+                return normal.logpdf(x, mean, sqrt(cov_a))
+            d = x.shape[-1] if x.ndim > 1 else x.shape[0]
+            mean_vector = multivariate_normal._mean_array(mean, d)
             return jax.scipy.stats.multivariate_normal.logpdf(
                 x, mean=mean_vector, cov=cov, allow_singular=allow_singular
             )
@@ -1800,7 +1903,7 @@ elif _gpmp_backend_ == "jax":
                 d = cov.shape[0]
                 mean = full(d, mean)
 
-            return scipy_mvnormal.cdf(x, mean, cov)
+            return asarray(scipy_mvnormal.cdf(x, mean, cov))
 
 
 # ------------------------------------------------------------------
