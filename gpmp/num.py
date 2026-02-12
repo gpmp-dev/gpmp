@@ -69,7 +69,7 @@ if _gpmp_backend_ == "numpy":
     from numpy import array, empty
     from numpy.typing import NDArray
 
-    _np_dtype = numpy.float32 if _DTYPE_SPEC == "float32" else numpy.float64
+    _np_dtype = numpy.float64
     _config.dtype_resolved = _np_dtype
 
     ndarray = NDArray[numpy.floating]
@@ -499,7 +499,7 @@ elif _gpmp_backend_ == "torch":
     import numpy
     import numpy as np
 
-    _torch_dtype = torch.float32 if _DTYPE_SPEC == "float32" else torch.float64
+    _torch_dtype = torch.float64
     torch.set_default_dtype(_torch_dtype)
     _config.dtype_resolved = _torch_dtype
     from torch import tensor, is_tensor
@@ -613,7 +613,7 @@ elif _gpmp_backend_ == "torch":
         if isinstance(x, torch.Tensor):
             if dtype is not None:
                 return x if x.dtype == dtype else x.to(dtype=dtype)
-            if x.dtype != _torch_dtype:
+            if x.is_floating_point() and x.dtype != _torch_dtype:
                 return x.to(dtype=_torch_dtype)
             return x
         if isinstance(x, numpy.ndarray):
@@ -623,7 +623,7 @@ elif _gpmp_backend_ == "torch":
                 x_ = torch.as_tensor(x)
             if dtype is not None:
                 return x_ if x_.dtype == dtype else x_.to(dtype=dtype)
-            if x_.dtype != _torch_dtype:
+            if x_.is_floating_point() and x_.dtype != _torch_dtype:
                 return x_.to(dtype=_torch_dtype)
             return x_
         if isinstance(x, (int, float)):
@@ -633,7 +633,7 @@ elif _gpmp_backend_ == "torch":
         x_ = torch.as_tensor(x)
         if dtype is not None:
             return x_ if x_.dtype == dtype else x_.to(dtype=dtype)
-        if x_.dtype != _torch_dtype:
+        if x_.is_floating_point() and x_.dtype != _torch_dtype:
             x_ = x_.to(dtype=_torch_dtype)
         return x_
 
@@ -664,9 +664,22 @@ elif _gpmp_backend_ == "torch":
 
     def scalar_safe(f):
         def f_(x):
-            return f(asarray(x))
+            # Fast path: already a tensor. Do not recast here.
+            if torch.is_tensor(x):
+                return f(x)
+
+            # Scalars / lists / numpy arrays: convert once.
+            # Use dtype=_torch_dtype so scalar literals become float64 consistently.
+            t = torch.as_tensor(x, dtype=_torch_dtype)
+            return f(t)
 
         return f_
+        
+    # def scalar_safe(f):
+    #     def f_(x):
+    #         return f(asarray(x))
+
+    #     return f_
 
     # ..................................................
 
@@ -789,16 +802,21 @@ elif _gpmp_backend_ == "torch":
         return m.values.unsqueeze(axis) if keepdims else m.values
 
     def maximum(x1, x2):
+        if torch.is_tensor(x1) and torch.is_tensor(x2):
+            return torch.maximum(x1, x2)
         return torch.maximum(asarray(x1), asarray(x2))
 
     def minimum(x1, x2):
+        if torch.is_tensor(x1) and torch.is_tensor(x2):
+            return torch.minimum(x1, x2)
         return torch.minimum(asarray(x1), asarray(x2))
 
     def clip(x, min=None, max=None, out=None):
-        x = asarray(x)
-        if min is not None:
+        if not torch.is_tensor(x):
+            x = asarray(x)
+        if min is not None and not torch.is_tensor(min):
             min = asarray(min).to(dtype=x.dtype)
-        if max is not None:
+        if max is not None and not torch.is_tensor(max):
             max = asarray(max).to(dtype=x.dtype)
         return torch.clamp(x, min=min, max=max, out=out)
 
