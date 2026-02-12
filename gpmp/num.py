@@ -22,7 +22,7 @@ License: GPLv3 (see LICENSE)
 import os
 import warnings
 from typing import Any, Callable, Iterable, Optional, Tuple, Union
-from gpmp.config import get_config, init_backend, get_logger
+from gpmp.config import _normalize_dtype_spec, get_config, init_backend, get_logger
 
 Scalar = Union[int, float]
 ArrayLike = Any
@@ -33,6 +33,7 @@ _gpmp_backend_: str = init_backend()
 _config = get_config()
 _logger = get_logger()
 _logger.info("Using backend: %s", _gpmp_backend_)
+_DTYPE_SPEC = _normalize_dtype_spec(_config.dtype)
 
 _LINALG_ERROR_KEYWORDS = (
     "singular",
@@ -62,7 +63,10 @@ if _gpmp_backend_ == "numpy":
     from numpy import array, empty
     from numpy.typing import NDArray
 
-    ndarray = NDArray[numpy.float64]
+    _np_dtype = numpy.float32 if _DTYPE_SPEC == "float32" else numpy.float64
+    _config.dtype_resolved = _np_dtype
+
+    ndarray = NDArray[numpy.floating]
     from numpy import (
         copy,
         array_equal,
@@ -145,8 +149,8 @@ if _gpmp_backend_ == "numpy":
 
     # ..................................................
 
-    eps = finfo(float64).eps
-    fmax = numpy.finfo(numpy.float64).max
+    eps = finfo(_np_dtype).eps
+    fmax = numpy.finfo(_np_dtype).max
     # ..................................................
 
     def set_elem_1d(x, index, v):
@@ -183,19 +187,72 @@ if _gpmp_backend_ == "numpy":
 
     # ..................................................
 
+    def array(x, dtype=None):
+        if dtype is not None:
+            return numpy.array(x, dtype=dtype)
+        out = numpy.array(x)
+        if numpy.issubdtype(out.dtype, numpy.floating):
+            return out.astype(_np_dtype, copy=False)
+        return out
+
     def asarray(x, dtype=None):
+        if dtype is not None:
+            return numpy.asarray(x, dtype=dtype)
         if isinstance(x, numpy.ndarray):
+            if numpy.issubdtype(x.dtype, numpy.floating):
+                return x.astype(_np_dtype, copy=False)
             return x
         elif isinstance(x, (int, float)):
-            return numpy.array([x], dtype=dtype)
+            dt = _np_dtype if isinstance(x, float) else None
+            return numpy.array([x], dtype=dt)
         else:
-            return numpy.asarray(x, dtype=dtype)
+            out = numpy.asarray(x)
+            if numpy.issubdtype(out.dtype, numpy.floating):
+                return out.astype(_np_dtype, copy=False)
+            return out
+
+    def empty(shape, dtype=None):
+        return numpy.empty(shape, dtype=_np_dtype if dtype is None else dtype)
+
+    def zeros(shape, dtype=None):
+        return numpy.zeros(shape, dtype=_np_dtype if dtype is None else dtype)
+
+    def ones(shape, dtype=None):
+        return numpy.ones(shape, dtype=_np_dtype if dtype is None else dtype)
+
+    def full(shape, fill_value, dtype=None):
+        return numpy.full(shape, fill_value, dtype=_np_dtype if dtype is None else dtype)
+
+    def eye(n, m=None, k=0, dtype=None):
+        return numpy.eye(n, M=m, k=k, dtype=_np_dtype if dtype is None else dtype)
+
+    def linspace(start, stop, num=50, endpoint=True, retstep=False, dtype=None, axis=0):
+        return numpy.linspace(
+            start,
+            stop,
+            num=num,
+            endpoint=endpoint,
+            retstep=retstep,
+            dtype=_np_dtype if dtype is None else dtype,
+            axis=axis,
+        )
+
+    def logspace(start, stop, num=50, endpoint=True, base=10.0, dtype=None, axis=0):
+        return numpy.logspace(
+            start,
+            stop,
+            num=num,
+            endpoint=endpoint,
+            base=base,
+            dtype=_np_dtype if dtype is None else dtype,
+            axis=axis,
+        )
 
     def asdouble(x):
-        return x.astype(float64)
+        return numpy.asarray(x).astype(float64, copy=False)
 
     def asint(x):
-        return x.astype(int)
+        return numpy.asarray(x).astype(int, copy=False)
 
     def to_np(x):
         return x
@@ -352,10 +409,13 @@ if _gpmp_backend_ == "numpy":
         _np_rng = numpy.random.default_rng(seed=seed)
 
     def rand(*shape: int) -> ArrayLike:
-        return _np_rng.random(shape)
+        try:
+            return _np_rng.random(shape, dtype=_np_dtype)
+        except TypeError:
+            return _np_rng.random(shape).astype(_np_dtype, copy=False)
 
     def randn(*shape: int) -> ArrayLike:
-        return _np_rng.normal(loc=0, scale=1, size=shape)
+        return _np_rng.normal(loc=0, scale=1, size=shape).astype(_np_dtype, copy=False)
 
     def choice(
         a: ArrayLike,
@@ -373,12 +433,14 @@ if _gpmp_backend_ == "numpy":
         def rvs(mean=0.0, cov=1.0, n=1):
             # Check if cov is a scalar or 1x1 array, and use norm if so
             if isscalar(cov) or (isinstance(cov, numpy.ndarray) and cov.size == 1):
-                return normal.rvs(mean, numpy.sqrt(cov), size=n)
+                return normal.rvs(mean, numpy.sqrt(cov), size=n).astype(_np_dtype, copy=False)
 
             # For dxd covariance matrix, use multivariate_normal
             d = cov.shape[0]  # Dimensionality from the covariance matrix
-            mean_array = numpy.full(d, mean)  # Expand mean to an array
-            return scipy_mvnormal.rvs(mean=mean_array, cov=cov, size=n)
+            mean_array = numpy.full(d, mean, dtype=_np_dtype)
+            return numpy.asarray(
+                scipy_mvnormal.rvs(mean=mean_array, cov=cov, size=n), dtype=_np_dtype
+            )
 
         @staticmethod
         def logpdf(x, mean=0.0, cov=1.0):
@@ -390,7 +452,7 @@ if _gpmp_backend_ == "numpy":
 
             # For dxd covariance matrix, use multivariate_normal
             d = x.shape[-1] if x.ndim > 1 else 1  # Infer dimensionality from x
-            mean_array = numpy.full(d, mean)  # Expand mean to an array
+            mean_array = numpy.full(d, mean, dtype=_np_dtype)
             return scipy_mvnormal.logpdf(x, mean=mean_array, cov=cov)
 
         @staticmethod
@@ -413,8 +475,12 @@ if _gpmp_backend_ == "numpy":
 # -----------------------------------------------------
 elif _gpmp_backend_ == "torch":
     import torch
+    import numpy
+    import numpy as np
 
-    torch.set_default_dtype(torch.float64)
+    _torch_dtype = torch.float32 if _DTYPE_SPEC == "float32" else torch.float64
+    torch.set_default_dtype(_torch_dtype)
+    _config.dtype_resolved = _torch_dtype
     from torch import tensor, is_tensor
 
     ndarray = torch.Tensor
@@ -467,20 +533,26 @@ elif _gpmp_backend_ == "torch":
     from torch import finfo, float64
     from torch.distributions.multivariate_normal import MultivariateNormal
     from torch.distributions.normal import Normal
+    from scipy.stats import norm as scipy_norm
     from scipy.stats import multivariate_normal as scipy_mvnormal
-    from scipy.special import gammaln
 
     # ..................................................
 
-    eps = finfo(float64).eps
-    fmax = finfo(float64).max
+    eps = finfo(_torch_dtype).eps
+    fmax = finfo(_torch_dtype).max
     # ..................................................
+
+    def gammaln(x):
+        t = x if torch.is_tensor(x) else torch.as_tensor(x)
+        if t.is_floating_point() and t.dtype != _torch_dtype:
+            t = t.to(dtype=_torch_dtype)
+        elif not t.is_floating_point():
+            t = t.to(dtype=_torch_dtype)
+        return torch.lgamma(t)
 
     def copy(x):
-        if isinstance(x, torch.Tensor):
-            return x.clone().detach()
-        else:
-            return torch.clone(tensor(x))
+        t = asarray(x)
+        return t.clone().detach()
 
     def array_equal(x, y):
         return torch.equal(x, y)
@@ -513,22 +585,56 @@ elif _gpmp_backend_ == "torch":
 
     # ..................................................
 
-    def array(x: list):
-        return tensor(x)
+    def array(x, dtype=None):
+        return asarray(x, dtype=dtype)
+
+    def _resolve_torch_dtype(dtype):
+        if dtype is None:
+            return None
+        if isinstance(dtype, torch.dtype):
+            return dtype
+        if dtype is float:
+            return _torch_dtype
+        if dtype is int:
+            return torch.long
+        if dtype is bool:
+            return torch.bool
+        s = str(dtype).lower()
+        if "float32" in s:
+            return torch.float32
+        if "float64" in s or "double" in s:
+            return torch.float64
+        if "int64" in s or "long" in s:
+            return torch.int64
+        if "int32" in s:
+            return torch.int32
+        if "bool" in s:
+            return torch.bool
+        return dtype
 
     def asarray(x, dtype=None):
+        dtype = _resolve_torch_dtype(dtype)
         if isinstance(x, torch.Tensor):
-            return x
-        elif isinstance(x, (int, float)):
-            return tensor([x], dtype=dtype)
-        else:
-            return torch.asarray(x, dtype=dtype)
+            t = x
+            if dtype is not None:
+                return t.to(dtype=dtype)
+            if t.is_floating_point() and t.dtype != _torch_dtype:
+                return t.to(dtype=_torch_dtype)
+            return t
+        if isinstance(x, (int, float)):
+            if dtype is None and isinstance(x, float):
+                dtype = _torch_dtype
+            return torch.tensor([x], dtype=dtype)
+        t = torch.as_tensor(x, dtype=dtype) if dtype is not None else torch.as_tensor(x)
+        if dtype is None and t.is_floating_point() and t.dtype != _torch_dtype:
+            t = t.to(dtype=_torch_dtype)
+        return t
 
     def asdouble(x):
-        return x.to(torch.double)
+        return asarray(x).to(torch.double)
 
     def asint(x):
-        return x.to(torch.int)
+        return asarray(x).to(torch.int)
 
     def to_np(x):
         if is_tensor(x):
@@ -552,10 +658,7 @@ elif _gpmp_backend_ == "torch":
 
     def scalar_safe(f):
         def f_(x):
-            if torch.is_tensor(x):
-                return f(x)
-            else:
-                return f(torch.tensor(x))
+            return f(asarray(x))
 
         return f_
 
@@ -680,27 +783,18 @@ elif _gpmp_backend_ == "torch":
         return m.values.unsqueeze(axis) if keepdims else m.values
 
     def maximum(x1, x2):
-        if not torch.is_tensor(x1):
-            x1 = tensor(x1)
-        if not torch.is_tensor(x2):
-            x2 = tensor(x2)
-        return torch.maximum(x1, x2)
+        return torch.maximum(asarray(x1), asarray(x2))
 
     def minimum(x1, x2):
-        if not torch.is_tensor(x1):
-            x1 = tensor(x1)
-        if not torch.is_tensor(x2):
-            x2 = tensor(x2)
-        return torch.minimum(x1, x2)
+        return torch.minimum(asarray(x1), asarray(x2))
 
     def clip(x, min=None, max=None, out=None):
-        if not torch.is_tensor(x):
-            x = tensor(x)
-        if min is not None and not torch.is_tensor(min):
-            min = tensor(min)
-        if max is not None and not torch.is_tensor(max):
-            max = tensor(max)
-        return torch.clamp(x, min, max, out=out)
+        x = asarray(x)
+        if min is not None:
+            min = asarray(min).to(dtype=x.dtype)
+        if max is not None:
+            max = asarray(max).to(dtype=x.dtype)
+        return torch.clamp(x, min=min, max=max, out=out)
 
     def sort(x, axis=-1):
         xsorted = torch.sort(x, dim=axis)
@@ -714,11 +808,7 @@ elif _gpmp_backend_ == "torch":
 
     def grad(f: Callable[[ArrayLike], ArrayLike]) -> Callable[[ArrayLike], ArrayLike]:
         def f_grad(x):
-            if not torch.is_tensor(x):
-                x = torch.tensor(x, requires_grad=True)
-            else:
-                x = x.detach().clone().requires_grad_(True)
-
+            x = asarray(x).detach().clone().requires_grad_(True)
             y = f(x)
             gradients = torch.autograd.grad(y, x, allow_unused=True)[0]
             return gradients
@@ -758,8 +848,7 @@ elif _gpmp_backend_ == "torch":
             return self.evaluate_no_grad(p)
 
         def evaluate_no_grad(self, p: ArrayLike) -> float:
-            if not torch.is_tensor(p):
-                p = torch.tensor(p)
+            p = asarray(p)
             try:
                 with torch.no_grad():
                     f_value = self.f(p, self.x, self.z)
@@ -770,10 +859,7 @@ elif _gpmp_backend_ == "torch":
                 raise
 
         def evaluate(self, p: ArrayLike) -> float:
-            if not torch.is_tensor(p):
-                self._p_value = torch.tensor(p, requires_grad=True)
-            else:
-                self._p_value = p.detach().clone().requires_grad_(True)
+            self._p_value = asarray(p).detach().clone().requires_grad_(True)
 
             try:
                 self._f_value = self.f(self._p_value, self.x, self.z)
@@ -852,8 +938,7 @@ elif _gpmp_backend_ == "torch":
             param: TensorLike, *, req_grad: bool = False
         ) -> torch.Tensor:
             """Convert to tensor and set `requires_grad` (no dtype/device casting)."""
-            if not isinstance(param, torch.Tensor):
-                param = torch.tensor(param)
+            param = asarray(param)
             param.requires_grad_(req_grad)
             return param
 
@@ -926,11 +1011,7 @@ elif _gpmp_backend_ == "torch":
 
         def evaluate(self, x: TensorLike) -> torch.Tensor:
             """Evaluate the function at x and store gradient graph."""
-            if not torch.is_tensor(x):
-                x = torch.tensor(x, requires_grad=True, dtype=torch.double)
-            else:
-                x = x.detach().clone().requires_grad_(True)
-
+            x = asarray(x).detach().clone().requires_grad_(True)
             self._x = x
             self._y = self.f(self._x)
 
@@ -958,7 +1039,7 @@ elif _gpmp_backend_ == "torch":
             x = self._x
             grad = self._grad
             n = x.numel()
-            hessian = torch.zeros((n, n), dtype=torch.double)
+            hessian = torch.zeros((n, n), dtype=x.dtype, device=x.device)
 
             for idx in range(n):
                 (grad2,) = torch.autograd.grad(
@@ -1100,13 +1181,13 @@ elif _gpmp_backend_ == "torch":
             a = (
                 torch.arange(a)
                 if isinstance(a, int)
-                else torch.tensor(a, dtype=torch.float64)
+                else torch.tensor(a, dtype=_torch_dtype)
             )
 
         n = a.shape[0]
 
         if p is not None:
-            p = torch.tensor(p, dtype=torch.float64, device=a.device)
+            p = torch.tensor(p, dtype=_torch_dtype, device=a.device)
             p = p / p.sum()
             indices = torch.multinomial(
                 p, num_samples=size, replacement=replace, generator=_torch_gen
@@ -1149,66 +1230,96 @@ elif _gpmp_backend_ == "torch":
         @staticmethod
         def logpdf(x, loc=0.0, scale=1.0):
             d = Normal(loc, scale)
-            return d.logpdf(x)
+            return d.log_prob(asarray(x))
 
     class multivariate_normal:
         @staticmethod
-        def rvs(mean=0.0, cov=1.0, n=1):
-            # Check if cov is a scalar or 1x1 array, and use Normal if so
-            if (
-                torch.is_tensor(cov)
-                and cov.ndim == 0
-                or (cov.ndim == 2 and cov.shape[0] == 1 and cov.shape[1] == 1)
-            ):
-                distribution = Normal(torch.tensor(mean), cov.sqrt())
-                return distribution.sample((n,))
+        def _as_torch_float(x, *, device=None) -> torch.Tensor:
+            t = asarray(x)
+            if not t.is_floating_point() or t.dtype != _torch_dtype:
+                t = t.to(dtype=_torch_dtype)
+            if device is not None and t.device != device:
+                t = t.to(device=device)
+            return t
 
-            # For dxd covariance matrix, use MultivariateNormal
-            d = cov.shape[0]  # Dimensionality from the covariance matrix
-            mean_tensor = torch.full((d,), mean)  # Expand mean to a tensor
-            distribution = MultivariateNormal(mean_tensor, covariance_matrix=cov)
-            return distribution.sample((n,))
+        @staticmethod
+        def _mean_vector(mean, d: int, device) -> torch.Tensor:
+            m = asarray(mean)
+            if torch.is_tensor(m) and m.numel() > 1:
+                m = multivariate_normal._as_torch_float(m, device=device).reshape(-1)
+                if m.numel() != d:
+                    raise ValueError("mean has incompatible length.")
+                return m
+            return torch.full(
+                (d,),
+                float(asarray(mean).reshape(()).item()),
+                dtype=_torch_dtype,
+                device=device,
+            )
+
+        @staticmethod
+        def rvs(mean=0.0, cov=1.0, n=1):
+            cov_t = multivariate_normal._as_torch_float(cov)
+
+            # scalar variance (Python scalar, 0-d tensor, 1x1 tensor, or any 1-element tensor)
+            if cov_t.numel() == 1:
+                var = cov_t.reshape(())
+                mean_s = multivariate_normal._as_torch_float(
+                    mean, device=var.device
+                ).reshape(())
+                dist = Normal(mean_s, var.sqrt())
+                return dist.sample((n,))
+
+            # matrix covariance
+            if cov_t.ndim != 2 or cov_t.shape[0] != cov_t.shape[1]:
+                raise ValueError("cov must be a scalar or a square 2D matrix.")
+            d = cov_t.shape[0]
+            mean_vec = multivariate_normal._mean_vector(mean, d, cov_t.device)
+            dist = MultivariateNormal(mean_vec, covariance_matrix=cov_t)
+            return dist.sample((n,))
 
         @staticmethod
         def logpdf(x, mean=0.0, cov=1.0):
-            # Check if cov is a scalar or 1x1 array, and use Normal if so
-            if (
-                torch.is_tensor(cov)
-                and cov.ndim == 0
-                or (cov.ndim == 2 and cov.shape[0] == 1 and cov.shape[1] == 1)
-            ):
-                distribution = Normal(torch.tensor(mean), cov.sqrt())
-                return distribution.log_prob(x.squeeze(-1))
+            cov_t = multivariate_normal._as_torch_float(cov)
 
-            # For dxd covariance matrix, use MultivariateNormal
-            d = x.shape[-1]  # Infer dimensionality from x
-            mean_tensor = torch.full((d,), mean)  # Expand mean to a tensor
-            distribution = MultivariateNormal(mean_tensor, covariance_matrix=cov)
-            return distribution.log_prob(x)
+            # scalar variance
+            if cov_t.numel() == 1:
+                var = cov_t.reshape(())
+                mean_s = multivariate_normal._as_torch_float(
+                    mean, device=var.device
+                ).reshape(())
+                dist = Normal(mean_s, var.sqrt())
+                x_t = multivariate_normal._as_torch_float(x, device=var.device)
+                return dist.log_prob(x_t.squeeze(-1))
+
+            # matrix covariance
+            if cov_t.ndim != 2 or cov_t.shape[0] != cov_t.shape[1]:
+                raise ValueError("cov must be a scalar or a square 2D matrix.")
+            d = cov_t.shape[0]
+            mean_vec = multivariate_normal._mean_vector(mean, d, cov_t.device)
+
+            x_t = multivariate_normal._as_torch_float(x, device=cov_t.device)
+            if x_t.shape[-1] != d:
+                raise ValueError("x has incompatible last dimension.")
+
+            dist = MultivariateNormal(mean_vec, covariance_matrix=cov_t)
+            return dist.log_prob(x_t)
 
         @staticmethod
         def cdf(x, mean=0.0, cov=1.0):
-            # Convert inputs to NumPy arrays if they are PyTorch tensors
-            if torch.is_tensor(x):
-                x = x.numpy()
-            if torch.is_tensor(mean):
-                mean = mean.numpy()
-            if torch.is_tensor(cov):
-                cov = cov.numpy()
+            # SciPy backend, CPU only.
+            x_np = x.detach().cpu().numpy() if torch.is_tensor(x) else np.asarray(x)
+            mean_np = mean.detach().cpu().numpy() if torch.is_tensor(mean) else mean
+            cov_np = cov.detach().cpu().numpy() if torch.is_tensor(cov) else np.asarray(cov)
 
-            # Check if cov is a scalar or 1x1 array, and use norm for the univariate case
-            if (
-                isscalar(cov)
-                or (isinstance(cov, numpy.ndarray) and cov.size == 1)
-                or (torch.is_tensor(cov) and cov.size == 1)
-            ):
-                return Normal.cdf(x, mean, np.sqrt(cov))
+            # scalar variance
+            if np.isscalar(cov_np) or np.size(cov_np) == 1:
+                return scipy_norm.cdf(x_np, loc=mean_np, scale=np.sqrt(cov_np))
 
-            # For dxd covariance matrix, use multivariate_normal
-            if isscalar(mean):
-                d = cov.shape[0]  # Dimensionality from the covariance matrix
-                mean = full(d, mean)  # Expand mean to an array
-            return scipy_mvnormal.cdf(x, mean, cov)
+            # matrix covariance
+            if np.isscalar(mean_np):
+                mean_np = np.full((cov_np.shape[0],), mean_np)
+            return scipy_mvnormal.cdf(x_np, mean=mean_np, cov=cov_np)
 
 
 # ------------------------------------------------------
@@ -1231,9 +1342,12 @@ elif _gpmp_backend_ == "jax":
     # see https://github.com/google/jax/issues/8345
     # os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=512"
 
-    # set double precision for floats
-    jax.config.update("jax_enable_x64", True)
+    # set floating precision according to dtype spec
+    jax.config.update("jax_enable_x64", _DTYPE_SPEC == "float64")
     from jax.numpy import array, empty
+
+    _jax_dtype = jax.numpy.float32 if _DTYPE_SPEC == "float32" else jax.numpy.float64
+    _config.dtype_resolved = _jax_dtype
 
     ndarray = jax.numpy.ndarray
 
@@ -1318,8 +1432,8 @@ elif _gpmp_backend_ == "jax":
 
     # ..................................................
 
-    eps = finfo(float64).eps
-    fmax = finfo(float64).max
+    eps = finfo(_jax_dtype).eps
+    fmax = finfo(_jax_dtype).max
     # ..................................................
 
     def copy(x):
@@ -1378,19 +1492,22 @@ elif _gpmp_backend_ == "jax":
 
     # ..................................................
 
+    def array(x, dtype=None, **kwargs):
+        if dtype is not None:
+            return jax.numpy.array(x, dtype=dtype, **kwargs)
+        out = jax.numpy.array(x, **kwargs)
+        if jax.numpy.issubdtype(out.dtype, jax.numpy.floating) and out.dtype != _jax_dtype:
+            return out.astype(_jax_dtype)
+        return out
+
     def asarray(x, dtype=None):
-        if isinstance(x, jax.numpy.ndarray):
-            return x
-        if isinstance(x, (int, float)):
-            return jax.numpy.array([x])
-        else:
-            return jax.numpy.asarray(x, dtype=dtype)
+        return jax.numpy.asarray(x, dtype=dtype) if dtype is not None else array(x)
 
     def asdouble(x):
-        return x.astype(float64)
+        return asarray(x).astype(float64)
 
     def asint(x):
-        return x.astype(int)
+        return asarray(x).astype(int)
 
     def to_np(x):
         if isinstance(x, jax.numpy.ndarray):
@@ -1429,7 +1546,7 @@ elif _gpmp_backend_ == "jax":
 
         def evaluate(self, p):
             if not isinstance(p, jax.numpy.ndarray):
-                p = jax.numpy.array(p)
+                p = asarray(p)
             try:
                 return self.crit(p)
             except Exception as exc:
@@ -1439,7 +1556,7 @@ elif _gpmp_backend_ == "jax":
 
         def gradient(self, p):
             if not isinstance(p, jax.numpy.ndarray):
-                p = jax.numpy.array(p)
+                p = asarray(p)
             try:
                 return self.crit_grad(p)
             except Exception as exc:
@@ -1604,11 +1721,11 @@ elif _gpmp_backend_ == "jax":
 
     def rand(*shape):
         subkey = _update_key()
-        return jax.random.uniform(subkey, shape=shape)
+        return jax.random.uniform(subkey, shape=shape, dtype=_jax_dtype)
 
     def randn(*shape):
         subkey = _update_key()
-        return jax.random.normal(subkey, shape=shape)
+        return jax.random.normal(subkey, shape=shape, dtype=_jax_dtype)
 
     def choice(a, size=None, replace=True, p=None):
         subkey = _update_key()
@@ -1624,7 +1741,7 @@ elif _gpmp_backend_ == "jax":
         n = a_ar.shape[0]
 
         if p is not None:
-            p_ar = jax.numpy.asarray(p, dtype=jax.numpy.float32)
+            p_ar = jax.numpy.asarray(p, dtype=_jax_dtype)
             p_ar = p_ar / p_ar.sum()
             if replace:
                 indices = jax.random.categorical(
@@ -1703,6 +1820,15 @@ else:
 #
 # ------------------------------------------------------------------
 
+def _cast_gammaln_input(xs: ArrayLike) -> ArrayLike:
+    if _gpmp_backend_ == "numpy":
+        return xs.astype(_np_dtype)
+    if _gpmp_backend_ == "torch":
+        return xs.to(dtype=_torch_dtype)
+    if _gpmp_backend_ == "jax":
+        return xs.astype(_jax_dtype)
+    return xs
+
 
 def compute_gammaln(up_to_p: int) -> ArrayLike:
     """
@@ -1714,12 +1840,12 @@ def compute_gammaln(up_to_p: int) -> ArrayLike:
     table = cache.get("table")
 
     if table is None:
-        xs = arange(n)  # 0..n-1
+        xs = _cast_gammaln_input(arange(n))  # 0..n-1
         table = asarray(gammaln(xs))  # vectorized, backend -> backend array
         cache["table"] = table
     elif table.shape[0] < n:
         old_n = table.shape[0]
-        xs_tail = arange(old_n, n)  # only missing tail
+        xs_tail = _cast_gammaln_input(arange(old_n, n))  # only missing tail
         tail = asarray(gammaln(xs_tail))
         table = concatenate((table, tail))
         cache["table"] = table

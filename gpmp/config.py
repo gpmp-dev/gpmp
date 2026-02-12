@@ -11,11 +11,35 @@ try:
 except FileNotFoundError:
     __version__ = "0.0.0"
 
+
+def _normalize_dtype_spec(dtype) -> str:
+    """
+    Normalize a dtype specification to 'float32' or 'float64'.
+
+    Accepts strings ('float32', 'float64', 'torch.float32', 'np.float64', ...),
+    python float, numpy/torch/jax dtype objects (by string form), etc.
+    """
+    if dtype is None:
+        return "float64"
+    if dtype is float:
+        return "float64"
+
+    s = dtype.lower() if isinstance(dtype, str) else str(dtype).lower()
+    if "float32" in s or s.endswith("f4") or s.endswith("32"):
+        return "float32"
+    if "float64" in s or "double" in s or s.endswith("f8") or s.endswith("64"):
+        return "float64"
+    raise ValueError("dtype must resolve to float32 or float64")
+
+
 class _GPMPConfig:
     def __init__(self):
         self.version = __version__
         self.backend = None
-        self.dtype = float
+        # Portable dtype spec (resolved inside gpmp.num).
+        self.dtype = _normalize_dtype_spec(os.environ.get("GPMP_DTYPE", "float64"))
+        # Backend-native dtype object resolved at gpmp.num import time.
+        self.dtype_resolved = None
         self.device = "cpu"
         self.seed = 1234
         self.caches = {}
@@ -33,6 +57,7 @@ class _GPMPConfig:
             f"version={self.version}, "
             f"backend={self.backend}, "
             f"dtype={self.dtype}, "
+            f"dtype_resolved={self.dtype_resolved}, "
             f"device={self.device}, "
             f"seed={self.seed}, "
             f"caches={list(self.caches.keys())})"
@@ -44,6 +69,7 @@ class _GPMPConfig:
             f"version={self.version!r}, "
             f"backend={self.backend!r}, "
             f"dtype={self.dtype!r}, "
+            f"dtype_resolved={self.dtype_resolved!r}, "
             f"device={self.device!r}, "
             f"seed={self.seed!r}, "
             f"caches={list(self.caches.keys())}>"
@@ -95,7 +121,15 @@ def get_backend():
     return _config.backend or init_backend()
 
 def set_dtype(dtype):
-    _config.dtype = dtype  # torch default dtype is set from gpmp.num after backend selection
+    """
+    Set portable dtype spec ('float32' or 'float64').
+
+    Must be called before importing gpmp.num to take effect for that process.
+    """
+    spec = _normalize_dtype_spec(dtype)
+    _config.dtype = spec
+    _config.dtype_resolved = None
+    os.environ["GPMP_DTYPE"] = spec
 
 def set_device(device):
     _config.device = device
