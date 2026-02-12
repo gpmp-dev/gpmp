@@ -272,9 +272,9 @@ class ParticlesSet:
         j = 0
         while j < self.n:
             while counts[j] > 0:
-                x_resampled = gnp.set_row_2d(x_resampled, i, self.x[j, :])
-                logpx_resampled = gnp.set_elem_1d(logpx_resampled, i, self.logpx[j])
-                counts = gnp.set_elem_1d(counts, j, counts[j] - 1)
+                x_resampled[i] = self.x[j, :]
+                logpx_resampled[i] = self.logpx[j]
+                counts[j] = counts[j] - 1
                 i += 1
             j += 1
 
@@ -338,9 +338,9 @@ class ParticlesSet:
         j = 0
         while j < self.n:
             while counts[j] > 0:
-                x_resampled = gnp.set_row_2d(x_resampled, i, self.x[j, :])
-                logpx_resampled = gnp.set_elem_1d(logpx_resampled, i, self.logpx[j])
-                counts = gnp.set_elem_1d(counts, j, counts[j] - 1)
+                x_resampled[i] = self.x[j, :]
+                logpx_resampled[i] = self.logpx[j]
+                counts[j] = counts[j] - 1
                 i += 1
             j += 1
 
@@ -433,10 +433,8 @@ class ParticlesSet:
         accept_mask = gnp.log(u) < logrho
 
         # Update
-        # self.x[accept_mask, :] = y[accept_mask, :]
-        self.x = gnp.set_row_2d(self.x, accept_mask, y[accept_mask, :])
-        # self.logpx[accept_mask] = logpy[accept_mask]
-        self.logpx = gnp.set_elem_1d(self.logpx, accept_mask, logpy[accept_mask])
+        self.x[accept_mask, :] = y[accept_mask, :]
+        self.logpx[accept_mask] = logpy[accept_mask]
 
         # Compute the acceptance rate
         acceptance_rate = gnp.sum(accept_mask) / self.n

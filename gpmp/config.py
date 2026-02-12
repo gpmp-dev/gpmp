@@ -1,4 +1,40 @@
-# gpmp/config.py
+"""
+config.py — Global configuration for GPmp.
+
+This module defines and stores a process-wide configuration object for GPmp.
+
+Responsibilities
+----------------
+- Store runtime configuration (backend, dtype, device, seed, caches, logger).
+- Detect and initialize the numerical backend before importing gpmp.num.
+- Expose a small API to query/update configuration values.
+
+Backend selection
+-----------------
+The backend is determined in the following order:
+1) Explicit environment variable GPMP_BACKEND (accepted: 'torch', 'numpy').
+2) Automatic detection: use 'torch' if available, otherwise fallback to 'numpy'.
+
+The selected backend is stored in GPMP_BACKEND to make downstream imports
+consistent within the process.
+
+Dtype handling
+--------------
+GPmp uses a portable dtype specification stored in GPMP_DTYPE ('float32' or
+'float64'). This is resolved inside gpmp.num at import time into a backend-native
+dtype object stored in `config.dtype_resolved`.
+
+Notes
+-----
+- Functions that change backend or dtype must be called before importing gpmp.num
+  to take effect for that process.
+
+Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+Copyright (c) 2022–2026, CentraleSupélec
+License: GPLv3 (see LICENSE)
+
+"""
+
 import os
 import logging
 from importlib.util import find_spec
@@ -17,7 +53,7 @@ def _normalize_dtype_spec(dtype) -> str:
     Normalize a dtype specification to 'float32' or 'float64'.
 
     Accepts strings ('float32', 'float64', 'torch.float32', 'np.float64', ...),
-    python float, numpy/torch/jax dtype objects (by string form), etc.
+    python float, numpy/torch dtype objects (by string form), etc.
     """
     if dtype is None:
         return "float64"
@@ -86,20 +122,27 @@ class _GPMPConfig:
         else:
             self.caches.pop(name, None)
 
+
 _config = _GPMPConfig()
+
 
 def get_config():
     return _config
 
+
 def _detect_backend():
     env = os.environ.get("GPMP_BACKEND")
-    if env in ("numpy", "torch", "jax"):
+    if env == "jax":
+        raise RuntimeError(
+            "The 'jax' backend is no longer supported. "
+            "Please set GPMP_BACKEND to 'numpy' or 'torch'."
+        )
+    if env in ("numpy", "torch"):
         return env
     if find_spec("torch") is not None:
         return "torch"
-    if find_spec("jax") is not None:
-        return "jax"
     return "numpy"
+
 
 def init_backend():
     """Idempotent. Detect and store backend, set env for downstream imports."""
@@ -109,16 +152,21 @@ def init_backend():
         os.environ["GPMP_BACKEND"] = backend
     return _config.backend
 
+
 def set_backend(backend: str):
-    """Force a backend ('numpy'|'torch'|'jax') before importing gpmp.num."""
-    if backend not in ("numpy", "torch", "jax"):
-        raise ValueError("backend must be 'numpy', 'torch', or 'jax'")
+    """Force a backend ('numpy'|'torch') before importing gpmp.num."""
+    if backend == "jax":
+        raise ValueError("backend must be 'numpy' or 'torch' (jax is not supported)")
+    if backend not in ("numpy", "torch"):
+        raise ValueError("backend must be 'numpy' or 'torch'")
     _config.backend = backend
     os.environ["GPMP_BACKEND"] = backend
+
 
 def get_backend():
     """Return current backend; triggers detection if not set."""
     return _config.backend or init_backend()
+
 
 def set_dtype(dtype):
     """
@@ -131,14 +179,18 @@ def set_dtype(dtype):
     _config.dtype_resolved = None
     os.environ["GPMP_DTYPE"] = spec
 
+
 def set_device(device):
     _config.device = device
+
 
 def clear_caches(name=None):
     _config.clear_caches(name)
 
+
 def get_logger():
     return _config.logger
+
 
 def set_log_level(level):
     _config.logger.setLevel(level)

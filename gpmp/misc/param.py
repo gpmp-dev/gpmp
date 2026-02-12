@@ -177,8 +177,7 @@ class Param:
 
     def set_by_name(self, name: str, new_value: float) -> None:
         idx = self.names.index(name)
-        self._values = gnp.set_elem_1d(self._values, idx, new_value)
-        # self._values[idx] = new_value
+        self._values[idx] = new_value
 
     def get_by_path(
         self, path: List[str], prefix_match: bool = False, return_view: bool = False

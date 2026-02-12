@@ -187,7 +187,7 @@ def make_single_param_criterion_function(selection_criterion, covparam, param_in
 
     def single_param_function(x):
         new_covparam = gnp.copy(covparam)
-        new_covparam = gnp.set_elem_1d(new_covparam, param_index, x)
+        new_covparam[param_index] = x
         return selection_criterion(new_covparam)
 
     return single_param_function
@@ -989,10 +989,10 @@ def plot_selection_criterion_crosssections(
             crit_values = gnp.zeros((n_crit, n_points))
             for j, x_val in enumerate(p_values):
                 param = gnp.copy(param_opt)
-                param = gnp.set_elem_1d(param, param_idx, x_val)
+                param[param_idx] = x_val
                 for k, f in enumerate(selection_criteria):
                     v = f(param)
-                    crit_values = gnp.set_elem_2d(crit_values, k, j, v)
+                    crit_values[k, j] = v
             ax = axes[idx]
             for k in range(n_crit):
                 ax.plot(p_values, crit_values[k], label=criterion_names[k])
@@ -1027,10 +1027,10 @@ def plot_selection_criterion_crosssections(
             crit_values = gnp.zeros((n_crit, n_points))
             for j, x_val in enumerate(p_values):
                 param = gnp.copy(param_opt)
-                param = gnp.set_elem_1d(param, param_idx, x_val)
+                param[param_idx] = x_val
                 for k, f in enumerate(selection_criteria):
                     v = f(param)
-                    crit_values = gnp.set_elem_2d(crit_values, k, j, v)
+                    crit_values[k, j] = v
 
             name = (
                 param_names[param_idx]
@@ -1299,8 +1299,8 @@ def plot_selection_criterion_2d(
     for i in range(n):
         print_progress(i)
         for j in range(n):
-            covparam = gnp.set_elem_1d(covparam, param_1_idx, log_param_1[i, j])
-            covparam = gnp.set_elem_1d(covparam, param_2_idx, log_param_2[i, j])
+            covparam[param_1_idx] = log_param_1[i, j]
+            covparam[param_2_idx] = log_param_2[i, j]
             selection_criterion_values[i, j] = selection_criterion(covparam)
 
     selection_criterion_values = np.nan_to_num(selection_criterion_values, copy=False)

@@ -63,7 +63,7 @@ def fisher_information(model, xi, covparam=None, epsilon: float = 1e-3):
 
         def f(tmp_val):
             t = gnp.copy(theta)
-            t = gnp.set_elem_1d(t, i, tmp_val)
+            t[i] = tmp_val
             return model.covariance(xi, xi, t)
 
         dK_i = gnp.derivative_finite_diff(f, theta[i], epsilon)
@@ -73,8 +73,8 @@ def fisher_information(model, xi, covparam=None, epsilon: float = 1e-3):
     for i in range(p):
         for j in range(i, p):
             term = 0.5 * gnp.trace(K_inv @ dK[i] @ K_inv @ dK[j])
-            I = gnp.set_elem_2d(I, i, j, term)
-            I = gnp.set_elem_2d(I, j, i, term)
+            I[i, j] = term
+            I[j, i] = term
     return I
 
 
@@ -126,7 +126,7 @@ def fisher_information_cpd(model, xi, covparam=None, epsilon: float = 1e-3):
 
             def f(tmp):
                 t = gnp.copy(theta)
-                t = gnp.set_elem_1d(t, i, tmp)
+                t[i] = tmp
                 return model.covariance(xi, xi, t)
 
             dK_i = gnp.derivative_finite_diff(f, theta[i], epsilon)
@@ -143,8 +143,8 @@ def fisher_information_cpd(model, xi, covparam=None, epsilon: float = 1e-3):
             Gi = Gsolve(dG[i])
             for j in range(i, p):
                 term = 0.5 * gnp.trace(Gi @ Gsolve(dG[j]))
-                I = gnp.set_elem_2d(I, i, j, term)
-                I = gnp.set_elem_2d(I, j, i, term)
+                I[i, j] = term
+                I[j, i] = term
         return I
 
     # Otherwise, fallback to SPD Fisher on K

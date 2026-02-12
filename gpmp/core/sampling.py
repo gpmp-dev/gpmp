@@ -104,8 +104,7 @@ def conditional_sample_paths(
     """
     zi_ = gnp.asarray(zi).reshape(-1, 1)
     ztsim_ = gnp.asarray(ztsim)
-    xi_ind = gnp.asarray(xi_ind).reshape(-1)
-    xt_ind = gnp.asarray(xt_ind).reshape(-1)
+    xi_ind = gnp.asarray(xi_ind, dtype=int).reshape(-1)
 
     # Innovation at observed indices
     delta = zi_ - ztsim_[xi_ind, :]  # (ni, nb_paths)

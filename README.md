@@ -2,7 +2,7 @@
 
 GPmp is a lightweight toolkit for Gaussian process (GP) modeling. It
 provides the essential components for GP-based algorithms with a focus
-on speed and customization.
+on performance and customization.
 
 ## Features
 
@@ -22,20 +22,24 @@ However, for the purpose of the example, GPmp provides functions for:
  * parameter selection procedure using maximum likelihood, restricted maximum
    likelihood, or user-defined criteria
  * model diagnosis
- * vizualization of results
+ * vizualization helper
  * ...
 
 ## Backends
 
-GPmp supports three numerical backends:
+GPmp supports two numerical backends:
 - **PyTorch:** Dynamic computation with auto-differentiation.
-- **JAX:** Auto-differentiation with JIT compilation.
 - **NumPy:** Basic computation (default if neither PyTorch nor JAX are
     found).
 
-On startup, GPmp automatically selects the backend in this order:
-PyTorch → JAX → NumPy. You can override this by setting the
-`GPMP_BACKEND` environment variable before launching GPmp.
+Backend selection order at import time:
+1. If GPMP_BACKEND is set to torch or numpy, use it.
+2. Otherwise: PyTorch if available, else NumPy.
+
+Example:
+export GPMP_BACKEND=torch
+# optional:
+export GPMP_DTYPE=float64   # or float32
 
 ## Installation
 
@@ -48,25 +52,32 @@ Install in development mode:
 pip install -e .
 ```
 
-### Backend Setup
+## Dependencies
 
-- **PyTorch:** Recommended for best performance.
-- **JAX:** 
-  - For CPU-only usage, install directly from PyPI:
-    ```bash
-    pip install jax
-    ```
-  - For NVIDIA GPU support (e.g., with CUDA 12), run:
-    ```bash
-    pip install -U "jax[cuda12]"
-    ```
-  Detailed, platform-specific instructions are available in the
-  [official JAX documentation](https://github.com/google/jax#installation).
+Core:
+- NumPy
 
-## Usage
+Recommended:
+- PyTorch
 
-Check the examples in the repository for a quick start. Customize your
-own mean and covariance functions as needed.
+Install PyTorch (CPU-only):
+pip install torch
+
+Verify:
+python -c "import torch; print(torch.__version__)"
+
+For GPU-enabled PyTorch, install the build matching the local CUDA setup.
+Use the official PyTorch install selector to obtain the exact pip command.
+
+## Quick start
+
+See the examples/ directory.
+
+Typical steps:
+1. Provide mean and covariance functions.
+2. Build a GP model.
+3. Select parameters (ML / REML / custom criterion) and validate model.
+4. Predict / cross-validate / sample conditionally / visualize.
 
 ## Documentation
 
@@ -98,7 +109,6 @@ If you use GPmp in your research, please cite it as follows:
 ## Future Work
 
 - Expand documentation and tutorials.
-- Enhance diagnostic tools and model visualization.
 
 ## Authors
 

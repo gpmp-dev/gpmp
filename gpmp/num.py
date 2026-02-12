@@ -5,8 +5,7 @@ based on an underlying backend.
 
 The backend is selected automatically among:
     1. torch
-    2. jax
-    3. numpy (default fallback)
+    2. numpy (default fallback)
 
 All basic array operations, linear algebra routines, random sampling,
 and differentiable functions are defined here.
@@ -52,6 +51,12 @@ _LINALG_ERROR_KEYWORDS = (
     "lapack",
     "cusolver",
 )
+
+if _gpmp_backend_ == "jax":
+    raise RuntimeError(
+        "The 'jax' backend is no longer supported. "
+        "Please set GPMP_BACKEND to 'numpy' or 'torch'."
+    )
 
 
 # -----------------------------------------------------
@@ -154,40 +159,6 @@ if _gpmp_backend_ == "numpy":
     fmax = numpy.finfo(_np_dtype).max
     # ..................................................
 
-    def set_elem_1d(x, index, v):
-        x[index] = v
-        return x
-
-    def set_elem_2d(x, i, j, v):
-        x[i, j] = v
-        return x
-
-    def set_row_2d(A, index, x):
-        A[index, :] = x
-        return A
-
-    def set_col_2d(A, index, x):
-        A[:, index] = x
-        return A
-
-    def set_col_3d(A, index, x):
-        A[:, :, index] = x
-        return A
-
-    def index_select(x, dim, indices):
-        if dim == 0:
-            return x[indices]
-        elif dim == 1:
-            # manual slicing for dim=1
-            return x[:, indices]
-        else:
-            # general fallback: move dimension to front
-            x_moved = numpy.moveaxis(x, dim, 0)
-            x_selected = x_moved[indices]
-            return numpy.moveaxis(x_selected, 0, dim)
-
-    # ..................................................
-
     def array(x, dtype=None):
         if dtype is not None:
             return numpy.array(x, dtype=dtype)
@@ -267,13 +238,6 @@ if _gpmp_backend_ == "numpy":
     def inftobigf(a, bigf=fmax / 1000.0):
         a = where(numpy.isinf(a), numpy.full_like(a, bigf), a)
         return a
-
-    # ..................................................
-
-    class jax:
-        @staticmethod
-        def jit(f, *args, **kwargs):
-            return f
 
     # ..................................................
 
@@ -466,7 +430,9 @@ if _gpmp_backend_ == "numpy":
         def rvs(mean=0.0, cov=1.0, n=1):
             # Check if cov is a scalar or 1x1 array, and use norm if so
             if isscalar(cov) or (isinstance(cov, numpy.ndarray) and cov.size == 1):
-                return normal.rvs(mean, numpy.sqrt(cov), size=n).astype(_np_dtype, copy=False)
+                return normal.rvs(mean, numpy.sqrt(cov), size=n).astype(
+                    _np_dtype, copy=False
+                )
 
             # For dxd covariance matrix, use multivariate_normal
             cov = numpy.asarray(cov)
@@ -610,29 +576,6 @@ elif _gpmp_backend_ == "torch":
     def array_equal(x, y):
         return torch.equal(x, y)
 
-    def set_elem_1d(x, index, v):
-        x[index] = v
-        return x
-
-    def set_elem_2d(x, i, j, v):
-        x[i, j] = v
-        return x
-
-    def set_row_2d(A, index, x):
-        A[index, :] = x
-        return A
-
-    def set_col_2d(A, index, x):
-        A[:, index] = x
-        return A
-
-    def set_col_3d(A, index, x):
-        A[:, :, index] = x
-        return A
-
-    def index_select(x, dim, indices):
-        return x.index_select(dim, indices)
-
     def expand_dims(tensor, axis):
         return tensor.unsqueeze(axis)
 
@@ -668,22 +611,31 @@ elif _gpmp_backend_ == "torch":
     def asarray(x, dtype=None):
         dtype = _resolve_torch_dtype(dtype)
         if isinstance(x, torch.Tensor):
-            if dtype is None:
-                return x
-            return x if x.dtype == dtype else x.to(dtype=dtype)
+            if dtype is not None:
+                return x if x.dtype == dtype else x.to(dtype=dtype)
+            if x.dtype != _torch_dtype:
+                return x.to(dtype=_torch_dtype)
+            return x
         if isinstance(x, numpy.ndarray):
-            if dtype is None:
-                try:
-                    return torch.from_numpy(x)
-                except (TypeError, ValueError):
-                    return torch.as_tensor(x)
-            return torch.as_tensor(x, dtype=dtype)
+            try:
+                x_ = torch.from_numpy(x)
+            except (TypeError, ValueError):
+                x_ = torch.as_tensor(x)
+            if dtype is not None:
+                return x_ if x_.dtype == dtype else x_.to(dtype=dtype)
+            if x_.dtype != _torch_dtype:
+                return x_.to(dtype=_torch_dtype)
+            return x_
         if isinstance(x, (int, float)):
+            if dtype is None and isinstance(x, float):
+                dtype = _torch_dtype
             return torch.tensor(x, dtype=dtype)
-        t = torch.as_tensor(x)
-        if dtype is None:
-            return t
-        return t if t.dtype == dtype else t.to(dtype=dtype)
+        x_ = torch.as_tensor(x)
+        if dtype is not None:
+            return x_ if x_.dtype == dtype else x_.to(dtype=dtype)
+        if x_.dtype != _torch_dtype:
+            x_ = x_.to(dtype=_torch_dtype)
+        return x_
 
     def asdouble(x):
         return asarray(x).to(torch.double)
@@ -743,7 +695,7 @@ elif _gpmp_backend_ == "torch":
         Accepts either
         * **int n** -> chunks of size *n*   (Torch default)
         * **list / 1-D tensor of sizes**
-        * **list / 1-D tensor of boundary indices** (NumPy/JAX style)
+        * **list / 1-D tensor of boundary indices** (NumPy style)
 
         Heuristic: if the sum of the numbers == `x.size(dim)`, treat them
         as *sizes*, otherwise as *boundary indices*.
@@ -881,13 +833,6 @@ elif _gpmp_backend_ == "torch":
         msg = str(exc).lower()
         return builtins.any(keyword in msg for keyword in _LINALG_ERROR_KEYWORDS)
 
-    class jax:
-        @staticmethod
-        def jit(
-            f: Callable[..., ArrayLike], *args: Any, **kwargs: Any
-        ) -> Callable[..., ArrayLike]:
-            return f
-
     class DifferentiableSelectionCriterion:
         """Wraps a selection criterion f(p, x, z) -> scalar, allowing gradient computation."""
 
@@ -914,13 +859,11 @@ elif _gpmp_backend_ == "torch":
 
         def evaluate(self, p: ArrayLike) -> float:
             self._p_value = asarray(p).detach().clone().requires_grad_(True)
-
             try:
                 self._f_value = self.f(self._p_value, self.x, self.z)
                 return self._f_value.item()
             except Exception as exc:
                 if _is_linalg_exception(exc):
-                    # construct inf with None gradient
                     self._f_value = torch.tensor(float("inf"), requires_grad=True)
                     return self._f_value.item()
                 raise
@@ -1116,9 +1059,7 @@ elif _gpmp_backend_ == "torch":
         arbitrary_value = 1.0
         mask = x == 0.0
         x_copy = torch.where(mask, arbitrary_value, x)
-
         res = torch.where(mask, 0.0, sqrt(x_copy))
-
         return res
 
     def cdist(x, y, zero_diagonal=True):
@@ -1393,595 +1334,6 @@ elif _gpmp_backend_ == "torch":
             return asarray(_sp_mvn.cdf(x_np, mean=mean_np, cov=cov_np))
 
 
-# ------------------------------------------------------
-#
-#                        JAX
-#
-# ------------------------------------------------------
-elif _gpmp_backend_ == "jax":
-    import os
-    import numpy
-
-    os.environ.setdefault("JAX_PLATFORM_NAME", "cpu")  # force CPU
-    # os.environ.setdefault(
-    #     "XLA_PYTHON_CLIENT_PREALLOCATE", "false"
-    # )  # tiny RAM footprint
-    os.environ["XLA_FLAGS"] = "--xla_cpu_multi_thread_eigen=true intra_op_parallelism_threads=8"
-    
-    import jax
-
-    # set multithreaded/multicore parallelism
-    # see https://github.com/google/jax/issues/8345
-    # os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=512"
-
-    # set floating precision according to dtype spec
-    jax.config.update("jax_enable_x64", _DTYPE_SPEC == "float64")
-    from jax.numpy import array, empty
-
-    _jax_dtype = jax.numpy.float32 if _DTYPE_SPEC == "float32" else jax.numpy.float64
-    _config.dtype_resolved = _jax_dtype
-
-    ndarray = jax.numpy.ndarray
-
-    from jax.numpy import (
-        array_equal,
-        reshape,
-        where,
-        any,
-        isscalar,
-        isnan,
-        isinf,
-        isfinite,
-        isclose,
-        allclose,
-        unique,
-        hstack,
-        vstack,
-        stack,
-        tile,
-        concatenate,
-        split,
-        expand_dims,
-        empty,
-        empty_like,
-        zeros_like,
-        zeros,
-        ones,
-        full,
-        full_like,
-        eye,
-        diag,
-        arange,
-        linspace,
-        logspace,
-        meshgrid,
-        floor,
-        ceil,
-        abs,
-        sqrt,
-        exp,
-        log,
-        log10,
-        log1p,
-        sin,
-        cos,
-        tan,
-        tanh,
-        diff,
-        sum,
-        cumsum,
-        prod,
-        mean,
-        std,
-        var,
-        cov,
-        percentile,
-        sort,
-        min,
-        max,
-        argmin,
-        argmax,
-        minimum,
-        maximum,
-        clip,
-        einsum,
-        matmul,
-        trace,
-        inner,
-        all,
-        logical_not,
-        logical_and,
-        logical_or,
-    )
-    from jax.numpy.linalg import norm
-    from jax.numpy.linalg import cond, cholesky, qr, svd, inv, slogdet
-    from jax.numpy import pi, inf
-    from jax.numpy import finfo, float64
-    from jax.scipy.special import gammaln
-    from jax.scipy.linalg import solve, solve_triangular, cho_factor, cho_solve
-    from jax.scipy.stats import norm as normal
-    from scipy.stats import multivariate_normal as scipy_mvnormal
-
-    # ..................................................
-
-    eps = finfo(_jax_dtype).eps
-    fmax = finfo(_jax_dtype).max
-    _jax_array_types = tuple(
-        t for t in (getattr(jax, "Array", None), jax.numpy.ndarray) if t is not None
-    )
-    # ..................................................
-
-    def copy(x):
-        return array(x, copy=True)
-
-    def is_boolean_mask(mask):
-        return isinstance(mask, jax.numpy.ndarray) and jax.numpy.issubdtype(
-            mask.dtype, jax.numpy.bool_
-        )
-
-    def set_elem_1d(x, index, v):
-        return x.at[index].set(v)
-
-    def set_elem_2d(x, i, j, v):
-        return x.at[i, j].set(v)
-
-    def set_row_2d(A, index, x):
-        if isinstance(index, (int, jax.numpy.integer)):
-            return A.at[index, :].set(x)
-        elif isinstance(index, jax.numpy.ndarray):
-            if jax.numpy.issubdtype(index.dtype, jax.numpy.bool_):
-                rows = jax.numpy.where(index)[0]
-                return A.at[rows].set(x)
-            elif jax.numpy.issubdtype(index.dtype, jax.numpy.integer):
-                return A.at[index].set(x)
-        raise TypeError(
-            "Unsupported index type: must be int, integer array, or boolean mask"
-        )
-
-    def set_col_2d(A, index, x):
-        if isinstance(index, (int, jax.numpy.integer)):
-            return A.at[:, index].set(x)
-        elif isinstance(index, jax.numpy.ndarray):
-            if jax.numpy.issubdtype(index.dtype, jax.numpy.bool_):
-                cols = jax.numpy.where(index)[0]
-                return A.at[:, cols].set(x)
-            elif jax.numpy.issubdtype(index.dtype, jax.numpy.integer):
-                return A.at[:, index].set(x)
-        raise TypeError(
-            "Unsupported index type: must be int, integer array, or boolean mask"
-        )
-
-    def set_col_3d(A, index, x):
-        return A.at[:, :, index].set(x)
-
-    def index_select(x, dim, indices):
-        if dim == 0:
-            return jax.numpy.take(x, indices, axis=0)
-        elif dim == 1:
-            return jax.numpy.take(x, indices, axis=1)
-        else:
-            # General fallback for dim > 1
-            x_moved = jax.numpy.moveaxis(x, dim, 0)
-            x_selected = jax.numpy.take(x_moved, indices, axis=0)
-            return jax.numpy.moveaxis(x_selected, 0, dim)
-
-    # ..................................................
-
-    def array(x, dtype=None, **kwargs):
-        if dtype is not None:
-            return jax.numpy.array(x, dtype=dtype, **kwargs)
-        out = jax.numpy.array(x, **kwargs)
-        if jax.numpy.issubdtype(out.dtype, jax.numpy.floating) and out.dtype != _jax_dtype:
-            return out.astype(_jax_dtype)
-        return out
-
-    def asarray(x, dtype=None):
-        if isinstance(x, _jax_array_types):
-            if dtype is not None:
-                return x if x.dtype == dtype else x.astype(dtype)
-            if jax.numpy.issubdtype(x.dtype, jax.numpy.floating) and x.dtype != _jax_dtype:
-                return x.astype(_jax_dtype)
-            return x
-
-        out = jax.numpy.asarray(x, dtype=dtype)
-        if dtype is None and jax.numpy.issubdtype(out.dtype, jax.numpy.floating) and out.dtype != _jax_dtype:
-            out = out.astype(_jax_dtype)
-        return out
-
-    def asdouble(x):
-        return asarray(x).astype(float64)
-
-    def asint(x):
-        return asarray(x).astype(int)
-
-    def to_np(x):
-        if isinstance(x, jax.numpy.ndarray):
-            return numpy.array(x)
-        else:
-            return x
-
-    def to_scalar(x):
-        return x.item()
-
-    def isarray(x):
-        return isinstance(x, jax.numpy.ndarray)
-
-    def inftobigf(a, bigf=fmax / 1000.0):
-        a = where(isinf(a), full_like(a, bigf), a)
-        return a
-
-    # ..................................................
-
-    def _is_linalg_exception(exc: Exception) -> bool:
-        if isinstance(exc, numpy.linalg.LinAlgError):
-            return True
-        msg = str(exc).lower()
-        return builtins.any(keyword in msg for keyword in _LINALG_ERROR_KEYWORDS)
-
-    class DifferentiableSelectionCriterion:
-        def __init__(self, crit, x, z):
-            self.crit = jax.jit(lambda p: crit(p, x, z))  # jax.jit(f)
-            self.crit_grad = jax.jit(jax.grad(self.crit))  # jax.jit(jax.grad(self.f))
-
-        def __call__(self, p):
-            return self.evaluate_no_grad(p)
-
-        def evaluate_no_grad(self, p):
-            return self.evaluate(p)
-
-        def evaluate(self, p):
-            if not isinstance(p, jax.numpy.ndarray):
-                p = asarray(p)
-            try:
-                return self.crit(p)
-            except Exception as exc:
-                if _is_linalg_exception(exc):
-                    return inf
-                raise
-
-        def gradient(self, p):
-            if not isinstance(p, jax.numpy.ndarray):
-                p = asarray(p)
-            try:
-                return self.crit_grad(p)
-            except Exception as exc:
-                if _is_linalg_exception(exc):
-                    return None
-                raise
-
-    class BatchDifferentiableSelectionCriterion:
-        def __init__(
-            self,
-            crit,
-            loader,
-            reduction: str = "mean",
-            batches_per_eval: int = 0,
-        ):
-            if reduction not in ("mean", "sum"):
-                raise ValueError("reduction must be 'mean' or 'sum'")
-            if batches_per_eval < 0:
-                raise ValueError("batches_per_eval must be ≥ 0")
-            self.crit = jax.jit(crit)
-            self._grad_fn = jax.jit(jax.grad(self.crit, argnums=0))
-            self.loader = loader
-            self.reduction = reduction
-            self.bpe = int(batches_per_eval)
-            self._batch_iter = iter(loader) if self.bpe > 0 else None
-
-            self._gradient = None
-            self._param_ref = None
-
-        def _batches(self):
-            if self.bpe == 0:
-                yield from self.loader
-            else:
-                for _ in range(self.bpe):
-                    try:
-                        yield next(self._batch_iter)
-                    except StopIteration:
-                        self._batch_iter = iter(self.loader)
-                        yield next(self._batch_iter)
-
-        @staticmethod
-        def _prepare_param(param):
-            return asarray(param)
-
-        def evaluate_no_grad(self, param):
-            p = self._prepare_param(param)
-
-            total, n = 0.0, 0
-            for xb, zb in self._batches():
-                loss_b = self.crit(p, xb, zb)
-                bs = xb.shape[0]
-                total += loss_b * bs
-                n += bs
-
-            if n == 0:
-                raise ValueError("Loader is empty.")
-
-            return (total / n) if self.reduction == "mean" else total
-
-        def evaluate(self, param):
-            p = self._prepare_param(param)
-            self._param_ref = p
-
-            total, grad_acc, n = 0.0, None, 0
-            for xb, zb in self._batches():
-                bs = xb.shape[0]
-
-                loss_b = self.crit(p, xb, zb)
-                grad_b = self._grad_fn(p, xb, zb)
-
-                total += loss_b * bs
-                grad_acc = grad_b * bs if grad_acc is None else grad_acc + grad_b * bs
-                n += bs
-
-            if n == 0:
-                raise ValueError("Loader is empty.")
-
-            if self.reduction == "mean":
-                total /= n
-                grad_acc = grad_acc / n
-
-            self._gradient = grad_acc
-            return total
-
-        def gradient(self, param):
-            p = self._prepare_param(param)
-
-            grad_acc, n = None, 0
-            for xb, zb in self._batches():
-                bs = xb.shape[0]
-                grad_b = self._grad_fn(p, xb, zb)
-                grad_acc = grad_b * bs if grad_acc is None else grad_acc + grad_b * bs
-                n += bs
-
-            if n == 0:
-                raise ValueError("Loader is empty.")
-
-            if self.reduction == "mean":
-                grad_acc = grad_acc / n
-
-            return grad_acc
-
-    # ..................................................
-
-    def cdist(x, y):
-        if y is None:
-            y = x
-        y2 = sum(y**2, axis=1)
-        # Debug: check if x is y
-        # print("&x = {}, &y = {}".format(hex(id(x)), hex(id(y))))
-        if x is y:
-            sq = reshape(y2, [-1, 1]) + y2 - 2 * inner(x, y)
-        else:
-            x2 = reshape(sum(x**2, axis=1), [-1, 1])
-            sq = x2 + y2 - 2 * inner(x, y)
-        return sqrt(maximum(sq, 0.0))
-
-    @jax.custom_vjp
-    def scaled_distance(loginvrho, x, y):
-        invrho = exp(loginvrho)
-        xs = x * invrho
-        ys = y * invrho
-        x2 = sum(xs * xs, axis=1)[:, None]
-        y2 = sum(ys * ys, axis=1)[None, :]
-        sq = maximum(x2 + y2 - 2.0 * (xs @ ys.T), 0.0)
-        return sqrt(sq)
-
-    def _sd_fwd(loginvrho, x, y):
-        invrho = exp(loginvrho)
-        xs = x * invrho
-        ys = y * invrho
-        x2 = sum(xs * xs, axis=1)[:, None]
-        y2 = sum(ys * ys, axis=1)[None, :]
-        sq = maximum(x2 + y2 - 2.0 * (xs @ ys.T), 0.0)
-        d = sqrt(sq)
-        return d, (d, invrho, x, y)
-
-    def _sd_bwd(res, g):
-        d, invrho, x, y = res
-        u = g / (d + eps)              # (n,m)
-        row = sum(u, axis=1)       # (n,)
-        col = sum(u, axis=0)       # (m,)
-
-        # per-dimension: sum_{i,j} u_ij (x_ik - y_jk)^2
-        term1 = sum((x * x) * row[:, None], axis=0)     # (d,)
-        term2 = sum((y * y) * col[:, None], axis=0)     # (d,)
-        uy = u @ y                                          # (n,d)
-        term3 = sum(x * uy, axis=0)                     # (d,)
-
-        grad_loginvrho = (invrho * invrho) * (term1 + term2 - 2.0 * term3)
-        return (grad_loginvrho, None, None)
-
-    scaled_distance.defvjp(_sd_fwd, _sd_bwd)
-    
-    # @jax.custom_vjp
-    # def scaled_distance(loginvrho, x, y):
-    #     invrho = exp(loginvrho)
-    #     dif = (x[:, None, :] - y[None, :, :]) * invrho
-    #     sq = sum(dif * dif, axis=-1)
-    #     d = sqrt(sq)
-    #     return d
-
-    # def _scaled_distance_fwd(loginvrho, x, y):
-    #     invrho = exp(loginvrho)
-    #     dif = (x[:, None, :] - y[None, :, :]) * invrho
-    #     hs2 = dif * dif
-    #     d = sqrt(sum(hs2, axis=-1))
-    #     return d, (d, hs2)
-
-    # def _scaled_distance_bwd(res, g):
-    #     d, hs2 = res
-    #     denom = d[..., None] + eps
-    #     grad_loginvrho = sum(g[..., None] * hs2 / denom, axis=(0, 1))
-    #     return (grad_loginvrho, None, None)
-
-    # scaled_distance.defvjp(_scaled_distance_fwd, _scaled_distance_bwd)
-
-    @jax.custom_vjp
-    def scaled_distance_elementwise(loginvrho, x, y):
-        invrho = exp(loginvrho)
-        dif = (x - y) * invrho
-        hs2 = dif * dif
-        d = sqrt(sum(hs2, axis=-1))
-        return d
-
-    def _sde_fwd(loginvrho, x, y):
-        invrho = exp(loginvrho)
-        dif = (x - y) * invrho
-        hs2 = dif * dif
-        d = sqrt(sum(hs2, axis=-1))
-        return d, (d, hs2)
-
-    def _sde_bwd(res, g):
-        d, hs2 = res
-        denom = d[:, None] + eps
-        grad_loginvrho = sum(g[:, None] * hs2 / denom, axis=0)
-        return (grad_loginvrho, None, None)
-
-    scaled_distance_elementwise.defvjp(_sde_fwd, _sde_bwd)
-
-    # ..................................................
-
-    def logdet(A):
-        sign, logabsdet = slogdet(A)
-        if sign <= 0:
-            raise ValueError(
-                "Matrix is not positive definite (or has non-positive determinant)."
-            )
-        return logabsdet
-
-    def cholesky_inv(A):
-        # FIXME: slow!
-        # n = A.shape[0]
-        # C, lower = cho_factor(A)
-        # Ainv = cho_solve((C, lower), eye(n))
-        return inv(A)
-
-    def cholesky_solve(A, b):
-        L = cholesky(A)
-        y = solve_triangular(L, b, lower=True)
-        x = solve_triangular(L.T, y, lower=False)
-        return x, L
-
-    # ..................................................
-
-    # One global key:
-    _jax_key = jax.random.PRNGKey(1234)
-
-    def _update_key():
-        global _jax_key
-        _jax_key, subkey = jax.random.split(_jax_key)
-        return subkey
-
-    def set_seed(seed):
-        """Set the global JAX key seed."""
-        global _jax_key
-        _jax_key = jax.random.PRNGKey(seed)
-
-    def rand(*shape):
-        subkey = _update_key()
-        return jax.random.uniform(subkey, shape=shape, dtype=_jax_dtype)
-
-    def randn(*shape):
-        subkey = _update_key()
-        return jax.random.normal(subkey, shape=shape, dtype=_jax_dtype)
-
-    def choice(a, size=None, replace=True, p=None):
-        subkey = _update_key()
-
-        if size is None:
-            size = 1
-
-        if isinstance(a, int):
-            a_ar = jax.numpy.arange(a)
-        else:
-            a_ar = jax.numpy.asarray(a)
-
-        n = a_ar.shape[0]
-
-        if p is not None:
-            p_ar = jax.numpy.asarray(p, dtype=_jax_dtype)
-            p_ar = p_ar / p_ar.sum()
-            if replace:
-                indices = jax.random.categorical(
-                    subkey, jax.numpy.log(p_ar), shape=(size,)
-                )
-            else:
-                raise NotImplementedError(
-                    "choice w/o replacement + p not supported in JAX."
-                )
-        else:
-            if replace:
-                indices = jax.random.randint(subkey, shape=(size,), minval=0, maxval=n)
-            else:
-                perm = jax.random.permutation(subkey, n)
-                if size == n:
-                    indices = perm
-                else:
-                    indices = jax.lax.dynamic_slice(perm, (0,), (size,))
-
-        return a_ar[indices]
-
-    def permutation(x):
-        subkey = _update_key()
-        return jax.random.permutation(subkey, x)
-
-    class multivariate_normal:
-        @staticmethod
-        def _mean_array(mean, d: int):
-            m = asarray(mean)
-            if m.ndim == 0:
-                return full((d,), m, dtype=_jax_dtype)
-            m = m.astype(_jax_dtype).reshape(-1)
-            if m.size != d:
-                raise ValueError("mean has incompatible length.")
-            return m
-
-        @staticmethod
-        def rvs(mean=0.0, cov=1.0, n=1):
-            if isscalar(cov) or cov.ndim == 0:
-                cov = cov * eye(1)
-            if isscalar(mean):
-                mean = full((cov.shape[0],), mean)
-
-            subkey = _update_key()
-            return jax.random.multivariate_normal(
-                subkey, mean=mean, cov=cov, shape=(n,)
-            )
-
-        @staticmethod
-        def logpdf(x, mean=0.0, cov=1.0, allow_singular=False):
-            x = asarray(x)
-            # scalar cov -> univariate semantics
-            cov_a = asarray(cov)
-            if isscalar(cov_a) or cov_a.ndim == 0 or cov_a.size == 1:
-                if not isscalar(mean):
-                    raise ValueError("For scalar cov, mean must be a scalar.")
-                return normal.logpdf(x, mean, sqrt(cov_a))
-            d = x.shape[-1] if x.ndim > 1 else x.shape[0]
-            mean_vector = multivariate_normal._mean_array(mean, d)
-            return jax.scipy.stats.multivariate_normal.logpdf(
-                x, mean=mean_vector, cov=cov, allow_singular=allow_singular
-            )
-
-        @staticmethod
-        def cdf(x, mean=0.0, cov=1.0):
-            x = numpy.asarray(x)
-            mean = numpy.asarray(mean)
-            cov = numpy.asarray(cov)
-
-            if isscalar(cov) or cov.size == 1:
-                return normal.cdf(x, mean, numpy.sqrt(cov))
-
-            if isscalar(mean):
-                d = cov.shape[0]
-                mean = full(d, mean)
-
-            return asarray(scipy_mvnormal.cdf(x, mean, cov))
-
-
 # ------------------------------------------------------------------
 #
 # No more backends
@@ -1990,7 +1342,7 @@ elif _gpmp_backend_ == "jax":
 
 else:
     raise RuntimeError(
-        "Please set the GPMP_BACKEND environment variable to 'numpy', 'torch' or 'jax'."
+        "Please set the GPMP_BACKEND environment variable to 'numpy' or 'torch'."
     )
 
 # ------------------------------------------------------------------
@@ -1999,13 +1351,12 @@ else:
 #
 # ------------------------------------------------------------------
 
+
 def _cast_gammaln_input(xs: ArrayLike) -> ArrayLike:
     if _gpmp_backend_ == "numpy":
         return xs.astype(_np_dtype)
     if _gpmp_backend_ == "torch":
         return xs.to(dtype=_torch_dtype)
-    if _gpmp_backend_ == "jax":
-        return xs.astype(_jax_dtype)
     return xs
 
 
@@ -2072,7 +1423,6 @@ def try_with_postmortem(
 #                              TODO (roadmap)
 # ----------------------------------------------------------------------
 # * Maintain a state dictionary to hold: dtype, device, gpmp cache, gln...
-# * Heal Jax slow perfomances
 # * DifferentiableSelectionCriterion: avoid silent fail, do not catch [done]
 #   all Exceptions and return inf. (That hides bugs, typos, device errors...)
 # * BatchDifferentiableSelectionCriterion: assume crit returns mean

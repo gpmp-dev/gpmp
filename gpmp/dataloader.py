@@ -135,8 +135,8 @@ class Dataset:
             mask = (indices >= start) & (indices < end)
             if mask.any():
                 local_idx = indices[mask] - start
-                xi = gnp.index_select(self.x_list[shard_idx], 0, local_idx)
-                zi = gnp.index_select(self.z_list[shard_idx], 0, local_idx)
+                xi = self.x_list[shard_idx][local_idx]
+                zi = self.z_list[shard_idx][local_idx]
                 xs.append(xi)
                 zs.append(zi)
 
@@ -409,8 +409,8 @@ class DataLoader:
             mask = (batch_idx >= start) & (batch_idx < end)
             if mask.any():
                 local_idx = batch_idx[mask] - start
-                xi = gnp.index_select(self.dataset.x_list[shard_idx], 0, local_idx)
-                zi = gnp.index_select(self.dataset.z_list[shard_idx], 0, local_idx)
+                xi = self.dataset.x_list[shard_idx][local_idx]
+                zi = self.dataset.z_list[shard_idx][local_idx]
                 xs.append(xi)
                 zs.append(zi)
 
