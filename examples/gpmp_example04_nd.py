@@ -65,6 +65,16 @@ def choose_test_case(problem):
         nt = 1000
         xt = gp.misc.designs.ldrandunif(dim, nt, box)
 
+    elif problem == 5:
+        problem_name = "Ishigami"
+        f = gp.misc.testfunctions.ishigami
+        dim = 3
+        box = [[-gnp.pi] * 3, [gnp.pi] * 3]
+        ni = 150
+        xi = gp.misc.designs.ldrandunif(dim, ni, box)
+        nt = 1000
+        xt = gp.misc.designs.ldrandunif(dim, nt, box)
+
     return problem_name, f, dim, box, ni, xi, nt, xt
 
 
@@ -89,7 +99,7 @@ def visualize_predictions(problem_name, zt, zpm):
 
 
 def main():
-    problem = 1
+    problem = 5
     problem_name, f, dim, box, ni, xi, nt, xt = choose_test_case(problem)
 
     zi = f(xi)

@@ -363,3 +363,45 @@ def detpep8d(x):
     z = term1 + term2 + term3 + outer
 
     return z
+
+
+def ishigami(x):
+    r"""Ishigami function.
+
+    The Ishigami function is a 3-dimensional benchmark function commonly used
+    for testing uncertainty quantification and sensitivity analysis methods.
+    It is defined as:
+
+    .. math::
+
+        f(x) = \sin(x_1) + 5 \sin^2(x_2) + 0.1 x_3^4 \sin(x_1)
+
+    Parameters
+    ----------
+    x : numpy.ndarray
+        2D array of shape (n, 3) containing n samples with 3 variables each.
+        Each variable should be in the range [-π, π].
+
+    Returns
+    -------
+    numpy.ndarray
+        1D array of shape (n,) containing the function values.
+
+    Notes
+    -----
+    This function has useful properties:
+    - It is moderately nonlinear with multimodal behavior
+    - Suitable for global optimization and sensitivity analysis testing
+    - Standard parameters: a = 5, b = 0.1
+
+    References
+    ----------
+    Ishigami, T., & Homma, T. (1990). An importance quantification technique
+    in uncertainty analysis for computer models. IEEE Transactions on Reliability,
+    39(3), 352-360.
+    """
+    a = 5
+    b = 0.1
+    z = np.sin(x[:, 0]) + a * np.sin(x[:, 1]) ** 2 + b * (x[:, 2] ** 4) * np.sin(x[:, 0])
+    return z
+
