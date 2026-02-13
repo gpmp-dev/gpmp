@@ -1,3 +1,19 @@
+- 0.9.31 reorganize modules, improve performance, backend cleanup
+  * plotutils: reorganize into dedicated gpmp.plot package
+    - New API: gp.plot.Figure(), gp.plot.plot_loo(), gp.plot.crosssections()
+    - Backward compatible: gpmp.misc.plotutils still accessible
+  * modeldiagnosis: reorganize into dedicated gpmp.modeldiagnosis package  
+  * num.py: performance improvements and bug fixes
+  * num.py: fix dtype handling across backends
+  * num.py: add type hinting for better code clarity
+  * num.py: narrow selection-criterion exceptions to linalg errors
+  * remove JAX backend support (deprecated)
+  * fix various typos
+  * update all examples to use new plot API
+
+- 0.9.30 reorganize project layout
+  * restructure package organization for better maintainability
+
 - 0.9.27 use a a global config object
 - 0.9.26 improve bound management
 - 0.9.25 dataloader implementation + several improvements
