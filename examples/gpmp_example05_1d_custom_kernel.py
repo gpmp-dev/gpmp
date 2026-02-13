@@ -107,7 +107,7 @@ def kernel(x, y, param, pairwise=False):
 
 
 def visualize(xt, zt, xi, zi, zpm, zpv):
-    fig = gp.misc.plotutils.Figure(isinteractive=True)
+    fig = gp.plot.Figure(isinteractive=True)
     fig.plot(xt, zt, 'C0', linestyle=(0, (5, 5)), linewidth=1.0)
     fig.plotdata(xi, zi)
     fig.plotgp(xt, zpm, zpv)

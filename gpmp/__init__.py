@@ -35,6 +35,7 @@ __all__ = [
     "dataloader",
     "modeldiagnosis",
     "misc",
+    "plot",
 ]
 
 _DEFAULT_VERSION: Final[str] = "0.0.0"
@@ -44,6 +45,7 @@ _LAZY_SUBMODULES: Final[set[str]] = {
     "dataloader",
     "modeldiagnosis",
     "misc",
+    "plot",
 }
 
 

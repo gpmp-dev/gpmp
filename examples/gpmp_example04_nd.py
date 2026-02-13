@@ -104,9 +104,9 @@ def main():
     visualize_predictions(problem_name, zt, zpm)
 
     zloom, zloov, eloo = model.loo(xi, zi)
-    gp.misc.plotutils.plot_loo(zi, zloom, zloov)
+    gp.plot.plot_loo(zi, zloom, zloov)
 
-    gp.misc.plotutils.crosssections(
+    gp.plot.crosssections(
         model, xi, zi, box, ind_i=[0, 1], ind_dim=list(range(dim))
     )
 

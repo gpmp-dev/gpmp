@@ -10,7 +10,7 @@ import gpmp as gp
 def main():
     h = gnp.linspace(-2.0, 2.0, 500)
 
-    fig = gp.misc.plotutils.Figure()
+    fig = gp.plot.Figure()
 
     for p in [0, 1, 4]:
         r = gp.kernel.maternp_kernel(p, gnp.abs(h))

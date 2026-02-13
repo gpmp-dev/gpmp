@@ -129,7 +129,7 @@ def main():
 
 def visualize(xt, zt, xi, zi, zpm, zpv):
     """Plot reference function, observations, and GP posterior (latent)."""
-    fig = gp.misc.plotutils.Figure(isinteractive=True)
+    fig = gp.plot.Figure(isinteractive=True)
     fig.plot(xt, zt, 'C0', linestyle=(0, (5, 5)), linewidth=1)
     fig.plot(xi, zi, 'rs')
     fig.plotgp(xt, zpm, zpv)

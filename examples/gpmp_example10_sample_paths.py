@@ -14,7 +14,7 @@ import math
 import numpy as np
 import gpmp.num as gnp
 import gpmp as gp
-import gpmp.misc.plotutils as plotutils
+import gpmp.plot as gpplot
 
 
 def generate_data():
@@ -39,7 +39,7 @@ def constant_mean(x, param):
 
 
 def visualization(xt, zt, zpsim, xi, zi, zpm, zpv):
-    fig = plotutils.Figure(isinteractive=True)
+    fig = gpplot.Figure(isinteractive=True)
     fig.plot(xt, zt, 'C2', linewidth=1, label='truth')
     fig.plot(xt, zpsim[:, 1], 'C0', linewidth=1, label='posterior sample paths')
     fig.plot(xt, zpsim[:, 1:], 'C0', linewidth=1)

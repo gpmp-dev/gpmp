@@ -135,9 +135,9 @@ def main():
 
     # LOO predictions
     zloom, zloov, eloo = model.loo(xi, zi)
-    gp.misc.plotutils.plot_loo(zi, zloom, zloov)
+    gp.plot.plot_loo(zi, zloom, zloov)
 
-    gp.misc.plotutils.crosssections(model, xi, zi, box, ind_i=[0, 10], ind_dim=[0, 1])
+    gp.plot.crosssections(model, xi, zi, box, ind_i=[0, 10], ind_dim=[0, 1])
 
 
 if __name__ == "__main__":

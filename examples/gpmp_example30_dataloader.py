@@ -120,7 +120,7 @@ def main():
     visualize_predictions(problem_name, zt, zpm)
 
     zloom, zloov, eloo = model.loo(xi, zi)
-    gp.misc.plotutils.plot_loo(zi, zloom, zloov)
+    gp.plot.plot_loo(zi, zloom, zloov)
 
     gp.modeldiagnosis.perf(
         model,

@@ -45,7 +45,7 @@ def kernel(x, y, covparam, pairwise=False):
 
 def visualize_results(xt, zt, xi, zi, zpm, zpv):
     """
-    Visualize the results using gp.misc.plotutils (a matplotlib wrapper).
+    Visualize the results using gp.plot.plotutils (a matplotlib wrapper).
 
     Parameters
     ----------
@@ -62,7 +62,7 @@ def visualize_results(xt, zt, xi, zi, zpm, zpv):
     zpv : numpy.ndarray
         Posterior variance
     """
-    fig = gp.misc.plotutils.Figure(isinteractive=True)
+    fig = gp.plot.Figure(isinteractive=True)
     fig.plot(xt, zt, "k", linewidth=1, linestyle=(0, (5, 5)))
     fig.plotdata(xi, zi)
     fig.plotgp(xt, zpm, zpv, colorscheme="simple")
@@ -108,7 +108,7 @@ def main():
     visualize_results(xt, zt, xi, zi, zpm, zpv)
 
     zloom, zloov, eloo = model.loo(xi, zi)
-    gp.misc.plotutils.plot_loo(zi, zloom, zloov)
+    gp.plot.plot_loo(zi, zloom, zloov)
 
 
 if __name__ == "__main__":

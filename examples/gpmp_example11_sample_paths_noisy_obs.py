@@ -16,7 +16,7 @@ import math
 import numpy as np
 import gpmp.num as gnp
 import gpmp as gp
-import gpmp.misc.plotutils as plotutils
+import gpmp.plot as gpplot
 
 
 def generate_data():
@@ -110,7 +110,7 @@ def constant_mean(x, param):
 
 
 def visualize(xt, zt, xi, zi, zpm, zpv, zsim, zpsim):
-    fig = plotutils.Figure(isinteractive=True)
+    fig = gpplot.Figure(isinteractive=True)
     fig.plot(xt[:, 0], zt, 'C0', linestyle=(0, (5, 5)), linewidth=1)
     fig.plot(xi[:, 0], zi, 'rs')
     fig.plotgp(xt[:, 0], zpm, zpv)
@@ -124,14 +124,14 @@ def visualize(xt, zt, xi, zi, zpm, zpv, zsim, zpsim):
     xi_ind = np.arange(ni)
     xt_ind = np.arange(nt) + ni
 
-    fig = plotutils.Figure(isinteractive=True)
+    fig = gpplot.Figure(isinteractive=True)
     fig.plot(xixt[xt_ind, 0], zsim[xt_ind])
     fig.ax.set_prop_cycle(None)
     fig.plot(xixt[xi_ind, 0], zsim[xi_ind], 'o')
     fig.title('Unconditional sample paths, with simulated noisy observations for each sample path')
     fig.show(grid=True)
 
-    fig = plotutils.Figure(isinteractive=True)
+    fig = gpplot.Figure(isinteractive=True)
     fig.plot(xixt[xt_ind, 0], zt, 'C2', linewidth=1)
     fig.plot(xixt[xt_ind, 0], zpsim, 'C0', linewidth=1)
     fig.plot(xi[:, 0], zi, 'rs')
