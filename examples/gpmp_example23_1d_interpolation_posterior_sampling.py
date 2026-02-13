@@ -81,7 +81,7 @@ def main():
 
     # Automatic selection of parameters using ReMAP
     model, info = gp.kernel.select_parameters_with_remap(model, xi, zi, info=True)
-    gp.misc.modeldiagnosis.diag(model, info, xi, zi)
+    gp.modeldiagnosis.diag(model, info, xi, zi)
 
     # Prediction
     zpm, zpv = model.predict(xi, zi, xt)
@@ -101,11 +101,11 @@ def main():
     plot_likelihood_cross_sections = True
     plot_likelihood_2d_profile = True
     if plot_likelihood_cross_sections:
-        gp.misc.modeldiagnosis.plot_selection_criterion_crosssections(
+        gp.modeldiagnosis.plot_selection_criterion_crosssections(
             info=info, delta=0.6, param_names=["sigma^2 (log)", "rho (log)"]
         )
     if plot_likelihood_2d_profile:
-        gp.misc.modeldiagnosis.plot_selection_criterion_sigma_rho(
+        gp.modeldiagnosis.plot_selection_criterion_sigma_rho(
             model, info, criterion_name="log posterior"
         )
 

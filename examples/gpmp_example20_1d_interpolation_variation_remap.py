@@ -78,7 +78,7 @@ def main():
 
     # Automatic selection of parameters using REMAP
     model, info = gp.kernel.select_parameters_with_remap(model, xi, zi, info=True)
-    gp.misc.modeldiagnosis.diag(model, info, xi, zi)
+    gp.modeldiagnosis.diag(model, info, xi, zi)
 
     # Prediction
     zpm, zpv = model.predict(xi, zi, xt)
@@ -88,7 +88,7 @@ def main():
     print("-------------")
     plot_likelihood = True
     if plot_likelihood:
-        gp.misc.modeldiagnosis.plot_selection_criterion_sigma_rho(
+        gp.modeldiagnosis.plot_selection_criterion_sigma_rho(
             model, info, criterion_name="restricted maximum a posteriori"
         )
 

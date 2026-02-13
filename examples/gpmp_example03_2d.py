@@ -87,7 +87,7 @@ def main():
         covparam0, nlrl, dnlrl, info=True
     )
     model.covparam = gnp.asarray(covparam_reml)
-    gp.misc.modeldiagnosis.diag(model, info, xi, zi)
+    gp.modeldiagnosis.diag(model, info, xi, zi)
 
     # Prediction
     (zpm, zpv) = model.predict(xi, zi, xt)

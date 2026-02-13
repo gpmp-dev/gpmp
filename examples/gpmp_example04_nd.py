@@ -97,7 +97,7 @@ def main():
 
     model = gp.Model(constant_mean, kernel)
     model, info = gp.kernel.select_parameters_with_remap(model, xi, zi, info=True)
-    gp.misc.modeldiagnosis.diag(model, info, xi, zi)
+    gp.modeldiagnosis.diag(model, info, xi, zi)
 
     (zpm, zpv) = model.predict(xi, zi, xt)
 
@@ -110,7 +110,7 @@ def main():
         model, xi, zi, box, ind_i=[0, 1], ind_dim=list(range(dim))
     )
 
-    gp.misc.modeldiagnosis.perf(
+    gp.modeldiagnosis.perf(
         model,
         xi,
         zi,

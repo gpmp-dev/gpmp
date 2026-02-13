@@ -165,7 +165,7 @@ info["covparam0"] = covparam0
 info["covparam"] = covparam_reml
 info["selection_criterion"] = nlrl
 
-gp.misc.modeldiagnosis.diag(
+gp.modeldiagnosis.diag(
     model, info, xi, zi, model_type="linear_mean_matern_anisotropic_noisy"
 )
 

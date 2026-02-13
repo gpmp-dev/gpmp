@@ -97,7 +97,7 @@ def main():
     info["covparam"] = covparam_reml
     info["selection_criterion"] = nlrl
 
-    gp.misc.modeldiagnosis.diag(model, info, xi, zi)
+    gp.modeldiagnosis.diag(model, info, xi, zi)
 
     # Prediction
     zpm, zpv = model.predict(xi, zi, xt)

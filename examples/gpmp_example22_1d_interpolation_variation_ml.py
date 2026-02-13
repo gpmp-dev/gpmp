@@ -110,7 +110,7 @@ def main():
     info["covparam"] = param_ml[1:]
     info["selection_criterion"] = nll
 
-    gp.misc.modeldiagnosis.diag(model, info, xi, zi)
+    gp.modeldiagnosis.diag(model, info, xi, zi)
 
     # Prediction
     zpm, zpv = model.predict(xi, zi, xt)

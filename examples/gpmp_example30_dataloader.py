@@ -98,9 +98,9 @@ def main():
         model, dataloader=loader, info=True
     )
 
-    gp.misc.modeldiagnosis.diag(model, info, xi, zi)
+    gp.modeldiagnosis.diag(model, info, xi, zi)
 
-    gp.misc.modeldiagnosis.plot_selection_criterion_crosssections(
+    gp.modeldiagnosis.plot_selection_criterion_crosssections(
         info=info,
         selection_criterion=info.selection_criterion_nograd,
         covparam=None,
@@ -122,7 +122,7 @@ def main():
     zloom, zloov, eloo = model.loo(xi, zi)
     gp.misc.plotutils.plot_loo(zi, zloom, zloov)
 
-    gp.misc.modeldiagnosis.perf(
+    gp.modeldiagnosis.perf(
         model,
         xi,
         zi,
