@@ -1,3 +1,9 @@
+# gpmp/num.py
+# --------------------------------------------------------------
+# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+# Copyright (c) 2022-2026, CentraleSupelec
+# License: GPLv3 (see LICENSE)
+# --------------------------------------------------------------
 """num.py — Numerical backend for GPmp.
 
 This module provides numerical operations for GPmp, with a unified API
@@ -11,11 +17,6 @@ All basic array operations, linear algebra routines, random sampling,
 and differentiable functions are defined here.
 
 The active backend is stored in the environment variable 'GPMP_BACKEND'.
-
-Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022–2026, CentraleSupélec
-License: GPLv3 (see LICENSE)
-
 """
 
 import os
@@ -50,6 +51,7 @@ _LINALG_ERROR_KEYWORDS = (
     "linalg",
     "lapack",
     "cusolver",
+    "array must not contain infs or nans",
 )
 
 if _gpmp_backend_ == "jax":
@@ -86,6 +88,7 @@ if _gpmp_backend_ == "numpy":
         isclose,
         allclose,
         unique,
+        nan_to_num,
         hstack,
         vstack,
         stack,
@@ -157,6 +160,21 @@ if _gpmp_backend_ == "numpy":
 
     eps = finfo(_np_dtype).eps
     fmax = numpy.finfo(_np_dtype).max
+
+    def safe_inf():
+        return inf
+
+    def safe_neginf():
+        return -inf
+
+    # ..................................................
+    
+    def _is_linalg_exception(exc: Exception) -> bool:
+        if isinstance(exc, numpy.linalg.LinAlgError):
+            return True
+        msg = str(exc).lower()
+        return builtins.any(keyword in msg for keyword in _LINALG_ERROR_KEYWORDS)
+
     # ..................................................
 
     def array(x, dtype=None):
@@ -193,10 +211,16 @@ if _gpmp_backend_ == "numpy":
         return numpy.ones(shape, dtype=_np_dtype if dtype is None else dtype)
 
     def full(shape, fill_value, dtype=None):
-        return numpy.full(shape, fill_value, dtype=_np_dtype if dtype is None else dtype)
+        return numpy.full(
+            shape, fill_value, dtype=_np_dtype if dtype is None else dtype
+        )
 
     def eye(n, m=None, k=0, dtype=None):
         return numpy.eye(n, M=m, k=k, dtype=_np_dtype if dtype is None else dtype)
+
+    def transpose(x, dim0, dim1):
+        """Torch-style transpose: swap two dimensions."""
+        return numpy.swapaxes(x, dim0, dim1)
 
     def linspace(start, stop, num=50, endpoint=True, retstep=False, dtype=None, axis=0):
         return numpy.linspace(
@@ -241,14 +265,78 @@ if _gpmp_backend_ == "numpy":
 
     # ..................................................
 
-    def grad(f: Callable[[ArrayLike], ArrayLike]) -> None:
-        return None
+    def grad(f: Callable[[ArrayLike], ArrayLike]) -> Callable[[ArrayLike], ArrayLike]:
+        """
+        Return function that computes gradient of scalar f via finite differences.
 
-    def _is_linalg_exception(exc: Exception) -> bool:
-        if isinstance(exc, numpy.linalg.LinAlgError):
-            return True
-        msg = str(exc).lower()
-        return builtins.any(keyword in msg for keyword in _LINALG_ERROR_KEYWORDS)
+        Uses 5-point central difference formula for accuracy.
+        Suitable for low to moderate dimensional problems.
+
+        Parameters
+        ----------
+        f : callable
+            Scalar-valued function taking an array and returning a scalar.
+
+        Returns
+        -------
+        callable
+            Function grad_f(x) that computes nabla f(x) using finite differences.
+        """
+
+        def grad_f(x: ArrayLike) -> ArrayLike:
+            x_arr = asarray(x)
+            grad_vec = zeros_like(x_arr)
+            h = 1e-5  # step size for finite differences
+
+            for i in range(x_arr.shape[0]):
+
+                def f_i(xi_scalar):
+                    x_copy = copy(x_arr)
+                    x_copy[i] = xi_scalar
+                    return f(x_copy)
+
+                # derivative_finite_diff expects scalar input
+                grad_vec[i] = derivative_finite_diff(f_i, float(x_arr[i]), h)
+
+            return grad_vec
+
+        return grad_f
+
+    def value_and_grad(
+        f: Callable[[ArrayLike], ArrayLike],
+        x: ArrayLike,
+        *,
+        h: _np_dtype = 1e-5,
+    ) -> Tuple[ArrayLike, ArrayLike]:
+        """Returns (y, grad_y) where y = f(x) is scalar.  Uses
+        derivative_finite_diff on each coordinate (expects scalar
+        input).
+
+        """
+
+        def _coerce_scalar_like(y_):
+            if isscalar(y_):
+                return y_
+            if isarray(y_):
+                if y_.ndim == 0:
+                    return y_
+                if y_.size == 1:
+                    return reshape(y_, ())
+            raise ValueError("f(x) must return a scalar.")
+
+        y = _coerce_scalar_like(f(x))
+        grad = zeros_like(x, dtype=_np_dtype)
+        x_tmp = x.copy()
+        for idx in range(x.shape[0]):
+            xi = x[idx]
+
+            def f_i(xi_scalar: _np_dtype):
+                x_tmp[idx] = xi_scalar
+                return _coerce_scalar_like(f(x_tmp))
+
+            grad[idx] = derivative_finite_diff(f_i, xi, h)
+            x_tmp[idx] = x[idx]  # restore
+        return y, grad
 
     class DifferentiableSelectionCriterion:
         def __init__(self, crit: CriterionCallable, x: ArrayLike, z: ArrayLike):
@@ -259,7 +347,13 @@ if _gpmp_backend_ == "numpy":
         def __call__(self, p: ArrayLike) -> ArrayLike:
             return self.evaluate(p)
 
-        def evaluate(self, p: ArrayLike) -> ArrayLike:
+        def evaluate(self, p: ArrayLike) -> _np_dtype:
+            return self.crit(p, self.x, self.z)
+
+        def evaluate_no_grad(self, p: ArrayLike) -> _np_dtype:
+            return self.evaluate(p)
+
+        def evaluate_pre_grad(self, p: ArrayLike) -> _np_dtype:
             try:
                 return self.crit(p, self.x, self.z)
             except Exception as exc:
@@ -267,8 +361,6 @@ if _gpmp_backend_ == "numpy":
                     return inf
                 raise
 
-        def evaluate_no_grad(self, p: ArrayLike) -> ArrayLike:
-            return self.evaluate(p)
 
     class BatchDifferentiableSelectionCriterion:
         def __init__(
@@ -294,7 +386,7 @@ if _gpmp_backend_ == "numpy":
             reduction : str, optional
                 Reduction mode: 'mean' (default) or 'sum'.
             batches_per_eval : int, default 0
-                0  -> run over the whole loader each call (legacy behavior).
+                0  -> run over the whole loader each call (default behavior).
                 >0 -> run over exactly this many batches per call, cycling when
                       the iterator is exhausted.
             """
@@ -311,10 +403,7 @@ if _gpmp_backend_ == "numpy":
 
         def __call__(self, p: ArrayLike) -> ArrayLike:
             return self.evaluate_no_grad(p)
-
-        def evaluate_no_grad(self, p: ArrayLike) -> ArrayLike:
-            return self.evaluate(p)
-
+        
         def _batches(self):
             if self.bpe == 0:
                 yield from self.loader
@@ -326,7 +415,7 @@ if _gpmp_backend_ == "numpy":
                         self._batch_iter = iter(self.loader)
                         yield next(self._batch_iter)
 
-        def evaluate(self, p: ArrayLike) -> ArrayLike:
+        def evaluate(self, p: ArrayLike) -> _np_dtype:
             try:
                 total_loss = 0.0
                 n_samples = 0
@@ -343,6 +432,12 @@ if _gpmp_backend_ == "numpy":
                 if _is_linalg_exception(exc):
                     return inf
                 raise
+
+        def evaluate_pre_grad(self, p: ArrayLike) -> _np_dtype:
+            return self.evaluate(p)
+        
+        def evaluate_no_grad(self, p: ArrayLike) -> _np_dtype:
+            return self.evaluate(p)
 
     # ..................................................
 
@@ -502,6 +597,9 @@ elif _gpmp_backend_ == "torch":
     _torch_dtype = torch.float64
     torch.set_default_dtype(_torch_dtype)
     _config.dtype_resolved = _torch_dtype
+
+    TensorLike = Union[torch.Tensor, float, int]
+    
     from torch import tensor, is_tensor
 
     ndarray = torch.Tensor
@@ -559,6 +657,42 @@ elif _gpmp_backend_ == "torch":
 
     eps = finfo(_torch_dtype).eps
     fmax = finfo(_torch_dtype).max
+
+    def safe_inf():
+        """
+        Use LinAlgError instead of raising RuntimeError for linalg operations
+        https://github.com/pytorch/pytorch/issues/64785
+        https://stackoverflow.com/questions/242485/starting-python-debugger-automatically-on-error
+        extype, value, tb = __import__("sys").exc_info()
+        __import__("traceback").print_exc()
+        __import__("pdb").post_mortem(tb)
+        """
+        inf_tensor = tensor(float("inf"), requires_grad=True)
+        return inf_tensor  # returns inf with None gradient
+
+    def safe_neginf():
+        neginf_tensor = tensor(-float("inf"), requires_grad=True)
+        return neginf_tensor
+
+    def nan_to_num(x, copy=True, nan=0.0, posinf=None, neginf=None):
+        if copy:
+            x_target = x.clone()
+        else:
+            x_target = None
+        return torch.nan_to_num(x, nan=nan, posinf=posinf, neginf=neginf, out=x_target)
+    
+    # ..................................................
+
+    _torch_linalg_error = (
+        (torch.linalg.LinAlgError,) if hasattr(torch.linalg, "LinAlgError") else tuple()
+    )
+
+    def _is_linalg_exception(exc: Exception) -> bool:
+        if _torch_linalg_error and isinstance(exc, _torch_linalg_error):
+            return True
+        msg = str(exc).lower()
+        return builtins.any(keyword in msg for keyword in _LINALG_ERROR_KEYWORDS)
+
     # ..................................................
 
     def gammaln(x):
@@ -674,7 +808,7 @@ elif _gpmp_backend_ == "torch":
             return f(t)
 
         return f_
-        
+
     # def scalar_safe(f):
     #     def f_(x):
     #         return f(asarray(x))
@@ -734,6 +868,10 @@ elif _gpmp_backend_ == "torch":
             sizes = _sizes_from_bounds(vec, length)
         # torch.split needs a list
         return torch.split(x, sizes.tolist(), dim=dim)
+
+    def transpose(x, dim0, dim1):
+        """Torch-style transpose: swap two dimensions."""
+        return torch.transpose(x, dim0, dim1)
 
     # ..................................................
 
@@ -839,17 +977,34 @@ elif _gpmp_backend_ == "torch":
 
         return f_grad
 
-    _torch_linalg_error = (
-        (torch.linalg.LinAlgError,)
-        if hasattr(torch.linalg, "LinAlgError")
-        else tuple()
-    )
+    def value_and_grad(f, x):
+        # Returns (y, grady) with y = f(x)
+        with torch.enable_grad():
+            x_ = x.detach().requires_grad_(True)
+            y = f(x_)
+            if not torch.is_tensor(y):
+                raise ValueError("f(x) must return a torch scalar tensor.")
+            if y.ndim != 0:
+                if y.numel() == 1:
+                    y = y.reshape(())
+                else:
+                    raise ValueError("f(x) must return a scalar.")
+            if not torch.isfinite(y):
+                return y.detach(), torch.zeros_like(x_).detach()
+            (g,) = torch.autograd.grad(y, x_, create_graph=False, allow_unused=True)
+            if g is None:
+                g = torch.zeros_like(x_)
+        return y.detach(), g.detach()
 
-    def _is_linalg_exception(exc: Exception) -> bool:
-        if _torch_linalg_error and isinstance(exc, _torch_linalg_error):
-            return True
-        msg = str(exc).lower()
-        return builtins.any(keyword in msg for keyword in _LINALG_ERROR_KEYWORDS)
+    # def value_and_grad(f, x):
+    #     # Returns (y, grady) with y = f(x)
+    #     with torch.enable_grad():
+    #         x_ = x.detach().requires_grad_(True)
+    #         y = f(x_)
+    #         if y.ndim != 0:
+    #             raise ValueError("f(x) must return a scalar.")
+    #         (g,) = torch.autograd.grad(y, x_, create_graph=False)
+    #     return y.detach(), g.detach()
 
     class DifferentiableSelectionCriterion:
         """Wraps a selection criterion f(p, x, z) -> scalar, allowing gradient computation."""
@@ -861,21 +1016,24 @@ elif _gpmp_backend_ == "torch":
             self._p_value = None
             self._f_value = None
 
-        def __call__(self, p: ArrayLike) -> float:
-            return self.evaluate_no_grad(p)
+        def __call__(self, p: ArrayLike) -> _torch_dtype:
+            return self.evaluate(p)
+            
+        def evaluate(self, p: ArrayLike) -> _torch_dtype:
+            return self.f(p, self.x, self.z)
 
-        def evaluate_no_grad(self, p: ArrayLike) -> float:
+        def evaluate_no_grad(self, p: ArrayLike) -> _torch_dtype:
             p = asarray(p)
             try:
                 with torch.no_grad():
                     f_value = self.f(p, self.x, self.z)
-                return f_value.item()
+                return f_value
             except Exception as exc:
                 if _is_linalg_exception(exc):
                     return inf
                 raise
-
-        def evaluate(self, p: ArrayLike) -> float:
+            
+        def evaluate_pre_grad(self, p: ArrayLike) -> _torch_dtype:
             self._p_value = asarray(p).detach().clone().requires_grad_(True)
             try:
                 self._f_value = self.f(self._p_value, self.x, self.z)
@@ -884,13 +1042,13 @@ elif _gpmp_backend_ == "torch":
                 if _is_linalg_exception(exc):
                     self._f_value = torch.tensor(float("inf"), requires_grad=True)
                     return self._f_value.item()
-                raise
-
+                raise            
+            
         def gradient(
             self, p: ArrayLike, retain: bool = False, allow_unused: bool = True
         ) -> ArrayLike:
             if self._f_value is None:
-                raise ValueError("Call 'evaluate(p)' before 'gradient(p)'")
+                raise ValueError("Call 'evaluate_pre_grad(p)' before 'gradient(p)'")
 
             if not torch.equal(asarray(p), self._p_value):
                 raise ValueError(
@@ -907,8 +1065,6 @@ elif _gpmp_backend_ == "torch":
                 raise RuntimeError("Gradient is None.")
             return gradients
 
-    TensorLike = Union[torch.Tensor, float, int]
-
     class BatchDifferentiableSelectionCriterion:
         """
         Scalar selection criterion evaluated on mini-batches.
@@ -921,7 +1077,7 @@ elif _gpmp_backend_ == "torch":
         loader : torch.utils.data.DataLoader
         reduction : {'mean', 'sum'}, default 'mean'
         batches_per_eval : int, default 0
-            0  -> run over the *whole* loader each call (legacy behaviour).
+            0  -> run over the *whole* loader each call (default behaviour).
             >0 -> run over exactly this many batches per call, cycling when
                   the iterator is exhausted.
         """
@@ -936,7 +1092,7 @@ elif _gpmp_backend_ == "torch":
             if reduction not in ("mean", "sum"):
                 raise ValueError("reduction must be 'mean' or 'sum'")
             if batches_per_eval < 0:
-                raise ValueError("batches_per_eval must be ≥ 0")
+                raise ValueError("batches_per_eval must be >= 0")
             if len(loader) == 0:
                 raise ValueError("DataLoader is empty.")
 
@@ -969,7 +1125,20 @@ elif _gpmp_backend_ == "torch":
                         self._batch_iter = iter(self.loader)
                         yield next(self._batch_iter)
 
-        def evaluate_no_grad(self, param: TensorLike) -> float:
+        def evaluate(self, param: TensorLike) -> torch.Tensor:
+            total, n = 0.0, 0
+            for xb, zb in self._batches():
+                bs = xb.shape[0]
+                loss = self.crit(param, xb, zb) * bs
+                total += loss.item()
+                n += bs
+            if n == 0:
+                raise ValueError("Loader is empty.")
+            if self.reduction == "mean":
+                total /= n
+            return total
+                        
+        def evaluate_no_grad(self, param: TensorLike) -> _torch_dtype:
             total, n = 0.0, 0
             with torch.no_grad():
                 p = self._prepare_param(param, req_grad=False)
@@ -981,7 +1150,7 @@ elif _gpmp_backend_ == "torch":
                 raise ValueError("Loader is empty.")
             return total / n if self.reduction == "mean" else total
 
-        def evaluate(self, param: TensorLike) -> float:
+        def evaluate_pre_grad(self, param: TensorLike) -> _torch_dtype:
             p = self._prepare_param(param, req_grad=True)
             grad = None  # accumulated gradient
             total, n = 0.0, 0
@@ -1002,7 +1171,7 @@ elif _gpmp_backend_ == "torch":
                 grad /= n
             self._gradient = grad.detach()
             return total
-
+        
         # -----------------------------------------------------------------
         def gradient(self, _param: TensorLike) -> torch.Tensor:
             if self._gradient is None:
@@ -1368,6 +1537,10 @@ else:
 # Backend independent functions
 #
 # ------------------------------------------------------------------
+
+
+def get_dtype():
+    return _config.dtype_resolved
 
 
 def _cast_gammaln_input(xs: ArrayLike) -> ArrayLike:

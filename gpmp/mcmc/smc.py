@@ -1,3 +1,9 @@
+# gpmp/mcmc/smc.py
+# --------------------------------------------------------------
+# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+# Copyright (c) 2022-2026, CentraleSupelec
+# License: GPLv3 (see LICENSE)
+# --------------------------------------------------------------
 """Sequential Monte Carlo (SMC) sampler implementation
 
 This module provides the `ParticlesSet` and `SMC` classes for SMC
@@ -5,13 +11,9 @@ simulations, along with a `run_smc_sampling` function to execute full
 sampling workflows. A test example using a 1D Gaussian mixture
 illustrates the functionality.
 
-Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
 Contributions:
     Julien Bect <julien.bect@centralesupelec.fr>, 2024
     Sébastien Petit, 2024
-Copyright (c) 2022-2026 CentraleSupelec
-License: GPLv3 (see LICENSE)
-
 """
 
 import time, warnings
@@ -21,7 +23,7 @@ import scipy.stats as stats
 from scipy.stats import qmc
 from scipy.optimize import brentq
 import gpmp.num as gnp
-import gpmp.misc.knn_cov
+from . import knn_cov
 
 
 @dataclass
@@ -370,13 +372,13 @@ class ParticlesSet:
 
         # Covariance matrix of the pertubation noise
         if self.config.covariance_method == "knn":
-            base_cov = gpmp.misc.knn_cov.estimate_cov_matrix_knn(
+            base_cov = knn_cov.estimate_cov_matrix_knn(
                 self.x,
                 n_random=self.config.covariance_knn_n_random,
                 n_neighbors=self.config.covariance_knn_n_neighbors,
             )  # shape (dim, dim)
         elif self.config.covariance_method == "normal":
-            base_cov = gpmp.misc.knn_cov.estimate_cov_matrix(self.x)
+            base_cov = knn_cov.estimate_cov_matrix(self.x)
         C = self.param_s * base_cov
 
         # Call ParticlesSet.multivariate_normal_rvs(C, self.n, self.rng)

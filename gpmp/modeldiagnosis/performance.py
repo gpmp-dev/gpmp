@@ -1,4 +1,9 @@
 # gpmp/modeldiagnosis/performance.py
+# --------------------------------------------------------------
+# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+# Copyright (c) 2022-2026, CentraleSupelec
+# License: GPLv3 (see LICENSE)
+# --------------------------------------------------------------
 """
 Predictive performance metrics for GP models.
 
@@ -22,10 +27,6 @@ Derived:
 - std(z)
 - RMSE/std(z) = RMSE / std(z)
 - log10(SSE/TSS)
-
-Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2026, CentraleSupelec
-License: GPLv3 (see LICENSE)
 """
 
 from __future__ import annotations

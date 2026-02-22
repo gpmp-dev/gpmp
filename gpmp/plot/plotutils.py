@@ -1,8 +1,13 @@
-## --------------------------------------------------------------
+# gpmp/plot/plotutils.py
+# --------------------------------------------------------------
 # Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
 # Copyright (c) 2022-2026, CentraleSupelec
 # License: GPLv3 (see LICENSE)
-## --------------------------------------------------------------
+# --------------------------------------------------------------
+"""
+Plotting utilities for GPmp.
+"""
+
 import sys
 import numpy as np
 import gpmp.num as gnp

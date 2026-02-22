@@ -27,7 +27,7 @@ def generate_data():
     xt = gp.misc.designs.regulargrid(dim, nt, box)
     zt = gp.misc.testfunctions.twobumps(xt)
 
-    ni = 6
+    ni = 6  # FIXME improve stability for ni > 50
     xi = gp.misc.designs.ldrandunif(dim, ni, box)
     zi = gp.misc.testfunctions.twobumps(xi)
 

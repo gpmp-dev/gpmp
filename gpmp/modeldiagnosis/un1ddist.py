@@ -1,4 +1,9 @@
-# gpmp/modeldiagnosis/distributions.py
+# gpmp/modeldiagnosis/un1ddist.py
+# --------------------------------------------------------------
+# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+# Copyright (c) 2022-2026, CentraleSupelec
+# License: GPLv3 (see LICENSE)
+# --------------------------------------------------------------
 """Scalar distributions for diagnostic computations.
 
 This module defines small helpers to build one-dimensional distributions from
@@ -15,10 +20,6 @@ Notes
 The implementation is scalar-oriented and uses ``scipy.integrate.quad`` and
 ``scipy.optimize.brentq``. It is therefore CPU-only. Quantiles require finite
 bounds.
-
-Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2026, CentraleSupelec
-License: GPLv3 (see LICENSE)
 """
 
 from __future__ import annotations

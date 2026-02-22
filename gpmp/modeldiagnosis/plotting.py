@@ -1,4 +1,9 @@
 # gpmp/modeldiagnosis/plotting.py
+# --------------------------------------------------------------
+# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+# Copyright (c) 2022-2026, CentraleSupelec
+# License: GPLv3 (see LICENSE)
+# --------------------------------------------------------------
 """
 Plotting helpers for GP model diagnosis.
 
@@ -17,10 +22,6 @@ Notes
 -----
 Matplotlib is imported inside this module. Importing gpmp.modeldiagnosis.plotting
 will import matplotlib. Other diagnosis submodules do not import matplotlib.
-
-Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2026, CentraleSupelec
-License: GPLv3 (see LICENSE)
 """
 
 from __future__ import annotations
@@ -184,18 +185,15 @@ def plot_selection_criterion_crosssections(
         for ax_i, param_idx in enumerate(ind):
             opt_value = param_opt[param_idx]
             p_values = _grid_for_param(param_idx, opt_value, param_box)
-
             crit_values = gnp.zeros((n_crit, n_points))
             for j, x_val in enumerate(p_values):
                 param = gnp.copy(param_opt)
                 param[param_idx] = x_val
                 for k, f in enumerate(selection_criteria):
                     crit_values[k, j] = f(param)
-
             ax = axes[ax_i]
             for k in range(n_crit):
                 ax.plot(gnp.to_np(p_values), gnp.to_np(crit_values[k]), label=criterion_names[k])
-
             ax.axvline(float(opt_value), color="red", linestyle="--", label="reference")
             name = (
                 param_names[param_idx]
@@ -216,18 +214,15 @@ def plot_selection_criterion_crosssections(
     if ind_pooled is not None:
         ind_pooled = list(ind_pooled)
         fig, ax = plt.subplots(figsize=(8, 6))
-
-        for param_idx in ind_pooled:
+        for i, param_idx in enumerate(ind_pooled):
             opt_value = param_opt[param_idx]
-            p_values = _grid_for_param(param_idx, opt_value, param_box_pooled)
-
+            p_values = _grid_for_param(i, opt_value, param_box_pooled)
             crit_values = gnp.zeros((n_crit, n_points))
             for j, x_val in enumerate(p_values):
                 param = gnp.copy(param_opt)
                 param[param_idx] = x_val
                 for k, f in enumerate(selection_criteria):
                     crit_values[k, j] = f(param)
-
             name = (
                 param_names[param_idx]
                 if param_names is not None and param_idx < len(param_names)
@@ -312,43 +307,43 @@ def plot_selection_criterion_2d(
     p1_0 = math.exp(float(cov0[i1]) / 2.0) if i1 == 0 else math.exp(-float(cov0[i1]))
     p2_0 = math.exp(float(cov0[i2]) / 2.0) if i2 == 0 else math.exp(-float(cov0[i2]))
 
-    p1 = np.logspace(math.log10(p1_0) - math.log10(factor), math.log10(p1_0) + math.log10(factor), n)
-    p2 = np.logspace(math.log10(p2_0) - math.log10(factor), math.log10(p2_0) + math.log10(factor), n)
+    p1 = gnp.logspace(math.log10(p1_0) - math.log10(factor), math.log10(p1_0) + math.log10(factor), n)
+    p2 = gnp.logspace(math.log10(p2_0) - math.log10(factor), math.log10(p2_0) + math.log10(factor), n)
 
     p1_mesh, p2_mesh = np.meshgrid(p1, p2)
-    log_p1 = np.log(p1_mesh**2) if i1 == 0 else np.log(1.0 / p1_mesh)
-    log_p2 = np.log(p2_mesh**2) if i2 == 0 else np.log(1.0 / p2_mesh)
+    log_p1 = gnp.log(p1_mesh**2) if i1 == 0 else gnp.log(1.0 / p1_mesh)
+    log_p2 = gnp.log(p2_mesh**2) if i2 == 0 else gnp.log(1.0 / p2_mesh)
 
     f = info.selection_criterion_nograd
-    values = np.zeros((n, n), dtype=float)
+    values = gnp.zeros((n, n), dtype=gnp.get_dtype())
 
     covparam = gnp.copy(info.covparam)
     for i in range(n):
         _progress(i)
         for j in range(n):
-            covparam[i1] = float(log_p1[i, j])
-            covparam[i2] = float(log_p2[i, j])
-            values[i, j] = float(f(covparam))
+            covparam[i1] = log_p1[i, j]
+            covparam[i2] = log_p2[i, j]
+            values[i, j] = f(covparam)
 
-    values = np.nan_to_num(values, copy=False)
+    values = gnp.nan_to_num(values, copy=False)
     _final()
 
-    shift = -float(np.min(values)) if shift_criterion else 0.0
-    z = np.log10(np.maximum(1e-2, values + shift))
+    shift = -float(gnp.min(values.ravel())) if shift_criterion else 0.0
+    z = gnp.log10(gnp.maximum(1e-2, values + shift))
 
     plt.figure()
-    plt.contourf(np.log10(p1_mesh), np.log10(p2_mesh), z)
+    plt.contourf(gnp.log10(p1_mesh), gnp.log10(p2_mesh), z)
 
     cov_opt = gnp.asarray(info.covparam).reshape(-1)
-    x_opt = 0.5 * np.log10(np.exp(float(cov_opt[i1]))) if i1 == 0 else -np.log10(np.exp(float(cov_opt[i1])))
-    y_opt = 0.5 * np.log10(np.exp(float(cov_opt[i2]))) if i2 == 0 else -np.log10(np.exp(float(cov_opt[i2])))
+    x_opt = 0.5 * gnp.log10(gnp.exp(cov_opt[i1])) if i1 == 0 else -gnp.log10(gnp.exp(float(cov_opt[i1])))
+    y_opt = 0.5 * gnp.log10(gnp.exp(float(cov_opt[i2]))) if i2 == 0 else -gnp.log10(gnp.exp(float(cov_opt[i2])))
     plt.plot(x_opt, y_opt, "ro")
 
     cov0_disp = getattr(info, "covparam0", None)
     if cov0_disp is not None:
         cov0_disp = gnp.asarray(cov0_disp).reshape(-1)
-        x0 = 0.5 * np.log10(np.exp(float(cov0_disp[i1]))) if i1 == 0 else -np.log10(np.exp(float(cov0_disp[i1])))
-        y0 = 0.5 * np.log10(np.exp(float(cov0_disp[i2]))) if i2 == 0 else -np.log10(np.exp(float(cov0_disp[i2])))
+        x0 = 0.5 * gnp.log10(gnp.exp(cov0_disp[i1])) if i1 == 0 else -gnp.log10(gnp.exp(float(cov0_disp[i1])))
+        y0 = 0.5 * gnp.log10(gnp.exp(float(cov0_disp[i2]))) if i2 == 0 else -gnp.log10(gnp.exp(float(cov0_disp[i2])))
         plt.plot(x0, y0, "bo")
 
     if param_names is not None and len(param_names) >= 2:

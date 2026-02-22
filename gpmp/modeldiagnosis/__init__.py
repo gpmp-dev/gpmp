@@ -1,4 +1,9 @@
 # gpmp/modeldiagnosis/__init__.py
+# --------------------------------------------------------------
+# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+# Copyright (c) 2022-2026, CentraleSupelec
+# License: GPLv3 (see LICENSE)
+# --------------------------------------------------------------
 """
 Model diagnosis utilities for GPmp.
 
@@ -16,15 +21,11 @@ Public API
 The most common entry points are re-exported at package level.
 Importing `gpmp.modeldiagnosis` does not import matplotlib. Plotting
 functions are imported lazily via the `plotting` submodule.
-
-Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2026, CentraleSupelec
-License: GPLv3 (see LICENSE)
 """
 
 from __future__ import annotations
 
-from .distributions import Unnormalized1DDistribution
+from .un1ddist import Unnormalized1DDistribution
 from .param_stats import (
     fast_univariate_stats,
     make_single_param_criterion_function,

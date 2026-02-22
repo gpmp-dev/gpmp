@@ -4,14 +4,18 @@
 # Copyright (c) 2022-2026, CentraleSupelec
 # License: GPLv3 (see LICENSE)
 # --------------------------------------------------------------
+"""
+Gaussian Process model class.
+"""
 import warnings
 import gpmp.num as gnp
 
 from . import kriging
 from . import loo
 from . import likelihood
+from . import algebra
 from . import fisher
-from . import sampling
+from . import sample_paths as sample_paths
 from . import utils
 
 
@@ -341,7 +345,7 @@ class Model:
         return zloo, sigma2loo, eloo
 
     # ------------------------------------------------------------------
-    # Likelihoods and norms (delegating to gpmp.core.likelihood)
+    # Likelihoods and algebraic norms (delegating to gpmp.core.likelihood/algebra)
     # ------------------------------------------------------------------
     def negative_log_likelihood_zero_mean(self, covparam, xi, zi):
         """Computes the negative log-likelihood of the Gaussian process model with zero
@@ -445,7 +449,7 @@ class Model:
         norm_sqrd : float
             Squared norm of the residual vector.
         """
-        return likelihood.norm_k_sqrd_with_zero_mean(self, xi, zi, covparam)
+        return algebra.norm_k_sqrd_with_zero_mean(self, xi, zi, covparam)
 
     def k_inverses(self, xi, zi, covparam):
         """Compute various quantities involving the inverse of K.
@@ -473,7 +477,7 @@ class Model:
         Kinvz : array_like, shape (n, 1)
             K^-1 z
         """
-        return likelihood.k_inverses(self, xi, zi, covparam)
+        return algebra.k_inverses(self, xi, zi, covparam)
 
     def norm_k_sqrd(self, xi, zi, covparam):
         """Compute the squared norm of the residual vector after applying the contrast
@@ -499,7 +503,7 @@ class Model:
             The squared norm of the residual vector after applying the
             contrast matrix W: (Wz)' (WKW)^-1 Wz.
         """
-        return likelihood.norm_k_sqrd(self, xi, zi, covparam)
+        return algebra.norm_k_sqrd(self, xi, zi, covparam)
 
     # ------------------------------------------------------------------
     # Fisher information (delegating to gpmp.core.fisher)
@@ -569,7 +573,7 @@ class Model:
         return fisher.fisher_information_torch(self, xi, covparam)
 
     # ------------------------------------------------------------------
-    # Sampling (delegating to gpmp.core.sampling)
+    # Sampling (delegating to gpmp.core.sample_paths)
     # ------------------------------------------------------------------
     def sample_paths(self, xt, nb_paths, method="chol", check_result=True):
         """Generates nb_paths sample paths on xt from the zero-mean GP model GP(0, k),
@@ -595,7 +599,7 @@ class Model:
         ndarray, shape (nt, nb_paths)
             Array containing the generated sample paths at the input points xt.
         """
-        return sampling.sample_paths(
+        return sample_paths.sample_paths(
             self, xt, nb_paths, method=method, check_result=check_result
         )
 
@@ -638,7 +642,7 @@ class Model:
         ztsimc : ndarray, shape (nt, nb_paths)
             Conditional sample paths at the prediction data points xt.
         """
-        return sampling.conditional_sample_paths(
+        return sample_paths.conditional_sample_paths(
             self, ztsim, xi_ind, zi, xt_ind, lambda_t, convert_out=convert_out
         )
 
@@ -676,7 +680,7 @@ class Model:
         ztsimc : ndarray
             Conditional sample paths at prediction points xt, adjusted for a parameterized mean.
         """
-        return sampling.conditional_sample_paths_parameterized_mean(
+        return sample_paths.conditional_sample_paths_parameterized_mean(
             self, ztsim, xi, xi_ind, zi, xt, xt_ind, lambda_t, convert_out=convert_out
         )
 

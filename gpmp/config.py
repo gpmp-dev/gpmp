@@ -1,4 +1,9 @@
 # gpmp/config.py
+# --------------------------------------------------------------
+# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+# Copyright (c) 2022-2026, CentraleSupelec
+# License: GPLv3 (see LICENSE)
+# --------------------------------------------------------------
 """
 config.py — Global configuration for GPmp.
 
@@ -32,10 +37,6 @@ Notes
 -----
 - Functions that change backend or dtype must be called before importing gpmp.num
   to take effect for that process.
-
-Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022–2026, CentraleSupélec
-License: GPLv3 (see LICENSE)
 """
 
 import os

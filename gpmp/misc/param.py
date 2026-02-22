@@ -1,3 +1,9 @@
+# gpmp/misc/param.py
+# --------------------------------------------------------------
+# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+# Copyright (c) 2022-2026, CentraleSupelec
+# License: GPLv3 (see LICENSE)
+# --------------------------------------------------------------
 """
 Param: structured parameter management
 
@@ -16,10 +22,6 @@ Note: Bounds are currently informative only. Future versions may allow:
 - Automatic clipping to bounds when setting values
 - Hard error if a value outside bounds is set
 - Selectable enforcement mode per parameter
-
-Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2026, CentraleSupelec
-License: GPLv3 (see LICENSE)
 """
 
 from enum import Enum

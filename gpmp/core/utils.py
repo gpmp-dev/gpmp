@@ -118,17 +118,3 @@ def validate_model_mean(meantype: str, mean, meanparam):
         )
 
 
-def return_inf():
-    """Backend-specific +∞ scalar/tensor."""
-    if gnp._gpmp_backend_ == "numpy":
-        return gnp.inf
-    if gnp._gpmp_backend_ == "torch":
-        # Use LinAlgError instead of raising RuntimeError for linalg operations
-        # https://github.com/pytorch/pytorch/issues/64785
-        # https://stackoverflow.com/questions/242485/starting-python-debugger-automatically-on-error
-        # extype, value, tb = __import__("sys").exc_info()
-        # __import__("traceback").print_exc()
-        # __import__("pdb").post_mortem(tb)
-        inf_tensor = gnp.tensor(float("inf"), requires_grad=True)
-        return inf_tensor  # returns inf with None gradient
-    raise RuntimeError(f"Unsupported backend: {gnp._gpmp_backend_}")

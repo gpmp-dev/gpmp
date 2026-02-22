@@ -68,6 +68,10 @@ from .priors import (
     neg_log_restricted_posterior_with_power_law_prior,
 )
 
+from .bounds import (
+    empirical_bounds_factory,
+)
+
 __all__ = [
     # Kernels
     "exponential_kernel",
@@ -93,4 +97,6 @@ __all__ = [
     "log_prior_power_law",
     "log_prior_reference",
     "neg_log_restricted_posterior_with_power_law_prior",
+    # Bounds
+    "empirical_bounds_factory",
 ]

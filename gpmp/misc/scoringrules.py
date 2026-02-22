@@ -1,8 +1,13 @@
-## --------------------------------------------------------------
+# gpmp/misc/scoringrules.py
+# --------------------------------------------------------------
 # Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-# Copyright (c) 2023-2024, CentraleSupelec
+# Copyright (c) 2022-2026, CentraleSupelec
 # License: GPLv3 (see LICENSE)
-## --------------------------------------------------------------
+# --------------------------------------------------------------
+"""
+Scoring rules for probabilistic predictions.
+"""
+
 import gpmp.num as gnp
 
 

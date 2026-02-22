@@ -1,4 +1,9 @@
 # gpmp/modeldiagnosis/report.py
+# --------------------------------------------------------------
+# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+# Copyright (c) 2022-2026, CentraleSupelec
+# License: GPLv3 (see LICENSE)
+# --------------------------------------------------------------
 """
 Model diagnosis report assembly and display.
 
@@ -12,10 +17,6 @@ model_diagnosis_disp
     data description (xi and zi).
 diag
     Convenience wrapper: build the report then display it.
-
-Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2026, CentraleSupelec
-License: GPLv3 (see LICENSE)
 """
 
 from __future__ import annotations

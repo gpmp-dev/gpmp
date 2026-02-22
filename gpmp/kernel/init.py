@@ -1,5 +1,12 @@
-# gpmp/hyperparam/init.py
+# gpmp/kernel/init.py
 # --------------------------------------------------------------
+# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+# Copyright (c) 2022-2026, CentraleSupelec
+# License: GPLv3 (see LICENSE)
+# --------------------------------------------------------------
+"""
+Initialization heuristics for GP covariance parameters.
+"""
 from math import log
 import gpmp.num as gnp
 from .utils import prepare_data

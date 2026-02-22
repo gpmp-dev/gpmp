@@ -1,8 +1,13 @@
-## --------------------------------------------------------------
+# gpmp/misc/designs.py
+# --------------------------------------------------------------
 # Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-# Copyright (c) 2022-2023, CentraleSupelec
+# Copyright (c) 2022-2026, CentraleSupelec
 # License: GPLv3 (see LICENSE)
-## --------------------------------------------------------------
+# --------------------------------------------------------------
+"""
+Design of experiments utilities.
+"""
+
 import numpy as np
 from scipy.stats import qmc
 from scipy.spatial.distance import cdist, pdist

@@ -1,8 +1,12 @@
-## --------------------------------------------------------------
+# gpmp/misc/dataframe.py
+# --------------------------------------------------------------
 # Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-# Copyright (c) 2022, CentraleSupelec
+# Copyright (c) 2022-2026, CentraleSupelec
 # License: GPLv3 (see LICENSE)
-## --------------------------------------------------------------
+# --------------------------------------------------------------
+"""
+Lightweight tabular display utilities.
+"""
 
 import math
 import numpy as np

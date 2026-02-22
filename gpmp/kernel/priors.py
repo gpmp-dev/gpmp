@@ -1,5 +1,12 @@
-# gpmp/hyperparam/priors.py
+# gpmp/kernel/priors.py
 # --------------------------------------------------------------
+# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+# Copyright (c) 2022-2026, CentraleSupelec
+# License: GPLv3 (see LICENSE)
+# --------------------------------------------------------------
+"""
+Priors used in GP kernel parameter estimation.
+"""
 import gpmp.num as gnp
 
 def log_prior_jeffrey_variance(covparam, lambda_var=1.0):

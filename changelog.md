@@ -1,3 +1,9 @@
+- 0.9.32 dataloader and parameter selection updates
+  * parameter_selection.py: expose batches_per_eval in high-level API
+  * dataloader.py: enable full-dataset batch mode
+  * testfunctions.py: add ishigami test function
+  * normalize file headers and reorganize files
+
 - 0.9.31 reorganize modules, improve performance, backend cleanup
   * plotutils: reorganize into dedicated gpmp.plot package
     - New API: gp.plot.Figure(), gp.plot.plot_loo(), gp.plot.crosssections()

@@ -1,9 +1,11 @@
+# gpmp/mcmc/mh.py
+# --------------------------------------------------------------
+# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+# Copyright (c) 2022-2026, CentraleSupelec
+# License: GPLv3 (see LICENSE)
+# --------------------------------------------------------------
 """
 Metropolis–Hastings sampler
-
-Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2026, CentraleSupelec
-License: GPLv3 (see LICENSE)
 """
 
 import time
@@ -1215,7 +1217,7 @@ def test_chi2():
         n_chains=2,
         target_acceptance=0.3,
         adaptation_method="Haario",
-        adaptation_interval=50,
+        adaptation_interval=30,
         freeze_adaptation=False,
         discard_burnin=False,
         n_pool=2,

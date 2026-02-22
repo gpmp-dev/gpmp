@@ -70,7 +70,7 @@ def choose_test_case(problem):
         f = gp.misc.testfunctions.ishigami
         dim = 3
         box = [[-gnp.pi] * 3, [gnp.pi] * 3]
-        ni = 150
+        ni = 100
         xi = gp.misc.designs.ldrandunif(dim, ni, box)
         nt = 1000
         xt = gp.misc.designs.ldrandunif(dim, nt, box)

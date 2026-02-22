@@ -1,3 +1,9 @@
+# gpmp/modeldiagnosis/param_stats.py
+# --------------------------------------------------------------
+# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+# Copyright (c) 2022-2026, CentraleSupelec
+# License: GPLv3 (see LICENSE)
+# --------------------------------------------------------------
 """
 Parameter statistics from 1D criterion profiles.
 
@@ -25,10 +31,6 @@ Notes
 The statistics are computed independently for each parameter index. Bounds come
 from param_box when provided; otherwise they are centered at the reference value
 with half-width delta.
-
-Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2026, CentraleSupelec
-License: GPLv3 (see LICENSE)
 """
 
 
@@ -43,7 +45,7 @@ from scipy.optimize import minimize_scalar
 import gpmp.num as gnp
 from gpmp.misc.dataframe import DataFrame
 
-from .distributions import Unnormalized1DDistribution
+from .un1ddist import Unnormalized1DDistribution
 
 
 def _to_float(x: Any) -> float:

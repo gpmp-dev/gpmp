@@ -1,3 +1,13 @@
+# gpmp/mcmc/knn_cov.py
+# --------------------------------------------------------------
+# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+# Copyright (c) 2022-2026, CentraleSupelec
+# License: GPLv3 (see LICENSE)
+# --------------------------------------------------------------
+"""
+Covariance estimation helpers, including optional k-NN local averaging.
+"""
+
 import gpmp.num as gnp
 
 try:

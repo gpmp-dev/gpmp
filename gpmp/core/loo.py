@@ -1,4 +1,4 @@
-# gpmp/core/validation.py
+# gpmp/core/loo.py
 # --------------------------------------------------------------
 # Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
 # Copyright (c) 2022-2026, CentraleSupelec

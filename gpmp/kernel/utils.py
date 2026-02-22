@@ -1,5 +1,12 @@
-# gpmp/hyperparam/utils.py
+# gpmp/kernel/utils.py
 # --------------------------------------------------------------
+# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+# Copyright (c) 2022-2026, CentraleSupelec
+# License: GPLv3 (see LICENSE)
+# --------------------------------------------------------------
+"""
+Utility helpers for kernel parameter selection inputs.
+"""
 import gpmp.num as gnp
 
 def check_xi_zi_or_loader(xi, zi, dataloader):

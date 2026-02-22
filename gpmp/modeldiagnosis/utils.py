@@ -1,4 +1,9 @@
 # gpmp/modeldiagnosis/utils.py
+# --------------------------------------------------------------
+# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+# Copyright (c) 2022-2026, CentraleSupelec
+# License: GPLv3 (see LICENSE)
+# --------------------------------------------------------------
 """
 Utilities for GP model diagnosis.
 
@@ -14,10 +19,6 @@ pretty_print_dictionary
 Compatibility
 -------------
 The legacy name `pretty_print_dictionnary` is kept as an alias.
-
-Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2026, CentraleSupelec
-License: GPLv3 (see LICENSE)
 """
 
 from __future__ import annotations

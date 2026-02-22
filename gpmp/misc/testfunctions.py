@@ -1,9 +1,13 @@
-# coding: utf-8
-## --------------------------------------------------------------
+# gpmp/misc/testfunctions.py
+# --------------------------------------------------------------
 # Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-# Copyright (c) 2022, CentraleSupelec
+# Copyright (c) 2022-2026, CentraleSupelec
 # License: GPLv3 (see LICENSE)
-## --------------------------------------------------------------
+# --------------------------------------------------------------
+"""
+Collection of test functions used in examples and diagnostics.
+"""
+
 import math
 import numpy as np
 
@@ -404,4 +408,3 @@ def ishigami(x):
     b = 0.1
     z = np.sin(x[:, 0]) + a * np.sin(x[:, 1]) ** 2 + b * (x[:, 2] ** 4) * np.sin(x[:, 0])
     return z
-

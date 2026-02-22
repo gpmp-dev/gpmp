@@ -1,5 +1,12 @@
-# gpmp/hyperparam/bounds.py
+# gpmp/kernel/bounds.py
 # --------------------------------------------------------------
+# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+# Copyright (c) 2022-2026, CentraleSupelec
+# License: GPLv3 (see LICENSE)
+# --------------------------------------------------------------
+"""
+Empirical parameter bounds for GP kernel hyperparameters.
+"""
 import gpmp.num as gnp
 
 def _minimum_nonzero_gap_distance_1d(xj):

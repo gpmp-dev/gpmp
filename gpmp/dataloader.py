@@ -1,3 +1,9 @@
+# gpmp/dataloader.py
+# --------------------------------------------------------------
+# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+# Copyright (c) 2022-2026, CentraleSupelec
+# License: GPLv3 (see LICENSE)
+# --------------------------------------------------------------
 """
 Data helpers
 
@@ -13,7 +19,8 @@ Dataset
 DataLoader
     Iterator that returns successive subsamples (“mini-batches”).
     Features deterministic shuffling via ``set_epoch()``, optional
-    infinite cycling, and controlled last-batch handling
+    infinite cycling, optional full-batch mode when
+    ``batch_size=None`` (uses the whole dataset), and controlled last-batch handling
     (``drop_last``).
 
 Normaliser, RobustScaler, MinMaxScaler, ObservationScaler
@@ -29,10 +36,6 @@ Design note
 -----------
 * Sharded datasets are concatenated lazily; consistency across shards
   is asserted at construction.
-
-Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2026, CentraleSupelec
-License: GPLv3 (see LICENSE)
 """
 
 import bisect
@@ -341,7 +344,7 @@ class DataLoader:
     def __init__(
         self,
         dataset: "Dataset",
-        batch_size: int,
+        batch_size: Optional[int] = None,
         shuffle: bool = True,
         drop_last: bool = False,
         seed: Optional[int] = None,
@@ -352,8 +355,9 @@ class DataLoader:
         ----------
         dataset : Dataset
             Dataset instance to sample from.
-        batch_size : int
-            Number of samples per batch.
+        batch_size : int, optional
+            Number of samples per batch. If None, uses the full dataset
+            length (single-batch epoch).
         shuffle : bool, optional
             Whether to shuffle indices at each epoch (default: True).
         drop_last : bool, optional
@@ -364,7 +368,11 @@ class DataLoader:
             Whether to cycle infinitely (default: False).
         """
         self.dataset = dataset
-        self.batch_size = batch_size
+        if batch_size is None:
+            batch_size = len(dataset)
+        if batch_size <= 0:
+            raise ValueError("batch_size must be a positive integer.")
+        self.batch_size = int(batch_size)
         self.shuffle = shuffle
         self.drop_last = drop_last
         self._base_seed = seed

@@ -22,15 +22,14 @@ However, for the purpose of the example, GPmp provides functions for:
  * parameter selection procedure using maximum likelihood, restricted maximum
    likelihood, or user-defined criteria
  * model diagnosis
- * vizualization helper
+ * visualization helper
  * ...
 
 ## Backends
 
 GPmp supports two numerical backends:
 - **PyTorch:** Dynamic computation with auto-differentiation.
-- **NumPy:** Basic computation (default if neither PyTorch nor JAX are
-    found).
+- **NumPy:** Basic computation (default if PyTorch is not found).
 
 Backend selection order at import time:
 1. If GPMP_BACKEND is set to torch or numpy, use it.
@@ -39,7 +38,7 @@ Backend selection order at import time:
 Example:
 export GPMP_BACKEND=torch
 # optional:
-export GPMP_DTYPE=float64   # or float32
+export GPMP_DTYPE=float64
 
 ## Installation
 
@@ -86,7 +85,7 @@ GPmp’s documentation is built with
 theme. To generate the HTML documentation:
 
 ```bash
-cd doc
+cd docs
 make html
 ```
 

@@ -1,4 +1,9 @@
 # gpmp/__init__.py
+# --------------------------------------------------------------
+# Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
+# Copyright (c) 2022-2026, CentraleSupelec
+# License: GPLv3 (see LICENSE)
+# --------------------------------------------------------------
 """
 GPmp package.
 
@@ -11,10 +16,6 @@ Notes
 -----
 gpmp.config is imported eagerly to initialize configuration and backend selection.
 Other subpackages are loaded lazily on first access.
-
-Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
-Copyright (c) 2022-2026, CentraleSupelec
-License: GPLv3 (see LICENSE)
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ __all__ = [
     "kernel",
     "dataloader",
     "modeldiagnosis",
+    "mcmc",
     "misc",
     "plot",
 ]
@@ -44,6 +46,7 @@ _LAZY_SUBMODULES: Final[set[str]] = {
     "kernel",
     "dataloader",
     "modeldiagnosis",
+    "mcmc",
     "misc",
     "plot",
 }

@@ -9,7 +9,10 @@ License: GPLv3 (see LICENSE)
 
 import gpmp.num as gnp
 import gpmp as gp
-from gpmp.misc.param_posterior import sample_from_selection_criterion
+from gpmp.mcmc.param_posterior import (
+    sample_from_selection_criterion_mh,
+    sample_from_selection_criterion_nuts,
+)
 import matplotlib.pyplot as plt
 from matplotlib import interactive
 
@@ -82,17 +85,38 @@ def main():
     # Automatic selection of parameters using ReMAP
     model, info = gp.kernel.select_parameters_with_remap(model, xi, zi, info=True)
     gp.modeldiagnosis.diag(model, info, xi, zi)
-
+    
     # Prediction
     zpm, zpv = model.predict(xi, zi, xt)
 
-    samples, mh = sample_from_selection_criterion(
-        info,
-        n_steps_total=10_000,
-        burnin_period=5_000,
-        n_chains=2,
-        show_progress=True,
-    )
+    sampler = "nuts"  # "mh" or "nuts"
+    n_chains = 4
+    nuts_init_box = None
+    if hasattr(info, "bounds") and info.bounds is not None:
+        nuts_init_box = [
+            [b[0] for b in info.bounds],
+            [b[1] for b in info.bounds],
+        ]
+
+    if sampler == "mh":
+        samples, _sampler_state = sample_from_selection_criterion_mh(
+            info,
+            n_steps_total=10_000,
+            burnin_period=5_000,
+            n_chains=n_chains,
+            show_progress=True,
+        )
+    elif sampler == "nuts":
+        samples, _sampler_state = sample_from_selection_criterion_nuts(
+            info,
+            num_samples=500,
+            num_warmup=1_000,
+            n_chains=n_chains,
+            init_box=nuts_init_box,
+            progress=True,
+        )
+    else:
+        raise ValueError("Unknown sampler. Use 'mh' or 'nuts'.")
 
     # Visualization
     print("\nVisualization")
