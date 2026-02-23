@@ -83,13 +83,13 @@ def main():
 
     # selection criterion
     selection_criterion = gp.kernel.negative_log_restricted_likelihood
-    nlrl, dnlrl, nlrl_nograd = gp.kernel.make_selection_criterion_with_gradient(
+    nlrl, nlrl_pregrad, nlrl_nograd, dnlrl = gp.kernel.make_selection_criterion_with_gradient(
         model, selection_criterion, xi, zi
     )
 
     # optimize parameters
     covparam_reml, info = gp.kernel.autoselect_parameters(
-        covparam0, nlrl, dnlrl, silent=False, info=True
+        covparam0, nlrl_pregrad, dnlrl, silent=False, info=True
     )
 
     model.covparam = gnp.asarray(covparam_reml)

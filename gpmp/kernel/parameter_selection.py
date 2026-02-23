@@ -7,6 +7,7 @@
 """
 Kernel parameter selection criteria and optimization helpers.
 """
+
 import time
 import numpy as np
 from scipy.optimize import minimize
@@ -245,7 +246,7 @@ def select_parameters_with_criterion(
         meanparam_opt = None
         covparam_opt = param_opt
     model.covparam = gnp.asarray(covparam_opt)
-    
+
     if info:
         info_ret["meanparam0"] = gnp.to_np(meanparam0) if parameterized_mean else None
         info_ret["covparam0"] = gnp.to_np(covparam0)
