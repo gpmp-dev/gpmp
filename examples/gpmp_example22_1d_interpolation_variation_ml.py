@@ -90,7 +90,7 @@ def main():
     param0 = gnp.concatenate((meanparam0, covparam0))
 
     # selection criterion
-    nll, dnll, nll_nograd = gp.kernel.make_selection_criterion_with_gradient(
+    nll, nll_pregrad, nll_nograd, dnll = gp.kernel.make_selection_criterion_with_gradient(
         model,
         gp.kernel.negative_log_likelihood,
         xi,
@@ -100,7 +100,7 @@ def main():
     )
 
     param_ml, info = gp.kernel.autoselect_parameters(
-        param0, nll, dnll, silent=False, info=True
+        param0, nll_pregrad, dnll, silent=False, info=True
     )
 
     model.meanparam = gnp.asarray(param_ml[0])

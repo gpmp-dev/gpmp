@@ -1,5 +1,5 @@
 """
-Demonstrates ReMAP-based GP parameter selection, posterior sampling, 
+Demonstrates ReMAP-based GP parameter selection, posterior sampling,
 and visualization of a 1D Gaussian process model.
 
 Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
@@ -33,7 +33,7 @@ def generate_data():
     xt = gp.misc.designs.regulargrid(dim, nt, box)
     zt = gp.misc.testfunctions.twobumps(xt)
 
-    ni = 6
+    ni = 8
     xi = gp.misc.designs.ldrandunif(dim, ni, box)
     zi = gp.misc.testfunctions.twobumps(xi)
 
@@ -83,9 +83,13 @@ def main():
     model = gp.core.Model(constant_mean, kernel)
 
     # Automatic selection of parameters using ReMAP
-    model, info = gp.kernel.select_parameters_with_remap(model, xi, zi, info=True)
+    model, info = (
+        gp.kernel.select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
+            model, xi, zi, info=True
+        )
+    )
     gp.modeldiagnosis.diag(model, info, xi, zi)
-    
+
     # Prediction
     zpm, zpv = model.predict(xi, zi, xt)
 
@@ -126,7 +130,7 @@ def main():
     plot_likelihood_2d_profile = True
     if plot_likelihood_cross_sections:
         gp.modeldiagnosis.plot_selection_criterion_crosssections(
-            info=info, delta=0.6, param_names=["sigma^2 (log)", "rho (log)"]
+            info=info, delta=0.6, param_names=["log(sigma^2)", "log(1/rho)"]
         )
     if plot_likelihood_2d_profile:
         gp.modeldiagnosis.plot_selection_criterion_sigma_rho(

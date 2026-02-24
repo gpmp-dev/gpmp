@@ -10,33 +10,32 @@ Metropolis–Hastings sampler
 
 import time
 import math
-import numpy as np
+import gpmp.num as gnp
 import matplotlib.pyplot as plt
-from scipy.stats import multivariate_normal, gaussian_kde, ks_2samp
+from scipy.stats import gaussian_kde, ks_2samp
 from typing import Callable, Tuple, Dict, Any, Union, Optional
 from dataclasses import dataclass, field
 
 
 def sample_multivariate_normal_with_jitter(
-    rng, mean, cov, initial_jitter=1e-8, max_attempts=5
+    mean, cov, initial_jitter=1e-8, max_attempts=5
 ):
-    try:
-        return rng.multivariate_normal(mean, cov, method="cholesky")
-    except np.linalg.LinAlgError:
-        jitter = initial_jitter
-        dim = cov.shape[0]
-        cov += jitter * np.eye(dim)
-        for _ in range(max_attempts):
-            try:
-                return rng.multivariate_normal(mean, cov, method="cholesky")
-            except  np.linalg.LinAlgError:
-                jitter *= 10
-                cov += jitter * np.eye(dim)
-        __import__("pdb").set_trace()
+    cov = gnp.asarray(cov)
+    dim = cov.shape[0]
+    base_cov = gnp.copy(cov)
+    jitter = 0.0
 
-        raise LinAlgError(
-            "Covariance matrix is not positive definite even after adding jitter."
-        )
+    for _ in range(max_attempts + 1):
+        try:
+            cov_try = base_cov if jitter == 0.0 else base_cov + jitter * gnp.eye(dim)
+            sample = gnp.multivariate_normal.rvs(mean=mean, cov=cov_try, n=1)
+            return gnp.asarray(sample).reshape(-1)
+        except Exception:
+            jitter = initial_jitter if jitter == 0.0 else 10.0 * jitter
+
+    raise RuntimeError(
+        "Covariance matrix is not positive definite even after adding jitter."
+    )
 
 
 @dataclass
@@ -51,7 +50,7 @@ class MHOptions:
     target_acceptance: float = 0.3
     acceptance_tol: float = 0.15
     adaptation_method: str = "Haario"
-    proposal_distribution_param_init: Union[np.ndarray, None] = field(default=None)
+    proposal_distribution_param_init: Union[gnp.ndarray, None] = field(default=None)
     adaptation_interval: int = 50
     freeze_adaptation: bool = True
     discard_burnin: bool = False
@@ -67,9 +66,9 @@ class MHOptions:
     init_msg: Union[str, None] = field(default="Sampling from target distribution...")
 
     def __post_init__(self):
-        # If user didn’t supply a proposal_param_init, default to np.ones(dim)
+        # If user didn’t supply a proposal_param_init, default to gnp.ones(dim)
         if self.proposal_distribution_param_init is None:
-            self.proposal_distribution_param_init = np.ones(self.dim, dtype=float)
+            self.proposal_distribution_param_init = gnp.ones(self.dim)
         self.acceptance_min = self.target_acceptance - self.acceptance_tol
         self.acceptance_max = self.target_acceptance + self.acceptance_tol
 
@@ -90,8 +89,8 @@ class MetropolisHastings:
 
     def __init__(
         self,
-        log_target: Callable[[np.ndarray], float],
-        prop_rnd: Callable[[np.ndarray, int], np.ndarray] = None,
+        log_target: Callable[[gnp.ndarray], float],
+        prop_rnd: Callable[[gnp.ndarray, int], gnp.ndarray] = None,
         options: MHOptions = None,
     ):
         """
@@ -102,7 +101,6 @@ class MetropolisHastings:
         self.options = options or MHOptions()
         self.log_target = log_target
         self.prop_rnd = prop_rnd or self.default_prop_rnd
-        self.rng = np.random.default_rng()
 
         # Basic config from options
         self.n_chains = self.options.n_chains
@@ -137,41 +135,43 @@ class MetropolisHastings:
         self.global_total = 0  # Total iterations for the entire run
         self.start_time = None  # When we began the entire run
 
-    def _log_prop(self, x: np.ndarray, x_new: np.ndarray, chain_idx: int) -> float:
+    def _log_prop(self, x: gnp.ndarray, x_new: gnp.ndarray, chain_idx: int) -> float:
         """
         Log-proposal density for x_new given x, used if proposal is not symmetric.
         """
-        return multivariate_normal.logpdf(
-            x_new, mean=x, cov=self._get_cov_parameter(chain_idx)
+        return gnp.to_scalar(
+            gnp.multivariate_normal.logpdf(
+                x_new, mean=x, cov=self._get_cov_parameter(chain_idx)
+            )
         )
 
-    def _get_cov_parameter(self, chain_idx: int) -> np.ndarray:
+    def _get_cov_parameter(self, chain_idx: int) -> gnp.ndarray:
         """
         Build a covariance matrix for chain chain_idx from self.proposal_params.
         """
         p = self.proposal_distribution_params[chain_idx]
-        if np.isscalar(p):
-            return p * np.eye(self.dim)
+        if gnp.isscalar(p):
+            return p * gnp.eye(self.dim)
         elif p.ndim == 1:
-            return np.diag(p)
+            return gnp.diag(p)
         elif p.ndim == 2:
             return p
         else:
             raise ValueError("proposal_params must be scalar, 1D, or 2D per chain.")
 
-    def _initialize_proposal_distribution_params(self, p_init: np.ndarray) -> list:
+    def _initialize_proposal_distribution_params(self, p_init: gnp.ndarray) -> list:
         """
         Convert user-supplied proposal_param_init into a list, one per chain.
         """
         if p_init.ndim == 1 and p_init.shape[0] == self.dim:
-            return [p_init.copy() for _ in range(self.n_chains)]
+            return [gnp.copy(p_init) for _ in range(self.n_chains)]
         if p_init.ndim == 2 and p_init.shape == (self.dim, self.dim):
-            return [p_init.copy() for _ in range(self.n_chains)]
+            return [gnp.copy(p_init) for _ in range(self.n_chains)]
         if p_init.ndim == 3 and p_init.shape[0] == self.n_chains:
-            return [p_init[i].copy() for i in range(self.n_chains)]
+            return [gnp.copy(p_init[i]) for i in range(self.n_chains)]
         raise ValueError("Invalid proposal_param_init shape.")
 
-    def _get_pooled_samples(self, burnin=0, n_pool=1) -> list[np.ndarray]:
+    def _get_pooled_samples(self, burnin=0, n_pool=1) -> list[gnp.ndarray]:
         if self.x is None:
             raise ValueError("No chain data yet.")
         if self.n_chains % n_pool != 0:
@@ -183,8 +183,8 @@ class MetropolisHastings:
         return x_pooled
 
     def _compute_covariances_for_block(
-        self, x_block: np.ndarray, n_pool: int = 1
-    ) -> np.ndarray:
+        self, x_block: gnp.ndarray, n_pool: int = 1
+    ) -> gnp.ndarray:
         """
         Compute covariance per group of chains (each group has n_pool chains),
         given an array x_block of shape (n_chains, block_size, dim).
@@ -198,12 +198,12 @@ class MetropolisHastings:
             raise ValueError("n_chains must be divisible by n_pool.")
         n_groups = n_chains // n_pool
 
-        covs = np.empty((n_groups, self.dim, self.dim), dtype=float)
+        covs = gnp.empty((n_groups, self.dim, self.dim))
         start_indices = range(0, n_chains, n_pool)
 
         for i, start in enumerate(start_indices):
             x_group = x_block[start : start + n_pool].reshape(-1, self.dim)
-            covs[i] = np.cov(x_group.T, ddof=1)
+            covs[i] = gnp.cov(x_group.T, ddof=1)
 
         return covs
 
@@ -255,23 +255,21 @@ class MetropolisHastings:
         elif mode == "sampling_adaptation":
             self.haario_adapt_factor = self.options.haario_adapt_factor_sampling_phase
 
-    def default_prop_rnd(self, x: np.ndarray, chain_idx: int) -> np.ndarray:
+    def default_prop_rnd(self, x: gnp.ndarray, chain_idx: int) -> gnp.ndarray:
         """
         Default random-walk: draw from N(x, Cov) where Cov depends on proposal_params.
         """
         cov = self._get_cov_parameter(chain_idx)
-        perturbation = sample_multivariate_normal_with_jitter(
-            self.rng, np.zeros(self.dim), cov
-        )
+        perturbation = sample_multivariate_normal_with_jitter(gnp.zeros(self.dim), cov)
         return x + perturbation
 
     def update_proposal_covariance_from_samples(
         self,
-        x_chain: np.ndarray = None,
-        raw_cov: np.ndarray = None,
+        x_chain: gnp.ndarray = None,
+        raw_cov: gnp.ndarray = None,
         scaling: float = None,
         epsilon: float = 1e-6,
-    ) -> np.ndarray:
+    ) -> gnp.ndarray:
         """
         Build a proposal covariance matrix according to Haario’s formula:
           new_cov = scaling * raw_cov + epsilon * I
@@ -298,11 +296,11 @@ class MetropolisHastings:
         if raw_cov is not None:
             used_cov = raw_cov
         else:
-            used_cov = np.cov(x_chain.T, ddof=1)
+            used_cov = gnp.cov(x_chain.T, ddof=1)
 
-        return scaling * used_cov + epsilon * np.eye(self.dim)
+        return scaling * used_cov + epsilon * gnp.eye(self.dim)
 
-    def compute_sliding_rates(self, n_block_size: int) -> np.ndarray:
+    def compute_sliding_rates(self, n_block_size: int) -> gnp.ndarray:
         """
         Compute the sliding mean of the acceptance rate for each chain
         using a   averages of size n_block_size over iterations 0 to self.global_iter.
@@ -315,7 +313,7 @@ class MetropolisHastings:
 
         Returns
         -------
-        np.ndarray
+        gnp.ndarray
             Array of shape (self.n_chains, self.global_iter) with sliding mean acceptance rates.
         """
         if self.accept is None:
@@ -323,45 +321,50 @@ class MetropolisHastings:
 
         n_chains = self.n_chains
         n_max = self.global_iter
-        rates = np.empty((n_chains, n_max))
+        if n_max <= 0:
+            return gnp.empty((n_chains, 0))
+        window = min(max(1, int(n_block_size)), n_max)
+        rates = gnp.empty((n_chains, n_max))
 
-        acc = self.accept[:, :n_max].astype(float)
-        cumsum = np.cumsum(acc, axis=1)
+        acc = self.accept[:, :n_max]
+        cumsum = gnp.cumsum(acc, axis=1)
         for c in range(n_chains):
-            # For the first n_block_size samples, average over available samples.
-            rates[c, :n_block_size] = cumsum[c, :n_block_size] / (
-                np.arange(n_block_size) + 1
+            # For the first `window` samples, average over available samples.
+            rates[c, :window] = cumsum[c, :window] / (
+                gnp.arange(window) + 1
             )
-            # For samples t >= n_block_size, average over the last n_block_size samples.
-            rates[c, n_block_size:] = (
-                cumsum[c, n_block_size:] - cumsum[c, :-n_block_size]
-            ) / n_block_size
+            # For samples t >= window, average over the last `window` samples.
+            rates[c, window:] = (
+                cumsum[c, window:] - cumsum[c, :-window]
+            ) / window
 
         return rates
 
-    def mhstep(self, x_current: np.ndarray, chain_idx: int) -> Tuple[np.ndarray, bool]:
+    def mhstep(self, x_current: gnp.ndarray, chain_idx: int) -> Tuple[gnp.ndarray, bool]:
         """
         Single Metropolis–Hastings update for chain chain_idx.
         If symmetric=False, includes reverse-proposal terms in acceptance.
         """
         y = self.prop_rnd(x_current, chain_idx)
         try:
-            log_target_y = self.log_target(y)
+            log_target_y = gnp.to_scalar(self.log_target(y))
         except:
-            log_target_y = -np.inf
-        log_a = log_target_y - self.log_target(x_current)
+            log_target_y = -float("inf")
+        log_a = log_target_y - gnp.to_scalar(self.log_target(x_current))
         if not self.symmetric:
-            log_a += self._log_prop(y, x_current, chain_idx) - self._log_prop(
-                x_current, y, chain_idx
+            log_a += gnp.to_scalar(
+                self._log_prop(y, x_current, chain_idx)
+                - self._log_prop(x_current, y, chain_idx)
             )
-        accept = np.log(self.rng.random()) < log_a
+        u = max(gnp.to_scalar(gnp.rand()), 1e-300)
+        accept = math.log(u) < log_a
         return (y, True) if accept else (x_current, False)
 
     def run_samples(
         self,
         n_steps: int,
         show_global_progress: bool = False,
-    ) -> np.ndarray:
+    ) -> gnp.ndarray:
         """
         Run n_steps of MCMC sampling and return acceptation rate.
         """
@@ -376,7 +379,7 @@ class MetropolisHastings:
                     self._print_progress(
                         self.global_iter, self.global_total, self.start_time
                     )
-        block_rates = np.mean(self.accept[:, i0:i1], axis=1)
+        block_rates = gnp.mean(self.accept[:, i0:i1], axis=1)
         return block_rates
 
     def run_adaptive_RM(self, n_block_size: int, diminishing: bool = True):
@@ -401,7 +404,7 @@ class MetropolisHastings:
         else:
             gamma = gamma_base
         for c in range(self.n_chains):
-            self.proposal_distribution_params[c] *= np.exp(
+            self.proposal_distribution_params[c] *= gnp.exp(
                 gamma * (rates[c] - self.target_acceptance)
             )
 
@@ -412,7 +415,7 @@ class MetropolisHastings:
         Parameters:
           n_block_size : int
               Number of steps in this block.
-          init : np.ndarray
+          init : gnp.ndarray
               The initial state for the block.
           epsilon : float, optional
               Small diagonal shift for stability (default: 1e-6).
@@ -429,7 +432,7 @@ class MetropolisHastings:
         )
         for c in range(self.n_chains):
             grp = c // self.options.n_pool
-            self.haario_scaling_factors[c] *= np.exp(
+            self.haario_scaling_factors[c] *= gnp.exp(
                 self.haario_adapt_factor * (block_rates[c] - self.target_acceptance)
             )
             self.proposal_distribution_params[c] = (
@@ -450,6 +453,7 @@ class MetropolisHastings:
             Total number of steps.
         """
         n_blocks = n_samples // self.options.adaptation_interval
+        remainder = n_samples - n_blocks * self.options.adaptation_interval
         method = self.options.adaptation_method.lower()
         for _ in range(n_blocks):
             if method == "rm":
@@ -461,6 +465,11 @@ class MetropolisHastings:
                 self.run_adaptive_Haario(self.options.adaptation_interval)
             else:
                 raise ValueError("adaptation_method must be 'RM' or 'Haario'.")
+        if remainder > 0:
+            self.run_samples(
+                remainder,
+                show_global_progress=self.options.show_global_progress,
+            )
 
     def run_burnin(
         self,
@@ -481,9 +490,11 @@ class MetropolisHastings:
             Number of burn-in blocks to use for diagnostics; each block is self.options.adaptation_interval steps (default: 4).
         """
         n_blocks = burnin_period // self.options.adaptation_interval
+        remainder = burnin_period - n_blocks * self.options.adaptation_interval
         method = self.options.adaptation_method.lower()
         # Diagnostic sample count (used for early stopping)
         n_diag_samples = n_blocks_convergence_diag * self.options.adaptation_interval
+        converged_early = False
 
         for block in range(n_blocks):
             if method == "rm":
@@ -501,27 +512,39 @@ class MetropolisHastings:
                 i0 = max(0, self.global_iter - n_diag_samples)
                 i1 = self.global_iter
                 rates = rates[:, i0:i1]
-                min_ar = np.min(rates, axis=1)
-                max_ar = np.max(rates, axis=1)
+                min_ar = gnp.min(rates, axis=1)
+                max_ar = gnp.max(rates, axis=1)
                 gr_results = self.check_convergence_gelman_rubin(
                     last_n_samples=n_diag_samples, verbose=False
                 )
                 if (
-                    np.all(min_ar > self.options.acceptance_min)
-                    and np.all(max_ar < self.options.acceptance_max)
+                    gnp.all(min_ar > self.options.acceptance_min)
+                    and gnp.all(max_ar < self.options.acceptance_max)
                 ) and gr_results.get("ok", False):
                     print(
                         f"\nEarly stopping: convergence detected during burn-in at iter = {self.global_iter}."
                     )
-                    print(
-                        f"  Min / Max acceptance rate: {np.min(min_ar):.3f} / {np.max(max_ar):.3f}"
-                    )
+                    min_ar_v = gnp.to_scalar(gnp.min(min_ar))
+                    max_ar_v = gnp.to_scalar(gnp.max(max_ar))
+                    print(f"  Min / Max acceptance rate: {min_ar_v:.3f} / {max_ar_v:.3f}")
                     print(f"  Gelman-Rubin: {gr_results}")
                     self.burnin_period = self.global_iter
+                    converged_early = True
                     break
+
+        # If burn-in did not stop early, run the remainder that does not fit
+        # into full adaptation blocks.
+        if (not converged_early) and remainder > 0:
+            self.run_samples(
+                remainder,
+                show_global_progress=self.options.show_global_progress,
+            )
 
         if diag:
             print("\nConvergence Diagnostics after burn-in:")
+            if self.global_iter <= 1:
+                print("Not enough samples to run diagnostics after burn-in.")
+                return
             rates = self.compute_sliding_rates(self.options.sliding_rate_width)
             self.check_acceptance_rates(
                 last_n_samples=n_diag_samples,
@@ -529,27 +552,30 @@ class MetropolisHastings:
                 low_threshold=self.options.acceptance_min,
                 high_threshold=self.options.acceptance_max,
             )
-            self.check_convergence_gelman_rubin(last_n_samples=n_diag_samples)
+            if self.n_chains >= 2:
+                self.check_convergence_gelman_rubin(last_n_samples=n_diag_samples)
 
     def scheduler(
         self,
-        chains_state_initial: np.ndarray,
+        chains_state_initial: gnp.ndarray,
         n_steps_total: int,
         burnin_period: int,
         replicate_initial_state: bool = True,
-    ) -> np.ndarray:
+    ) -> gnp.ndarray:
         """
         Run the full MCMC process:
           - Runs the burn-in phase.
           - Runs the sampling phase.
         """
-        chains_state_initial = np.atleast_2d(chains_state_initial)
+        chains_state_initial = gnp.asarray(chains_state_initial)
+        if chains_state_initial.ndim == 1:
+            chains_state_initial = chains_state_initial.reshape(1, -1)
         if (
             chains_state_initial.shape == (1, self.dim)
             and replicate_initial_state
             and self.n_chains > 1
         ):
-            chains_state_initial = np.tile(chains_state_initial, (self.n_chains, 1))
+            chains_state_initial = gnp.tile(chains_state_initial, (self.n_chains, 1))
         if chains_state_initial.shape != (self.n_chains, self.dim):
             raise ValueError(
                 f"chains_state_initial must have shape ({self.n_chains}, {self.dim})"
@@ -562,16 +588,18 @@ class MetropolisHastings:
             )
         )
         # Set up iteration tracking.
-        self.x = np.empty((self.n_chains, 1 + n_steps_total, self.dim), dtype=float)
-        self.accept = np.empty((self.n_chains, 1 + n_steps_total), dtype=bool)
+        self.x = gnp.empty((self.n_chains, 1 + n_steps_total, self.dim))
+        # Store acceptance as numeric 0/1 so reductions stay backend-agnostic.
+        self.accept = gnp.zeros((self.n_chains, 1 + n_steps_total))
         self.burnin_period = burnin_period
         self.global_iter = 0
         self.global_total = 1 + n_steps_total
         self.start_time = time.time()
         self.x[:, 0, :] = chains_state_initial
-        self.accept[:, 0] = True
+        self.accept[:, 0] = 1.0
 
-        print(self.options.init_msg)
+        if self.options.init_msg is not None:
+            print(self.options.init_msg)
         print(f"  Dimension: {self.dim}")
         print(f"  Total steps: {n_steps_total}")
         print(f"  Burn-in: {burnin_period}")
@@ -612,7 +640,7 @@ class MetropolisHastings:
         last_n_samples: Optional[int] = None,
         low_threshold: float = 0.15,
         high_threshold: float = 0.40,
-        rates: Optional[np.ndarray] = None,
+        rates: Optional[gnp.ndarray] = None,
         verbose: bool = True,
     ) -> Dict[str, Union[float, bool]]:
         """
@@ -652,8 +680,8 @@ class MetropolisHastings:
             raise ValueError("Not enough samples to compute acceptance rates.")
 
         data = rates_data[:, i0:i1]
-        min_ar = data.min()
-        max_ar = data.max()
+        min_ar = gnp.to_scalar(data.min())
+        max_ar = gnp.to_scalar(data.max())
         ok = (min_ar >= low_threshold) and (max_ar <= high_threshold)
 
         if verbose:
@@ -677,7 +705,7 @@ class MetropolisHastings:
         self,
         burnin_period: Optional[int] = None,
         last_n_samples: Optional[int] = None,
-    ) -> np.ndarray:
+    ) -> gnp.ndarray:
         """
         Compute the Gelman-Rubin R-hat statistic using a slice of self.x.
 
@@ -690,7 +718,7 @@ class MetropolisHastings:
 
         Returns
         -------
-        np.ndarray
+        gnp.ndarray
             R-hat values for each parameter (shape: (dim,)).
         """
         if burnin_period is None:
@@ -712,13 +740,13 @@ class MetropolisHastings:
             raise ValueError("Not enough samples to compute Gelman-Rubin diagnostic.")
 
         block = self.x[:, i0:i1, :]  # shape: (n_chains, n_block, dim)
-        chain_means = np.mean(block, axis=1)  # shape: (n_chains, dim)
-        chain_vars = np.var(block, axis=1, ddof=1)  # shape: (n_chains, dim)
-        W = np.mean(chain_vars, axis=0)  # within-chain variance
+        chain_means = gnp.mean(block, axis=1)  # shape: (n_chains, dim)
+        chain_vars = gnp.var(block, axis=1, ddof=1)  # shape: (n_chains, dim)
+        W = gnp.mean(chain_vars, axis=0)  # within-chain variance
         # between-chain variance
-        B = n_block * np.var(chain_means, axis=0, ddof=1)
+        B = n_block * gnp.var(chain_means, axis=0, ddof=1)
         var_post = ((n_block - 1) / n_block) * W + (1.0 / n_block) * B
-        rhat = np.sqrt(var_post / W)
+        rhat = gnp.sqrt(var_post / W)
         return rhat
 
     def check_convergence_gelman_rubin(
@@ -745,12 +773,12 @@ class MetropolisHastings:
         Returns
         -------
         Dict[str, Any]
-            Dictionary with keys 'rhat' (np.ndarray) and 'ok' (bool).
+            Dictionary with keys 'rhat' (gnp.ndarray) and 'ok' (bool).
         """
         rhat = self.compute_gelman_rubin_rhat(
             burnin_period=burnin_period, last_n_samples=last_n_samples
         )
-        ok = np.all(rhat < threshold)
+        ok = bool(gnp.to_scalar(gnp.all(rhat < threshold)))
         if verbose:
             if ok:
                 print(f"[check_gelman_rubin_rhat]\nPASS: All R-hat < {threshold}.")
@@ -833,10 +861,10 @@ class MetropolisHastings:
         B = len(blocks)  # total number of blocks = n_blocks * n_chains
 
         # p-values in a (dim, B, B) array
-        pvalue_matrix = np.zeros((dim, B, B), dtype=float)
+        pvalue_matrix = gnp.zeros((dim, B, B))
 
         # Optionally store KS statistics in a separate matrix
-        ks_matrix = np.zeros((dim, B, B), dtype=float) if return_statistic else None
+        ks_matrix = gnp.zeros((dim, B, B)) if return_statistic else None
 
         # Fill pairwise results dimension-by-dimension
         for d in range(dim):
@@ -844,7 +872,9 @@ class MetropolisHastings:
                 # the diagonal remains zero
                 for j in range(i + 1, B):
                     result = ks_2samp(
-                        blocks[i][:, d], blocks[j][:, d], alternative="two-sided"
+                        gnp.to_np(blocks[i][:, d]),
+                        gnp.to_np(blocks[j][:, d]),
+                        alternative="two-sided",
                     )
                     stat, pval = result.statistic, result.pvalue
                     if return_statistic:
@@ -932,7 +962,7 @@ class MetropolisHastings:
             return_significance=True,
             return_statistic=True,
         )
-        frac_sig_multi = np.mean(sigA)
+        frac_sig_multi = gnp.to_scalar(gnp.sum(sigA) / sigA.size)
 
         # Single-block check.
         if single_block_size is None:
@@ -948,7 +978,7 @@ class MetropolisHastings:
             return_significance=True,
             return_statistic=True,
         )
-        frac_sig_single = np.mean(sigB)
+        frac_sig_single = gnp.to_scalar(gnp.sum(sigB) / sigB.size)
 
         # Convergence is declared if the fraction of significant comparisons is low.
         ok = (frac_sig_multi < fraction_threshold) and (
@@ -1064,17 +1094,19 @@ class MetropolisHastings:
                 vals = self.x[c, burnin : self.global_iter, param]
                 if not smooth:
                     ax.hist(
-                        vals,
+                        gnp.to_np(vals),
                         bins=bins,
                         density=True,
                         histtype="step",
                         label=f"Chain {c+1}",
                     )
                 else:
-                    lo, hi = vals.min(), vals.max()
-                    xx = np.linspace(lo - 0.1 * (hi - lo), hi + 0.1 * (hi - lo), 100)
-                    kde = gaussian_kde(vals)
-                    ax.plot(xx, kde(xx), label=f"Chain {c+1}")
+                    vals_np = gnp.to_np(vals)
+                    lo, hi = vals_np.min(), vals_np.max()
+                    xx = gnp.linspace(lo - 0.1 * (hi - lo), hi + 0.1 * (hi - lo), 100)
+                    kde = gaussian_kde(vals_np)
+                    xx_np = gnp.to_np(xx)
+                    ax.plot(xx_np, kde(xx_np), label=f"Chain {c+1}")
             ax.set_xlabel(rf"$\theta_{{{param+1}}}$")
             ax.set_ylabel("Density")
             # ax.legend(loc="best")
@@ -1092,12 +1124,14 @@ class MetropolisHastings:
         for c in range(self.n_chains):
             x = self.x[c, burnin:]
             self.proposal_distribution_params[c] = (
-                self.update_proposal_covariance_from_samples(x, scaling, epsilon)
+                self.update_proposal_covariance_from_samples(
+                    x_chain=x, scaling=scaling, epsilon=epsilon
+                )
             )
 
     def compute_empirical_covariance_whole_chain(
         self, burnin=None, pooled=False, n_pool=1
-    ) -> Union[np.ndarray, list]:
+    ) -> Union[gnp.ndarray, list]:
         """
         If pooled=True, single covariance from all chains post-burnin.
         Otherwise, group in n_pool lumps. Return list of cov per group.
@@ -1108,28 +1142,28 @@ class MetropolisHastings:
             raise ValueError("No samples yet.")
         if pooled:
             big = self.x[:, burnin:].reshape(-1, self.dim)
-            return np.cov(big.T, ddof=1)
+            return gnp.cov(big.T, ddof=1)
         x_pooled = self._get_pooled_samples(burnin, n_pool)
-        return [np.cov(x.T, ddof=1) for x in x_pooled]
+        return [gnp.cov(x.T, ddof=1) for x in x_pooled]
 
 
 def test_linear_regression():
     """Linear regression example"""
-    np.random.seed(42)
+    gnp.set_seed(42)
 
     # Example: linear regression with optional dummy dims
     n = 60
     d_0 = 5
-    X = np.random.randn(n, d_0)
-    true_beta = np.array([1.0, -2.0, 0.5, 0.0, 1.5])
+    X = gnp.randn(n, d_0)
+    true_beta = gnp.array([1.0, -2.0, 0.5, 0.0, 1.5])
     sigma = 1.0
-    y = X @ true_beta + sigma * np.random.randn(n)
+    y = X @ true_beta + sigma * gnp.randn(n)
 
-    def log_target(beta: np.ndarray) -> float:
+    def log_target(beta: gnp.ndarray) -> float:
         # Suppose only first d are real coefs, rest dummy
-        ll = -0.5 * np.sum((y - X @ beta[:d_0]) ** 2) / (sigma**2)
+        ll = -0.5 * gnp.sum((y - X @ beta[:d_0]) ** 2) / (sigma**2)
         # mild Gaussian prior
-        lp = -0.5 * np.sum(beta**2) / 100.0
+        lp = -0.5 * gnp.sum(beta**2) / 100.0
         return ll + lp
 
     # Extend dimension
@@ -1156,7 +1190,7 @@ def test_linear_regression():
     mh = MetropolisHastings(log_target=log_target, options=opts)
 
     # Initial states
-    init_states = np.zeros((opts.n_chains, opts.dim))
+    init_states = gnp.zeros((opts.n_chains, opts.dim))
 
     n_steps_total = 10000
     burnin_period = 3000
@@ -1173,7 +1207,7 @@ def test_linear_regression():
     mh.plot_empirical_distributions(smooth=False)
 
     # Posterior means
-    post_mean = np.mean(x, axis=(0, 1))
+    post_mean = gnp.mean(x, axis=(0, 1))
     print("Posterior means:", post_mean)
     print("True beta:", true_beta)
 
@@ -1197,7 +1231,7 @@ def test_chi2():
     def logpdf_1d(x, df=dof, scale=1.0):
         return chi2.logpdf(x, df=df, scale=scale)
 
-    def log_chi2_2d(z: np.ndarray) -> float:
+    def log_chi2_2d(z: gnp.ndarray) -> float:
         return logpdf_1d(z[0], df=dof, scale=scale[0]) + logpdf_1d(
             z[1], df=dof, scale=scale[1]
         )
@@ -1208,7 +1242,7 @@ def test_chi2():
     # -------------------------------
     # 2) MCMC Setup
     # -------------------------------
-    np.random.seed(42)
+    gnp.set_seed(42)
     dim = 2
 
     # Metropolis–Hastings options
@@ -1231,7 +1265,7 @@ def test_chi2():
     mh = MetropolisHastings(log_target=log_chi2_2d, options=opts)
 
     # Start chains at a positive point, e.g. (3,3)
-    init_states = np.full((opts.n_chains, opts.dim), 1.0)
+    init_states = gnp.full((opts.n_chains, opts.dim), 1.0)
 
     # -------------------------------
     # 3) Run the sampler
@@ -1270,7 +1304,7 @@ def test_chi2():
         ax.hist(x_1d, bins=50, density=True, alpha=0.5, label="MCMC samples")
 
         # Overlay the true marginal pdf
-        xs = np.linspace(0.01, 15.0, 300) * scale[i]
+        xs = gnp.linspace(0.01, 15.0, 300) * scale[i]
         # dimension i's scale
         scale_i = scale[0] if i == 0 else scale[1]
         pdf_vals = pdf_1d(xs, df=dof, scale=scale_i)
@@ -1289,10 +1323,10 @@ def test_chi2():
     # -------------------------------
     grid_pts = 60
     max_val = 15.0
-    xs = np.linspace(0.01, max_val, grid_pts) * scale[0]
-    ys = np.linspace(0.01, max_val, grid_pts) * scale[1]
-    XX, YY = np.meshgrid(xs, ys, indexing="ij")
-    ZZ = np.zeros_like(XX)
+    xs = gnp.linspace(0.01, max_val, grid_pts) * scale[0]
+    ys = gnp.linspace(0.01, max_val, grid_pts) * scale[1]
+    XX, YY = gnp.meshgrid(xs, ys, indexing="ij")
+    ZZ = gnp.zeros_like(XX)
 
     for r in range(grid_pts):
         for c in range(grid_pts):

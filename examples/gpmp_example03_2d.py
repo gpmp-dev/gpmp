@@ -81,7 +81,7 @@ def main():
     # Parameter selection
     covparam0 = gp.kernel.anisotropic_parameters_initial_guess(model, xi, zi)
     nlrl, nlrl_pregrad, nlrl_nograd, dnlrl = gp.kernel.make_selection_criterion_with_gradient(
-        model, gp.kernel.neg_log_restricted_posterior_with_power_law_prior, xi, zi
+        model, gp.kernel.neg_log_restricted_posterior_power_laws_prior, xi, zi
     )
     covparam_reml, info = gp.kernel.autoselect_parameters(
         covparam0, nlrl_pregrad, dnlrl, info=True

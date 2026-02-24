@@ -23,31 +23,34 @@ import scipy.stats as stats
 from scipy.stats import qmc
 from scipy.optimize import brentq
 import gpmp.num as gnp
-from . import knn_cov
+try:
+    from . import knn_cov
+except ImportError:
+    from gpmp.mcmc import knn_cov
 
 
 @dataclass
 class ParticlesSetConfig:
-    initial_distribution_type: str = "randunif"
-    resample_scheme: str = "multinomial"
-    param_s_initial_value: float = 0.5
-    param_s_upper_bound: float = 1e5
-    param_s_lower_bound: float = 1e-3
-    jitter_initial_value: float = 1e-16
-    jitter_max_iterations: int = 10
-    covariance_method: str = "normal"
-    covariance_knn_n_random: int = 20
-    covariance_knn_n_neighbors: int = 200
+    initial_distribution_type: str = "randunif"  # Initial particle sampler in init box.
+    resample_scheme: str = "multinomial"  # Resampling method: "multinomial" or "residual".
+    param_s_initial_value: float = 0.5  # Initial MH proposal covariance scale factor.
+    param_s_upper_bound: float = 1e5  # Maximum allowed MH proposal scale.
+    param_s_lower_bound: float = 1e-3  # Minimum allowed MH proposal scale.
+    jitter_initial_value: float = 1e-16  # Base diagonal jitter for non-PSD covariance fixes.
+    jitter_max_iterations: int = 10  # Max jitter escalation attempts on covariance failures.
+    covariance_method: str = "normal"  # Proposal covariance estimator: "normal" or "knn".
+    covariance_knn_n_random: int = 20  # Number of random seeds for KNN covariance estimation.
+    covariance_knn_n_neighbors: int = 200  # Neighbors per seed in KNN covariance estimation.
 
 
 @dataclass
 class SMCConfig:
-    compute_next_logpdf_param_method: str = "p0"  # or "ess"
-    mh_steps: int = 20
-    mh_acceptation_rate_min: float = 0.15
-    mh_acceptation_rate_max: float = 0.30
-    mh_adjustment_factor: float = 1.4
-    mh_adjustment_max_iterations: int = 50
+    compute_next_logpdf_param_method: str = "p0"  # Tempering update rule: "p0" or "ess".
+    mh_steps: int = 20  # MH sweeps per SMC stage (including adjustment phase sweep).
+    mh_acceptation_rate_min: float = 0.15  # Lower target for acceptance-rate tuning.
+    mh_acceptation_rate_max: float = 0.30  # Upper target for acceptance-rate tuning.
+    mh_adjustment_factor: float = 1.4  # Multiplicative update of proposal scale during tuning.
+    mh_adjustment_max_iterations: int = 50  # Max tuning iterations before proceeding.
 
 
 class ParticlesSetError(BaseException):
@@ -449,7 +452,9 @@ class ParticlesSet:
 
     @staticmethod
     def multinomial_rvs(n, p, rng):
-        return gnp.asarray(stats.multinomial.rvs(n=n, p=p, random_state=rng))
+        # SciPy expects NumPy arrays; detach backend tensors (e.g. torch) first.
+        p_np = gnp.to_np(gnp.asarray(p))
+        return gnp.asarray(stats.multinomial.rvs(n=n, p=p_np, random_state=rng))
 
     @staticmethod
     def multivariate_normal_rvs(C, n, rng):
@@ -636,9 +641,15 @@ class SMC:
 
         # Move particles
         self.update_log(state="Move particles with controlled acceptation rate")
+        if debug:
+            print("Doing acceptation rate optimization...")
         self.move_with_controlled_acceptation_rate(debug)
         self.log_snapshot()
 
+        if debug and self.smc_config.mh_steps > 1:
+            print(
+                f"Now doing additional MH steps ({self.smc_config.mh_steps - 1} moves)..."
+            )
         for i in range(self.smc_config.mh_steps - 1):
             acceptation_rate = self.particles.move()
             self.update_log(
@@ -703,12 +714,14 @@ class SMC:
         self.update_log(state="Computing initial ESS in step_with_possible_restart")
         self.particles.reweight(update_logpx_and_w=False)
         ess = self.particles.ess()
-        self.update_log(ess=ess)
+        ess_scalar = gnp.to_scalar(ess)
+        ess_ratio = ess_scalar / self.n
+        self.update_log(ess=ess_scalar)
 
         # Restart?
-        if ess / self.n < min_ess_ratio:
+        if ess_ratio < min_ess_ratio:
             self.update_log(
-                state=f"ESS ratio ({ess/self.n:.2f}) below threshold ({min_ess_ratio}), initiating restart"
+                state=f"ESS ratio ({ess_ratio:.2f}) below threshold ({min_ess_ratio}), initiating restart"
             )
             self.log_snapshot()
             self.restart(
@@ -774,11 +787,14 @@ class SMC:
         )
         self.particles.reweight(update_logpx_and_w=False)
         ess = self.particles.ess()
-        if ess / self.n < min_ess_ratio:
+        ess_ratio_init = gnp.to_scalar(ess) / self.n
+        if ess_ratio_init < min_ess_ratio:
             warnings.warn(
-                f"ESS ratio {ess / self.n} below threshold={min_ess_ratio} at initialization.",
+                f"ESS ratio {ess_ratio_init} below threshold={min_ess_ratio} at initialization.",
                 RuntimeWarning,
             )
+            if self.smc_config.compute_next_logpdf_param_method == "ess":
+                threshold = min(float(threshold), ess_ratio_init)
 
         current_logpdf_param = initial_logpdf_param
         self.log_data["logpdf_param_sequence"] = [initial_logpdf_param]
@@ -791,6 +807,11 @@ class SMC:
                 threshold,
                 debug=debug,
             )
+            if debug:
+                print(
+                    "Selected next tempering parameter (logpdf_param): "
+                    + f"{float(next_logpdf_param):.3e}"
+                )
 
             self.log_data["restart_iteration"] += 1
             self.log_data["logpdf_param_sequence"].append(next_logpdf_param)
@@ -877,15 +898,28 @@ class SMC:
 
         """
         tolerance = 0.05
+        eta0 = float(eta0)
+        current_logpdf_param = float(current_logpdf_param)
+        target_logpdf_param = float(target_logpdf_param)
+        if debug:
+            print(
+                "Fields displayed:\n"
+                " -  eta = ESS/n_particles at tested logpdf_param,\n"
+                " -  eta0 = target ESS ratio,\n"
+                " -  test logpdf_param = candidate tempering param.,\n"
+                " -  current = current param.,\n"
+                " -  target = target param."
+            )
         param_easy = current_logpdf_param
         param_difficult = target_logpdf_param
 
         def compute_delta_eta(logpdf_param):
+            logpdf_param = float(logpdf_param)
             self.particles.set_logpdf_with_parameter(
                 logpdf_parameterized_function, logpdf_param
             )
             self.particles.reweight(update_logpx_and_w=False)
-            eta = self.particles.ess() / self.particles.n
+            eta = gnp.to_scalar(self.particles.ess()) / self.particles.n
             if debug:
                 print(
                     f"Search: eta = {eta:.2f} / eta0 = {eta0:.2f}, "
@@ -895,14 +929,24 @@ class SMC:
                 )
             return eta - eta0
 
+        f_target = compute_delta_eta(target_logpdf_param)
         # Can we reach the target?
-        if compute_delta_eta(target_logpdf_param) > 0:
+        if f_target > 0:
             if debug:
                 print(f"Target logpdf_param reached, current = {target_logpdf_param}.")
             return target_logpdf_param
         else:
-            low = gnp.minimum(param_difficult, param_easy)
-            high = gnp.maximum(param_difficult, param_easy)
+            low = gnp.to_scalar(gnp.minimum(param_difficult, param_easy))
+            high = gnp.to_scalar(gnp.maximum(param_difficult, param_easy))
+            f_low = compute_delta_eta(low)
+            f_high = compute_delta_eta(high)
+            if f_low * f_high > 0:
+                warnings.warn(
+                    "ESS threshold unattainable in current bracket; "
+                    "proceeding to target_logpdf_param.",
+                    RuntimeWarning,
+                )
+                return target_logpdf_param
             next_logpdf_param = brentq(compute_delta_eta, low, high, xtol=tolerance)
 
             return next_logpdf_param
@@ -1385,7 +1429,7 @@ def run_subset_simulation(
     smc.particles.particles_init(init_box, n_particles)
     smc.log_data["target_logpdf_param"] = thresholds[1]
 
-    stage_probs = gnp.empty(len(thresholds)-1)
+    stage_probs = gnp.empty(len(thresholds) - 1)
 
     for k in range(1, len(thresholds)):
         uk = thresholds[k]
@@ -1402,7 +1446,7 @@ def run_subset_simulation(
 
         # Compute conditional probability p_{u_k | u_{k-1}}
         w_sum = gnp.sum(smc.particles.w)
-        stage_probs[k-1] = w_sum
+        stage_probs[k - 1] = w_sum
 
         if debug:
             print(f"    p_{{{uk:.2f} | {uk_prev:.2f}}} - {w_sum:.2f}")
@@ -1464,23 +1508,30 @@ def test_run_smc_sampling_gaussian_mixture():
         plot_empirical_distributions=False,
     )
 
-    smc_instance.plot_empirical_distributions(parameter_indices_pooled=[0])
-
     print("Final particles shape:", particles.shape)
     print("Sample mean:", gnp.mean(particles))
     print("Sample variance:", gnp.var(particles))
 
-    # Plot target density and histogram of particles
+    # Plot histogram + empirical KDE + true target density
+    vals = gnp.to_np(gnp.asarray(particles)).reshape(-1)
     x_vals = gnp.linspace(-0.5, 1.5, 600)
     target_density = lambda x_vals: w1 * stats.norm.pdf(
         x_vals, loc=m1, scale=s1
     ) + w2 * stats.norm.pdf(x_vals, loc=m2, scale=s2)
+    kde = stats.gaussian_kde(vals, bw_method=lambda s: 0.5 * s.scotts_factor())
     plt.figure(figsize=(8, 3))
-    plt.hist(particles, bins=100, density=True, histtype="step", label="SMC particles")
-    plt.plot(x_vals, target_density(x_vals), "r--", label="Target density")
-    #  plt.plot(particles, target_density(particles), 'b.')
+    plt.hist(vals, bins=100, density=True, histtype="step", label="SMC particles")
+    plt.plot(
+        x_vals,
+        kde(x_vals),
+        color="forestgreen",
+        linestyle="-",
+        label="KDE (empirical, bw=0.5*Scott)",
+    )
+    plt.plot(x_vals, target_density(x_vals), "r--", label="Target density (true)")
     plt.xlabel("x")
     plt.ylabel("Density")
+    plt.title("SMC particles: empirical vs true target density")
     plt.legend()
     plt.tight_layout()
     plt.show()
@@ -1492,6 +1543,15 @@ def test_subset_sampling_gaussian_icdf():
     from scipy.stats import norm
     import matplotlib.pyplot as plt
     import numpy as np
+
+    print(
+        "\n------------------------------------------------------------\n"
+        "\nSubset simulation demo (targeting excursion levels):\n"
+        "  Goal: estimate rare-event probabilities P(f(X) > u) for increasing thresholds u.\n"
+        "  Setup: X ~ Uniform[0,1], f(x)=Phi^{-1}(x), so exact tail probabilities are known.\n"
+        "  Outputs: conditional probabilities by stage, cumulative tail probabilities,\n"
+        "           and a threshold map on the inverse-CDF tail plot."
+    )
 
     # Define f(x) = inverse CDF of standard normal
     def f(x):
@@ -1536,7 +1596,7 @@ def test_subset_sampling_gaussian_icdf():
     print("Estimated conditional probs:", [f"{p:.2e}" for p in stage_probs])
     print("Exact conditional probs:    ", [f"{p:.2e}" for p in exact_conditional_probs])
     print(
-          "Estimated sequential probs: ", [f"{p:.2e}" for p in estimated_sequential_probs]
+        "Estimated sequential probs: ", [f"{p:.2e}" for p in estimated_sequential_probs]
     )
     print("Exact sequential probs:     ", [f"{p:.2e}" for p in exact_sequential_probs])
     print(f"Estimated final probability: {p_hat:.3e}")

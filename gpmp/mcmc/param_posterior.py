@@ -15,7 +15,7 @@ defines a density on p).
 
 All samplers below use the log density:
     log_prob(p) = -selection_criterion(p)
-with an optional box constraint init_box giving log_prob = -inf outside.
+with an optional box constraint sampling_box giving log_prob = -inf outside.
 """
 
 from __future__ import annotations
@@ -51,9 +51,12 @@ def _resolve_selection_criterion(
     if selection_criterion is not None:
         return selection_criterion
 
-    crit = getattr(info, "selection_criterion", None)
-    if crit is None:
+    if require_differentiable:
+        crit = getattr(info, "selection_criterion", None)
+    else:
         crit = getattr(info, "selection_criterion_nograd", None)
+        if crit is None:
+            crit = getattr(info, "selection_criterion", None)
 
     if crit is None or not callable(crit):
         raise ValueError(
@@ -75,15 +78,17 @@ def _resolve_selection_criterion(
 def _infer_dim(
     info: object,
     param_initial_states,
-    init_box,
+    box,
 ) -> int:
     if param_initial_states is not None:
         theta = gnp.asarray(param_initial_states)
+        if theta.ndim == 0:
+            return 1
         if theta.ndim == 1:
             return int(theta.shape[0])
         if theta.ndim == 2:
             return int(theta.shape[1])
-        raise ValueError("param_initial_states must be 1D or 2D.")
+        raise ValueError("param_initial_states must be scalar, 1D or 2D.")
 
     if info is not None:
         x0 = gnp.asarray(info.covparam)
@@ -91,27 +96,28 @@ def _infer_dim(
             raise ValueError("info.covparam must be 1D.")
         return int(x0.shape[0])
 
-    if init_box is not None:
-        lower, _ = init_box
+    if box is not None:
+        lower, _ = box
         if gnp.isscalar(lower):
             raise ValueError(
-                "Cannot infer dim from scalar init_box. Provide param_initial_states or info.covparam."
+                "Cannot infer dim from scalar box. Provide param_initial_states or info.covparam."
             )
         return int(len(lower))
 
     raise ValueError(
-        "Cannot infer dim. Provide param_initial_states or info.covparam, or a non-scalar init_box."
+        "Cannot infer dim. Provide param_initial_states or info.covparam, or a non-scalar box."
     )
 
 
 def _normalize_bounds(
-    init_box: list,
+    box: list,
     dim: int,
+    box_name: str = "box",
 ) -> Tuple[gnp.ndarray, gnp.ndarray, object, object]:
-    if not (isinstance(init_box, (list, tuple)) and len(init_box) == 2):
-        raise ValueError("init_box must be of the form [lower, upper].")
+    if not (isinstance(box, (list, tuple)) and len(box) == 2):
+        raise ValueError(f"{box_name} must be of the form [lower, upper].")
 
-    lower, upper = init_box
+    lower, upper = box
 
     if gnp.isscalar(lower) and gnp.isscalar(upper):
         lower_b = gnp.ones(dim, dtype=gnp_dtype) * float(lower)
@@ -126,7 +132,7 @@ def _normalize_bounds(
             upper_b = gnp.tile(upper_b, (dim,))
 
         if int(lower_b.shape[0]) != dim or int(upper_b.shape[0]) != dim:
-            raise ValueError("init_box bounds must match dimension.")
+            raise ValueError(f"{box_name} bounds must match dimension.")
 
     # randunif expects NumPy-like arrays/lists. gnp.to_np is a no-op on NumPy backend.
     lower_np = gnp.to_np(lower_b)
@@ -152,14 +158,40 @@ def _normalize_initial_states(
         return theta
 
     theta = gnp.asarray(param_initial_states, dtype=gnp_dtype)
-    if theta.ndim == 1:
-        theta = gnp.tile(theta, (n_chains, 1))
-    elif theta.ndim != 2:
-        raise ValueError("param_initial_states must be 1D or 2D.")
+    if theta.ndim == 0:
+        if dim != 1:
+            raise ValueError("Scalar param_initial_states is only valid when dim == 1.")
+        theta = gnp.tile(theta.reshape(1, 1), (n_chains, 1))
+    elif theta.ndim == 1:
+        n0 = int(theta.shape[0])
+        if n0 == dim:
+            theta = gnp.tile(theta.reshape(1, -1), (n_chains, 1))
+        elif dim == 1 and n0 == n_chains:
+            theta = theta.reshape(n_chains, 1)
+        else:
+            raise ValueError(
+                f"1D param_initial_states must have length {dim}"
+                + (f" (or {n_chains} when dim == 1)." if dim == 1 else ".")
+            )
+    elif theta.ndim == 2:
+        r, c = int(theta.shape[0]), int(theta.shape[1])
+        if r == n_chains and c == dim:
+            pass
+        elif r == 1 and c == dim:
+            theta = gnp.tile(theta, (n_chains, 1))
+        elif r == dim and c == n_chains:
+            theta = theta.T
+        else:
+            raise ValueError(
+                "2D param_initial_states must have shape "
+                + f"({n_chains}, {dim}), (1, {dim}), or ({dim}, {n_chains})."
+            )
+    else:
+        raise ValueError("param_initial_states must be scalar, 1D, or 2D.")
 
-    if theta.shape != (n_chains, dim):
+    if int(theta.shape[0]) != n_chains or int(theta.shape[1]) != dim:
         raise ValueError(f"param_initial_states must have shape ({n_chains}, {dim}).")
-    return theta
+    return gnp.asarray(theta, dtype=gnp_dtype)
 
 
 def _random_initial_states(
@@ -204,6 +236,7 @@ def sample_from_selection_criterion_mh(
     param_initial_states: gnp.ndarray = None,
     random_init: bool = False,
     init_box: list = None,
+    sampling_box: list = None,
     n_steps_total: int = 10_000,
     burnin_period: int = 4_000,
     n_chains: int = 2,
@@ -218,17 +251,26 @@ def sample_from_selection_criterion_mh(
         selection_criterion,
         require_differentiable=False,
     )
-    dim = _infer_dim(info, param_initial_states, init_box)
+    dim_box = init_box if init_box is not None else sampling_box
+    dim = _infer_dim(info, param_initial_states, dim_box)
+
+    lower_init = upper_init = None
+    lower_init_np = upper_init_np = None
+    if init_box is not None:
+        lower_init, upper_init, lower_init_np, upper_init_np = _normalize_bounds(
+            init_box, dim, box_name="init_box"
+        )
 
     lower_b = upper_b = None
-    lower_np = upper_np = None
-    if init_box is not None:
-        lower_b, upper_b, lower_np, upper_np = _normalize_bounds(init_box, dim)
+    if sampling_box is not None:
+        lower_b, upper_b, _, _ = _normalize_bounds(
+            sampling_box, dim, box_name="sampling_box"
+        )
 
     if random_init:
         if init_box is None:
             raise ValueError("init_box must be provided when random_init is True.")
-        theta0 = _random_initial_states(lower_np, upper_np, dim, n_chains)
+        theta0 = _random_initial_states(lower_init_np, upper_init_np, dim, n_chains)
     else:
         theta0 = _normalize_initial_states(info, param_initial_states, n_chains, dim)
 
@@ -290,6 +332,7 @@ def sample_from_selection_criterion_nuts(
     param_initial_states: gnp.ndarray = None,
     random_init: bool = False,
     init_box: list = None,
+    sampling_box: list = None,
     num_samples: int = 2_000,
     num_warmup: int = 1_000,
     n_chains: int = 2,
@@ -314,17 +357,26 @@ def sample_from_selection_criterion_nuts(
         selection_criterion,
         require_differentiable=True,
     )
-    dim = _infer_dim(info, param_initial_states, init_box)
+    dim_box = init_box if init_box is not None else sampling_box
+    dim = _infer_dim(info, param_initial_states, dim_box)
+
+    lower_init = upper_init = None
+    lower_init_np = upper_init_np = None
+    if init_box is not None:
+        lower_init, upper_init, lower_init_np, upper_init_np = _normalize_bounds(
+            init_box, dim, box_name="init_box"
+        )
 
     lower_b = upper_b = None
-    lower_np = upper_np = None
-    if init_box is not None:
-        lower_b, upper_b, lower_np, upper_np = _normalize_bounds(init_box, dim)
+    if sampling_box is not None:
+        lower_b, upper_b, _, _ = _normalize_bounds(
+            sampling_box, dim, box_name="sampling_box"
+        )
 
     if random_init:
         if init_box is None:
             raise ValueError("init_box must be provided when random_init is True.")
-        theta0 = _random_initial_states(lower_np, upper_np, dim, n_chains)
+        theta0 = _random_initial_states(lower_init_np, upper_init_np, dim, n_chains)
     else:
         theta0 = _normalize_initial_states(info, param_initial_states, n_chains, dim)
 
@@ -370,6 +422,7 @@ def sample_from_selection_criterion_smc(
     info: object = None,
     selection_criterion: Callable = None,  # negative log-posterior
     init_box: list = None,
+    sampling_box: list = None,
     n_particles: int = 1000,
     initial_temperature: float = 1e6,
     final_temperature: float = 1.0,
@@ -386,10 +439,20 @@ def sample_from_selection_criterion_smc(
         require_differentiable=False,
     )
 
+    if init_box is None:
+        raise ValueError("init_box must be provided for SMC.")
+
+    dim = _infer_dim(info, None, init_box)
+    _, _, _, _ = _normalize_bounds(init_box, dim, box_name="init_box")
+
     lower_b = upper_b = None
-    if init_box is not None:
-        dim = _infer_dim(info, None, init_box)
-        lower_b, upper_b, _, _ = _normalize_bounds(init_box, dim)
+    if sampling_box is not None:
+        lower_b, upper_b, _, _ = _normalize_bounds(
+            sampling_box, dim, box_name="sampling_box"
+        )
+
+    def _criterion_scalar(theta):
+        return gnp.to_scalar(gnp.asarray(f(theta)).reshape(()))
 
     def logpdf_temp(x, temperature):
         x = gnp.asarray(x)
@@ -398,17 +461,15 @@ def sample_from_selection_criterion_smc(
             if lower_b is not None:
                 if bool(gnp.any(x < lower_b)) or bool(gnp.any(x > upper_b)):
                     return gnp.return_neginf()
-            return -gnp.asarray(f(x)) / temperature
+            return -_criterion_scalar(x) / temperature
 
         if x.ndim == 2:
-            if lower_b is None:
-                vals = gnp.stack([gnp.asarray(f(x[i])) for i in range(x.shape[0])])
-                return -vals / temperature
-
-            in_box = gnp.all(x >= lower_b, axis=1) & gnp.all(x <= upper_b, axis=1)
-            vals = gnp.stack([gnp.asarray(f(x[i])) for i in range(x.shape[0])])
+            vals = gnp.asarray([_criterion_scalar(x[i]) for i in range(x.shape[0])])
             out = -vals / temperature
-            return gnp.where(in_box, out, gnp.return_neginf())
+            if lower_b is None:
+                return out
+            in_box = gnp.all(x >= lower_b, axis=1) & gnp.all(x <= upper_b, axis=1)
+            return gnp.where(in_box, out, gnp.safe_neginf())
 
         raise ValueError("x must be 1D or 2D.")
 

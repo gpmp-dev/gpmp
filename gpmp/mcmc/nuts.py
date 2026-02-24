@@ -832,6 +832,22 @@ def nuts_sample(
     logger = SimpleLogger(verbose=verbose)
 
     chains, dim = q_init.shape
+    eps_min = float(opts.find_eps_min)
+    eps_max = float(opts.find_eps_max)
+    if (not math.isfinite(eps_min)) or eps_min <= 0.0:
+        eps_min = 1e-12
+    if (not math.isfinite(eps_max)) or eps_max <= eps_min:
+        eps_max = max(1.0, 10.0 * eps_min)
+
+    def _clamp_step_size(eps: gnp_dtype) -> float:
+        eps = float(eps)
+        if (not math.isfinite(eps)) or eps <= 0.0:
+            return eps_min
+        if eps < eps_min:
+            return eps_min
+        if eps > eps_max:
+            return eps_max
+        return eps
 
     logger.log(f"chains={chains}, dim={dim}", level=1)
     logger.log(f"num_warmup={num_warmup}, num_samples={num_samples}", level=1)
@@ -874,9 +890,11 @@ def nuts_sample(
     else:
         eps0 = float(init_step_size)
         logger.log(f"initial step size: provided eps0={eps0:.6g}", level=1)
+    eps0 = _clamp_step_size(eps0)
+    mu0 = max(eps_min, float(opts.dual_averaging_mu_factor) * eps0)
 
     da = DualAveragingState(
-        mu=math.log(opts.dual_averaging_mu_factor * eps0),
+        mu=math.log(mu0),
         log_eps=math.log(eps0),
         log_eps_bar=math.log(eps0),
         h_bar=0.0,
@@ -958,6 +976,7 @@ def nuts_sample(
             t0=opts.dual_averaging_t0,
             kappa=opts.dual_averaging_kappa,
         )
+        step_size = _clamp_step_size(step_size)
 
         # mass window membership
         in_mass_window = False
@@ -981,8 +1000,10 @@ def nuts_sample(
             )
 
             rv = RunningDiagVar(dim)
+            step_size = _clamp_step_size(step_size)
+            mu_ref = max(eps_min, float(opts.dual_averaging_mu_factor) * step_size)
             da = DualAveragingState(
-                mu=math.log(opts.dual_averaging_mu_factor * step_size),
+                mu=math.log(mu_ref),
                 log_eps=math.log(step_size),
                 log_eps_bar=math.log(step_size),
                 h_bar=0.0,
@@ -1012,7 +1033,7 @@ def nuts_sample(
             )
 
     warmup_time = time.time() - t_warm0
-    step_size_final = da.final()
+    step_size_final = _clamp_step_size(da.final())
     step_size = step_size_final
 
     logger.log(f"warmup: done in {warmup_time:.2f}s", level=1)
