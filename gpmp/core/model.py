@@ -13,7 +13,7 @@ import gpmp.num as gnp
 from . import kriging
 from . import loo
 from . import likelihood
-from . import algebra
+from . import linalg
 from . import fisher
 from . import sample_paths as sample_paths
 from . import utils
@@ -449,7 +449,7 @@ class Model:
         norm_sqrd : float
             Squared norm of the residual vector.
         """
-        return algebra.norm_k_sqrd_with_zero_mean(self, xi, zi, covparam)
+        return linalg.norm_k_sqrd_with_zero_mean(self, xi, zi, covparam)
 
     def k_inverses(self, xi, zi, covparam):
         """Compute various quantities involving the inverse of K.
@@ -477,7 +477,7 @@ class Model:
         Kinvz : array_like, shape (n, 1)
             K^-1 z
         """
-        return algebra.k_inverses(self, xi, zi, covparam)
+        return linalg.k_inverses(self, xi, zi, covparam)
 
     def norm_k_sqrd(self, xi, zi, covparam):
         """Compute the squared norm of the residual vector after applying the contrast
@@ -503,7 +503,7 @@ class Model:
             The squared norm of the residual vector after applying the
             contrast matrix W: (Wz)' (WKW)^-1 Wz.
         """
-        return algebra.norm_k_sqrd(self, xi, zi, covparam)
+        return linalg.norm_k_sqrd(self, xi, zi, covparam)
 
     # ------------------------------------------------------------------
     # Fisher information (delegating to gpmp.core.fisher)
