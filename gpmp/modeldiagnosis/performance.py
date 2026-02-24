@@ -67,9 +67,9 @@ def compute_performance(
         - loo(xi, zi) -> (zloom, zloov, eloo)
         - predict(xi, zi, xt) -> (zpm, zpv)
     xi : array-like
-        Training inputs, shape (n, d).
+        Observation inputs, shape (n, d).
     zi : array-like
-        Training targets.
+        Observation targets.
     loo : bool, optional
         If True, compute LOO metrics.
     loo_res : tuple, optional

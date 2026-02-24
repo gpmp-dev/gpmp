@@ -95,7 +95,7 @@ def modeldiagnosis_init(
         "optimal_val": info.best_value_returned,
         "n_evals": info.nfev,
         "time": info.total_time,
-        "initial_val": float(info.selection_criterion(info.initial_params)),
+        "initial_val": info.selection_criterion(info.initial_params),
         "final_val": info.fun,
     }
 
@@ -233,7 +233,7 @@ def diag(
     info_select_parameters : object
         Selection/optimization info passed to modeldiagnosis_init.
     xi, zi : array-like
-        Training data.
+        Observation data.
     model_type : str, optional
         Passed to modeldiagnosis_init when param_obj is not provided.
     param_obj : Param, optional

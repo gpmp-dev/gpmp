@@ -184,7 +184,7 @@ def plot_selection_criterion_crosssections(
 
         for ax_i, param_idx in enumerate(ind):
             opt_value = param_opt[param_idx]
-            p_values = _grid_for_param(param_idx, opt_value, param_box)
+            p_values = _grid_for_param(ax_i, opt_value, param_box)
             crit_values = gnp.zeros((n_crit, n_points))
             for j, x_val in enumerate(p_values):
                 param = gnp.copy(param_opt)
