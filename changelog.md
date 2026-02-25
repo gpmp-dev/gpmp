@@ -1,3 +1,10 @@
+- 0.9.33 num/mcmc/core updates
+  * split num backend into gpmp/num package (numpy_backend, torch_backend, shared)
+  * improve MCMC and parameter-posterior sampling workflows (MH/NUTS/SMC)
+  * reorganize core linear-algebra helpers (merge algebra.py into linalg.py)
+  * update kernel parameter-selection/prior plumbing and modeldiagnosis wording
+  * refresh examples and README
+
 - 0.9.32 dataloader and parameter selection updates
   * parameter_selection.py: expose batches_per_eval in high-level API
   * dataloader.py: enable full-dataset batch mode
