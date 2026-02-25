@@ -1,16 +1,24 @@
 # GPmp: the Gaussian Process micro package
 
 GPmp is a lightweight toolkit for Gaussian process (GP) modeling. It
-provides the essential components for GP-based algorithms with a focus
-on performance and customization.
+provides essential components for GP-based algorithms, with emphasis on
+performance, customization, and transparent parameter selection
+(ML/REML/REMAP), diagnostics, and posterior sampling (MH/NUTS/SMC).
+Compared with larger GP frameworks, GPmp favors explicit control of
+modeling choices and robust behavior in practical workflows. On several
+benchmark settings, this can translate into stronger predictive
+performance (e.g., Q2/R2), while keeping the implementation compact.
 
 ## Features
 
-- **GP interpolation & regression:** Supports known or unknown mean
-    functions (including intrinsic kriging).
-- **Likelihood computation:** standard Gaussian and restricted likelihood.
-- **Efficient cross-validation:** fast leave-one-out predictions.
-- **Conditional sampling:** generate conditional sample paths.
+- **GP interpolation & regression:** supports zero, parameterized, and
+  linear-predictor means (including intrinsic kriging).
+- **Parameter selection:** ML, REML, REMAP, or user-defined criteria.
+- **Posterior parameter sampling:** Metropolis-Hastings (MH), NUTS, and SMC.
+- **Validation & diagnostics:** fast leave-one-out predictions and model
+  diagnosis tools.
+- **Data handling utilities:** random splits, k-fold/repeated CV, and batching.
+- **Conditional simulation:** generate conditional sample paths.
 
 It is up to the user to write the mean and covariance functions for
 setting a GP model.
@@ -19,8 +27,9 @@ However, for the purpose of the example, GPmp provides functions for:
  * anisotropic scaling
  * distance matrix
  * Matérn kernels with half-integer regularities
- * parameter selection procedure using maximum likelihood, restricted maximum
-   likelihood, or user-defined criteria
+ * parameter selection procedures (ML / REML / REMAP / custom)
+ * MCMC samplers for parameter posterior exploration (MH / NUTS / SMC)
+ * data loader helpers for splitting and batching
  * model diagnosis
  * visualization helper
  * ...
@@ -28,8 +37,9 @@ However, for the purpose of the example, GPmp provides functions for:
 ## Backends
 
 GPmp supports two numerical backends:
-- **PyTorch:** Dynamic computation with auto-differentiation.
-- **NumPy:** Basic computation (default if PyTorch is not found).
+- **NumPy:** Default backend; often faster for many small-to-medium workloads.
+- **PyTorch:** Provides automatic differentiation and is most beneficial
+  when gradients are central and/or in higher-dimensional parameter settings.
 
 Backend selection order at import time:
 1. If GPMP_BACKEND is set to torch or numpy, use it.
@@ -55,15 +65,17 @@ pip install -e .
 
 Core:
 - NumPy
+- SciPy
+- Matplotlib
 
 Recommended:
 - PyTorch
 
 Install PyTorch (CPU-only):
-pip install torch
+`pip install torch`
 
 Verify:
-python -c "import torch; print(torch.__version__)"
+`python -c "import torch; print(torch.__version__)"`
 
 For GPU-enabled PyTorch, install the build matching the local CUDA setup.
 Use the official PyTorch install selector to obtain the exact pip command.
@@ -107,7 +119,7 @@ If you use GPmp in your research, please cite it as follows:
 
 ## Future Work
 
-- Expand documentation and tutorials.
+- Expand documentation and tutorials. Improve
 
 ## Authors
 
