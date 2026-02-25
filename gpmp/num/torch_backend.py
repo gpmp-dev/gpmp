@@ -896,11 +896,11 @@ def set_seed(seed):
 
 
 def rand(*shape):
-    return torch.rand(shape, generator=_torch_gen)
+    return torch.rand(*shape, generator=_torch_gen)
 
 
 def randn(*shape):
-    return torch.randn(shape, generator=_torch_gen)
+    return torch.randn(*shape, generator=_torch_gen)
 
 
 def choice(a, size=None, replace=True, p=None):
