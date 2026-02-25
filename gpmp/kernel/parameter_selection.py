@@ -177,8 +177,9 @@ def autoselect_parameters(
        ``best_value_returned=False`` in the result object.
 
     Exception handling:
-    criterion evaluation exceptions are mapped to ``+inf`` inside
-    ``criterion_with_history`` so that optimization can continue.
+    criterion evaluation exceptions caused by linear-algebra failures are mapped
+    to ``+inf`` inside ``criterion_with_history`` so optimization can continue.
+    Other exceptions are re-raised.
 
     Added fields in returned ``OptimizeResult`` (when ``info=True``):
     ``history_params``, ``history_criterion``, ``initial_params``,
@@ -210,11 +211,16 @@ def autoselect_parameters(
         if J < best_criterion:
             best_criterion, best_params = J, p.copy()
 
+    _is_linalg_exception = getattr(gnp, "_is_linalg_exception", None)
+
     def criterion_with_history(p):
         try:
             J = criterion(p)
-        except Exception:
-            J = np.inf
+        except Exception as exc:
+            if callable(_is_linalg_exception) and _is_linalg_exception(exc):
+                J = np.inf
+            else:
+                raise
         record(p, J)
         return J
 
