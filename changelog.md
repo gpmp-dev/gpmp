@@ -1,3 +1,7 @@
+- 0.9.34 parameter selection and torch random updates
+  * parameter_selection.py: stop masking programming errors during optimization
+  * torch_backend.py: fix rand/randn shape forwarding compatibility
+
 - 0.9.33 num/mcmc/core updates
   * split num backend into gpmp/num package (numpy_backend, torch_backend, shared)
   * improve MCMC and parameter-posterior sampling workflows (MH/NUTS/SMC)
