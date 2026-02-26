@@ -896,10 +896,14 @@ def set_seed(seed):
 
 
 def rand(*shape):
+    if len(shape) == 0:
+        return torch.rand((), generator=_torch_gen)
     return torch.rand(*shape, generator=_torch_gen)
 
 
 def randn(*shape):
+    if len(shape) == 0:
+        return torch.randn((), generator=_torch_gen)
     return torch.randn(*shape, generator=_torch_gen)
 
 
