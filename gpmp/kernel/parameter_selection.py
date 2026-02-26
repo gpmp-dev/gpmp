@@ -576,14 +576,63 @@ def _minimum_nonzero_gap_distance_1d(xj):
 
 
 def _componentwise_logrho_min_from_xi(xi):
-    """Componentwise log of min nonzero gaps; -inf where no finite gap exists."""
+    """
+    Compute componentwise logrho lower bounds from gaps and component ranges.
+
+    Parameters
+    ----------
+    xi : array_like of shape (n, d)
+        Observation points.
+
+    Returns
+    -------
+    logrho_min_from_gap : array_like of shape (d,)
+        Componentwise ``log(min_nonzero_gap)``; ``-inf`` where no finite gap exists.
+    x_range : array_like of shape (d,)
+        Componentwise range ``max(x[:, j]) - min(x[:, j])``.
+    """
     xi = gnp.asarray(xi)
     _n, d = xi.shape
     vals = []
+    ranges = []
     for j in range(d):
+        xj = xi[:, j]
         min_gap = _minimum_nonzero_gap_distance_1d(xi[:, j])
         vals.append(gnp.log(min_gap) if gnp.isfinite(min_gap) else -gnp.inf)
-    return gnp.asarray(vals)
+        ranges.append(gnp.max(xj) - gnp.min(xj))
+    return gnp.asarray(vals), gnp.asarray(ranges)
+
+
+def compute_logrho_min_from_xi(xi, rho_min_range_factor=20.0):
+    """
+    Compute safeguarded componentwise ``logrho_min`` from observation points.
+
+    The bound combines two componentwise lower bounds and keeps the tightest
+    admissible one:
+
+    1. ``log(min nonzero gap)``
+    2. ``log(range / rho_min_range_factor)``
+
+    Parameters
+    ----------
+    xi : array_like of shape (n, d)
+        Observation points.
+    rho_min_range_factor : float, default=20.0
+        Safeguard factor for the range-based lower bound.
+
+    Returns
+    -------
+    logrho_min : array_like of shape (d,)
+        Safeguarded componentwise lower bound for ``logrho``.
+    """
+    if rho_min_range_factor <= 0:
+        raise ValueError("rho_min_range_factor must be strictly positive.")
+    logrho_min_gap, x_range = _componentwise_logrho_min_from_xi(xi)
+    min_rho_from_range = x_range / float(rho_min_range_factor)
+    positive_mask = min_rho_from_range > 0.0
+    min_rho_safe = gnp.where(positive_mask, min_rho_from_range, 1.0)
+    logrho_min_range = gnp.where(positive_mask, gnp.log(min_rho_safe), -gnp.inf)
+    return gnp.maximum(logrho_min_gap, logrho_min_range)
 
 
 # ------------------------------------------------------------------------
@@ -1092,7 +1141,8 @@ def select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
     info=False,
     verbosity=0,
     *,
-    gamma=2.0,
+    gamma=1.5,
+    rho_min_range_factor=20.0,
     logrho_min=None,
     logrho_0=None,
     alpha=10.0,
@@ -1122,6 +1172,11 @@ def select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
         Verbosity level forwarded to generic criterion selection.
     gamma : float, default=2.0
         Prior spread control for ``log(sigma^2)``.
+    rho_min_range_factor : float, default=20.0
+        Safeguard factor used when ``logrho_min`` is inferred from data:
+        a componentwise lower bound
+        ``log(range(x[:, j]) / rho_min_range_factor)`` is
+        applied in addition to the minimum-gap bound.
     logrho_min : array_like, optional
         Lower bounds for ``logrho`` prior support.
     logrho_0 : array_like, optional
@@ -1145,8 +1200,8 @@ def select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
     Notes
     -----
     If ``logrho_min`` is None, it is computed componentwise from minimum nonzero
-    gaps in ``xi``. If ``xi`` is not provided, ``dataloader.dataset.x_list`` is
-    used when available.
+    gaps in ``xi`` and safeguarded with ``log(range / rho_min_range_factor)``. If
+    ``xi`` is not provided, ``dataloader.dataset.x_list`` is used when available.
     """
     if covparam0 is None:
         covparam0 = anisotropic_parameters_initial_guess(model, xi, zi, dataloader)
@@ -1172,7 +1227,9 @@ def select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
             raise ValueError(
                 "xi or dataloader.dataset.x_list must be provided when logrho_min is None."
             )
-        logrho_min = _componentwise_logrho_min_from_xi(xi_for_min)
+        logrho_min = compute_logrho_min_from_xi(
+            xi_for_min, rho_min_range_factor=rho_min_range_factor
+        )
     logrho_min = gnp.asarray(logrho_min)
     logrho_0 = gnp.asarray(logrho_0)
 
@@ -1215,6 +1272,7 @@ def update_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
     verbosity=0,
     *,
     gamma=4.0,
+    rho_min_range_factor=20.0,
     logrho_min=None,
     logrho_0=None,
     alpha=1.0,
@@ -1241,6 +1299,11 @@ def update_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
         Verbosity level forwarded to the selector function.
     gamma : float, default=4.0
         Prior spread control for ``log(sigma^2)``.
+    rho_min_range_factor : float, default=20.0
+        Safeguard factor used when ``logrho_min`` is inferred from data:
+        a componentwise lower bound
+        ``log(range(x[:, j]) / rho_min_range_factor)`` is
+        applied in addition to the minimum-gap bound.
     logrho_min : array_like, optional
         Lower bounds for ``logrho`` prior support.
     logrho_0 : array_like, optional
@@ -1273,6 +1336,7 @@ def update_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
         info=info,
         verbosity=verbosity,
         gamma=gamma,
+        rho_min_range_factor=rho_min_range_factor,
         logrho_min=logrho_min,
         logrho_0=logrho_0,
         alpha=alpha,

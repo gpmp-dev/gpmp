@@ -66,6 +66,7 @@ from .parameter_selection import (
     update_parameters_with_remap_gaussian_logsigma2,
     select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior,
     update_parameters_with_remap_gaussian_logsigma2_and_logrho_prior,
+    compute_logrho_min_from_xi,
 )
 from .priors import (
     log_prior_jeffreys_variance,
@@ -110,6 +111,7 @@ __all__ = [
     "update_parameters_with_remap_gaussian_logsigma2",
     "select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior",
     "update_parameters_with_remap_gaussian_logsigma2_and_logrho_prior",
+    "compute_logrho_min_from_xi",
     # Priors
     "log_prior_jeffreys_variance",
     "log_prior_power_law",
