@@ -208,7 +208,7 @@ def neglog_f_logrho(logrho, logrho_min, logrho_0, alpha=1.0):
     logrho_0 : array_like
         Componentwise reference value (penalty minimum).
     alpha : float, default=1.0
-        Curvature/scale parameter of the penalty.
+        Linear right-tail slope parameter of the penalty.
 
     Returns
     -------
@@ -226,11 +226,12 @@ def neglog_f_logrho(logrho, logrho_min, logrho_0, alpha=1.0):
     if bool(gnp.to_np(gnp.any(logrho_0 <= logrho_min))):
         raise ValueError("logrho_0 must be > logrho_min (componentwise).")
 
-    lam = alpha / (logrho_0 - logrho_min)
+    beta = alpha
+    alpha_eff = beta * (logrho_0 - logrho_min)
     logrho_shifted = logrho - logrho_min
     mask = logrho_shifted > 0.0
     shifted_safe = gnp.where(mask, logrho_shifted, 1.0)
-    nlf_valid = -alpha * gnp.log(shifted_safe) + lam * shifted_safe
+    nlf_valid = -alpha_eff * gnp.log(shifted_safe) + beta * shifted_safe
     return gnp.where(mask, nlf_valid, gnp.safe_inf())
 
 
@@ -248,7 +249,7 @@ def log_prior_logrho_barrier_linear(covparam, logrho_min, logrho_0, alpha=1.0):
     logrho_0 : array_like
         Reference values for ``logrho`` components.
     alpha : float, default=1.0
-        Penalty scale parameter.
+        Linear right-tail slope parameter.
 
     Returns
     -------
@@ -386,7 +387,7 @@ def neg_log_restricted_posterior_with_logrho_prior(
     logrho_0 : array_like
         Reference values for ``logrho``.
     alpha : float, default=1.0
-        Penalty scale parameter.
+        Linear right-tail slope parameter.
 
     Returns
     -------
@@ -421,6 +422,29 @@ def neg_log_restricted_posterior_gaussian_logsigma2_and_logrho_prior(
     """
     Compute negative restricted posterior with priors on ``log(sigma^2)`` and ``logrho``.
 
+    The objective is the REML criterion regularized by two additive prior terms:
+
+    .. math::
+
+        J(\\theta) =
+        -\\log p(z \\mid x, \\theta)_{\\mathrm{REML}}
+        - \\log p_{\\sigma^2}(\\theta)
+        - \\log p_{\\rho}(\\theta),
+
+    where ``theta = covparam``, ``log(sigma^2) = covparam[0]`` and
+    ``logrho = -covparam[1:]``.
+
+    The variance prior term ``log p_{\\sigma^2}`` is Gaussian in
+    ``log(sigma^2)`` with center ``log_sigma2_0`` and scale controlled by
+    ``gamma`` (one standard deviation corresponds to a multiplicative factor
+    ``gamma`` on ``sigma^2``).
+
+    The lengthscale term ``log p_{\\rho}`` is a barrier + linear-tail prior in
+    ``logrho`` with componentwise hard support ``logrho > logrho_min`` and
+    minimum at ``logrho_0``. The public parameter ``alpha`` controls the
+    linear right-tail slope; the barrier strength is adjusted internally per
+    component so the minimum remains at ``logrho_0``.
+
     Parameters
     ----------
     model : gpmp.core.Model
@@ -438,17 +462,13 @@ def neg_log_restricted_posterior_gaussian_logsigma2_and_logrho_prior(
     logrho_0 : array_like, optional
         Reference values for ``logrho`` components.
     alpha : float, default=1.0
-        Penalty scale for the ``logrho`` prior.
+        Linear right-tail slope for the ``logrho`` prior.
 
     Returns
     -------
     scalar
         ``negative_log_restricted_likelihood`` minus both prior log-densities.
 
-    Notes
-    -----
-    This objective corresponds to MAP with two regularization priors:
-    Gaussian on ``log(sigma^2)`` and barrier-linear on ``logrho``.
     """
     if logrho_min is None or logrho_0 is None:
         raise ValueError("logrho_min and logrho_0 must be provided.")

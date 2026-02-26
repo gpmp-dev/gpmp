@@ -603,21 +603,21 @@ def _componentwise_logrho_min_from_xi(xi):
     return gnp.asarray(vals), gnp.asarray(ranges)
 
 
-def compute_logrho_min_from_xi(xi, rho_min_range_factor=20.0):
+def compute_logrho_min_from_xi(xi, rho_min_range_factor=1/20.0):
     """
     Compute safeguarded componentwise ``logrho_min`` from observation points.
 
-    The bound combines two componentwise lower bounds and keeps the tightest
+    The bound combines two componentwise lower bounds and keeps the tightest (largest)
     admissible one:
 
     1. ``log(min nonzero gap)``
-    2. ``log(range / rho_min_range_factor)``
+    2. ``log(range * rho_min_range_factor)``
 
     Parameters
     ----------
     xi : array_like of shape (n, d)
         Observation points.
-    rho_min_range_factor : float, default=20.0
+    rho_min_range_factor : float, default=1/20.0
         Safeguard factor for the range-based lower bound.
 
     Returns
@@ -628,7 +628,7 @@ def compute_logrho_min_from_xi(xi, rho_min_range_factor=20.0):
     if rho_min_range_factor <= 0:
         raise ValueError("rho_min_range_factor must be strictly positive.")
     logrho_min_gap, x_range = _componentwise_logrho_min_from_xi(xi)
-    min_rho_from_range = x_range / float(rho_min_range_factor)
+    min_rho_from_range = x_range * float(rho_min_range_factor)
     positive_mask = min_rho_from_range > 0.0
     min_rho_safe = gnp.where(positive_mask, min_rho_from_range, 1.0)
     logrho_min_range = gnp.where(positive_mask, gnp.log(min_rho_safe), -gnp.inf)
@@ -1014,7 +1014,7 @@ def select_parameters_with_remap_gaussian_logsigma2(
         If True, return optimization diagnostics.
     verbosity : int, default=0
         Verbosity level forwarded to generic criterion selection.
-    gamma : float, default=2.0
+    gamma : float, default=1.5
         Prior spread control for ``log(sigma^2)``.
     bounds, bounds_auto, bounds_delta :
         Bounds configuration in normalized parameter space.
@@ -1142,10 +1142,10 @@ def select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
     verbosity=0,
     *,
     gamma=1.5,
-    rho_min_range_factor=20.0,
+    rho_min_range_factor=1/20.0,
     logrho_min=None,
     logrho_0=None,
-    alpha=10.0,
+    alpha=1.0,
     bounds=None,
     bounds_auto=True,
     bounds_delta=10.0,
@@ -1154,6 +1154,29 @@ def select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
 ):
     """
     Select covariance parameters with REMAP and priors on ``log(sigma^2)`` and ``logrho``.
+
+    The optimized objective is a regularized REML criterion:
+
+    .. math::
+
+        J(\\theta) =
+        -\\log p(z \\mid x, \\theta)_{\\mathrm{REML}}
+        - \\log p_{\\sigma^2}(\\theta)
+        - \\log p_{\\rho}(\\theta),
+
+    where ``theta = covparam``, ``log(sigma^2)=covparam[0]`` and
+    ``logrho=-covparam[1:]``.
+
+    ``log p_{\\sigma^2}`` is Gaussian in ``log(sigma^2)`` and centered at
+    ``log_sigma2_0`` inferred from ``covparam0``.
+
+    ``log p_{\\rho}`` is a barrier + linear-tail prior in ``logrho``:
+    componentwise support is ``logrho > logrho_min``, the minimum is at
+    ``logrho_0``, and ``alpha`` controls the right-tail linear slope.
+
+    When ``logrho_min`` is not provided, it is inferred from observation points
+    by combining a minimum-gap bound and a range-based safeguard controlled by
+    ``rho_min_range_factor``.
 
     Parameters
     ----------
@@ -1170,19 +1193,19 @@ def select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
         If True, return optimization diagnostics.
     verbosity : int, default=0
         Verbosity level forwarded to generic criterion selection.
-    gamma : float, default=2.0
+    gamma : float, default=1.5
         Prior spread control for ``log(sigma^2)``.
-    rho_min_range_factor : float, default=20.0
-        Safeguard factor used when ``logrho_min`` is inferred from data:
-        a componentwise lower bound
-        ``log(range(x[:, j]) / rho_min_range_factor)`` is
+    rho_min_range_factor : float, default=1/20.0
+        Safeguard factor used when ``logrho_min`` is inferred from data.
+        It defines the range-based candidate lower bound
+        ``log(range(x[:, j]) * rho_min_range_factor)`` is
         applied in addition to the minimum-gap bound.
     logrho_min : array_like, optional
         Lower bounds for ``logrho`` prior support.
     logrho_0 : array_like, optional
         Reference values for ``logrho`` prior.
-    alpha : float, default=10.0
-        Scale parameter of the ``logrho`` barrier-linear prior.
+    alpha : float, default=1.0
+        Linear right-tail slope of the ``logrho`` barrier-linear prior.
     bounds, bounds_auto, bounds_delta :
         Bounds configuration in normalized parameter space.
     method : {"SLSQP", "L-BFGS-B"}, default="SLSQP"
@@ -1199,9 +1222,11 @@ def select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
 
     Notes
     -----
-    If ``logrho_min`` is None, it is computed componentwise from minimum nonzero
-    gaps in ``xi`` and safeguarded with ``log(range / rho_min_range_factor)``. If
-    ``xi`` is not provided, ``dataloader.dataset.x_list`` is used when available.
+    If ``logrho_min`` is None, this function uses:
+    - ``xi`` if provided, else
+    - ``dataloader.dataset.x_list`` (when available).
+    The inferred bound is the componentwise maximum of:
+    ``log(min_nonzero_gap)`` and ``log(range * rho_min_range_factor)``.
     """
     if covparam0 is None:
         covparam0 = anisotropic_parameters_initial_guess(model, xi, zi, dataloader)
@@ -1271,8 +1296,8 @@ def update_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
     info=False,
     verbosity=0,
     *,
-    gamma=4.0,
-    rho_min_range_factor=20.0,
+    gamma=1.5,
+    rho_min_range_factor=1/20.0,
     logrho_min=None,
     logrho_0=None,
     alpha=1.0,
@@ -1284,45 +1309,6 @@ def update_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
 ):
     """
     Update covariance parameters with REMAP and priors on ``log(sigma^2)`` and ``logrho``.
-
-    Parameters
-    ----------
-    model : gpmp.core.Model
-        GP model instance.
-    xi, zi : array_like, optional
-        Observation arrays.
-    dataloader : iterable, optional
-        Batch loader alternative to ``xi, zi``.
-    info : bool, default=False
-        If True, return optimization diagnostics.
-    verbosity : int, default=0
-        Verbosity level forwarded to the selector function.
-    gamma : float, default=4.0
-        Prior spread control for ``log(sigma^2)``.
-    rho_min_range_factor : float, default=20.0
-        Safeguard factor used when ``logrho_min`` is inferred from data:
-        a componentwise lower bound
-        ``log(range(x[:, j]) / rho_min_range_factor)`` is
-        applied in addition to the minimum-gap bound.
-    logrho_min : array_like, optional
-        Lower bounds for ``logrho`` prior support.
-    logrho_0 : array_like, optional
-        Reference values for ``logrho`` prior.
-    alpha : float, default=1.0
-        Scale parameter of the ``logrho`` barrier-linear prior.
-    bounds, bounds_auto, bounds_delta :
-        Bounds configuration in normalized parameter space.
-    method : {"SLSQP", "L-BFGS-B"}, default="SLSQP"
-        Optimization method.
-    method_options : dict, optional
-        Extra options passed to SciPy ``minimize``.
-
-    Returns
-    -------
-    model : gpmp.core.Model
-        Updated model.
-    info_ret : dict | None
-        Diagnostics dictionary if ``info=True``, else None.
     """
     covparam0 = model.covparam
     if covparam0 is None:
