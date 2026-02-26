@@ -33,7 +33,10 @@ neg_log_restricted_posterior_gaussian_logsigma2_and_logrho_prior
     Negative restricted posterior with priors on ``log(sigma^2)`` and ``logrho``.
 """
 
+from statistics import NormalDist
+
 import gpmp.num as gnp
+from gpmp.config import get_default_prior_hyperparameters
 
 
 # ------------------------- basic priors -------------------------
@@ -162,7 +165,36 @@ def log_prior_reference(model, covparam, xi):
 
 
 # ---------------------- structured penalties ----------------------
-def log_prior_gaussian_logsigma2(covparam, log_sigma2_0, gamma=4.0):
+def _resolve_prior_defaults(gamma=None, sigma2_coverage=None, alpha=None, xi=None):
+    defaults = get_default_prior_hyperparameters(xi)
+    if gamma is None:
+        gamma = defaults["gamma"]
+    if sigma2_coverage is None:
+        sigma2_coverage = defaults["sigma2_coverage"]
+    if alpha is None:
+        alpha = defaults["alpha"]
+    return gamma, sigma2_coverage, alpha
+
+
+def _logsigma2_prior_std(gamma, sigma2_coverage):
+    """Return std in log-space from multiplicative factor and central coverage."""
+    if gamma <= 1.0:
+        raise ValueError("gamma must be > 1.")
+    if not (0.0 < sigma2_coverage < 1.0):
+        raise ValueError("sigma2_coverage must be in (0, 1).")
+    q = 0.5 * (1.0 + sigma2_coverage)
+    zq = NormalDist().inv_cdf(q)
+    if zq <= 0.0:
+        raise ValueError("Invalid sigma2_coverage: non-positive Gaussian quantile.")
+    return gnp.log(gamma) / zq
+
+
+def log_prior_gaussian_logsigma2(
+    covparam,
+    log_sigma2_0,
+    gamma=None,
+    sigma2_coverage=None,
+):
     """
     Compute Gaussian log-prior on ``log(sigma^2)``.
 
@@ -172,9 +204,13 @@ def log_prior_gaussian_logsigma2(covparam, log_sigma2_0, gamma=4.0):
         Covariance parameter vector. ``covparam[0]`` is ``log(sigma^2)``.
     log_sigma2_0 : scalar
         Prior mean for ``log(sigma^2)``.
-    gamma : float, default=4.0
-        Scale factor such that one standard deviation in log-space is
-        ``log(gamma)``.
+    gamma : float, optional
+        Multiplicative factor around ``sigma2_0`` used for prior calibration.
+        If None, default from ``gpmp.config`` is used.
+    sigma2_coverage : float, optional
+        Central Gaussian probability mass assigned to
+        ``[sigma2_0 / gamma, sigma2_0 * gamma]``.
+        If None, default from ``gpmp.config`` is used.
 
     Returns
     -------
@@ -183,19 +219,23 @@ def log_prior_gaussian_logsigma2(covparam, log_sigma2_0, gamma=4.0):
 
     Notes
     -----
-    A ``+/-1`` standard deviation variation corresponds to multiplying
-    ``sigma^2`` by ``gamma`` or ``1/gamma``.
+    The standard deviation in ``log(sigma^2)`` is derived from
+    ``gamma`` and ``sigma2_coverage`` so that:
+
+    ``P(sigma^2 in [sigma2_0 / gamma, sigma2_0 * gamma]) = sigma2_coverage``.
+
     This is a weakly informative regularization prior.
     """
-    if gamma <= 1.0:
-        raise ValueError("gamma must be > 1.")
+    gamma, sigma2_coverage, _ = _resolve_prior_defaults(
+        gamma=gamma, sigma2_coverage=sigma2_coverage
+    )
     log_sigma2 = covparam[0]
-    std = gnp.log(gamma)
+    std = _logsigma2_prior_std(gamma, sigma2_coverage)
     z = (log_sigma2 - log_sigma2_0) / std
     return -0.5 * z * z
 
 
-def neglog_f_logrho(logrho, logrho_min, logrho_0, alpha=1.0):
+def neglog_f_logrho(logrho, logrho_min, logrho_0, alpha=None):
     """
     Compute elementwise barrier + linear-tail penalty on ``logrho``.
 
@@ -207,8 +247,9 @@ def neglog_f_logrho(logrho, logrho_min, logrho_0, alpha=1.0):
         Componentwise hard lower bound.
     logrho_0 : array_like
         Componentwise reference value (penalty minimum).
-    alpha : float, default=1.0
+    alpha : float, optional
         Linear right-tail slope parameter of the penalty.
+        If None, default from ``gpmp.config`` is used.
 
     Returns
     -------
@@ -221,6 +262,7 @@ def neglog_f_logrho(logrho, logrho_min, logrho_0, alpha=1.0):
     This is a structural regularization penalty (barrier + tail control), not a
     Jeffreys/reference prior.
     """
+    _, _, alpha = _resolve_prior_defaults(alpha=alpha)
     if alpha <= 0:
         raise ValueError("alpha must be > 0.")
     if bool(gnp.to_np(gnp.any(logrho_0 <= logrho_min))):
@@ -235,7 +277,7 @@ def neglog_f_logrho(logrho, logrho_min, logrho_0, alpha=1.0):
     return gnp.where(mask, nlf_valid, gnp.safe_inf())
 
 
-def log_prior_logrho_barrier_linear(covparam, logrho_min, logrho_0, alpha=1.0):
+def log_prior_logrho_barrier_linear(covparam, logrho_min, logrho_0, alpha=None):
     """
     Compute log-prior on ``rho`` from barrier+linear penalty on ``logrho``.
 
@@ -248,8 +290,9 @@ def log_prior_logrho_barrier_linear(covparam, logrho_min, logrho_0, alpha=1.0):
         Lower bound for ``logrho`` components.
     logrho_0 : array_like
         Reference values for ``logrho`` components.
-    alpha : float, default=1.0
+    alpha : float, optional
         Linear right-tail slope parameter.
+        If None, default from ``gpmp.config`` is used.
 
     Returns
     -------
@@ -261,6 +304,7 @@ def log_prior_logrho_barrier_linear(covparam, logrho_min, logrho_0, alpha=1.0):
     Induces a prior on lengthscales through ``logrho = -loginvrho`` with hard
     lower support and linear tail regularization.
     """
+    _, _, alpha = _resolve_prior_defaults(alpha=alpha)
     logrho = -covparam[1:]
     nlf = neglog_f_logrho(logrho, logrho_min, logrho_0, alpha=alpha)
     return -gnp.sum(nlf)
@@ -330,7 +374,8 @@ def neg_log_restricted_posterior_gaussian_logsigma2_prior(
     xi,
     zi,
     log_sigma2_0,
-    gamma=4.0,
+    gamma=None,
+    sigma2_coverage=None,
 ):
     """
     Compute negative restricted posterior with Gaussian prior on ``log(sigma^2)``.
@@ -345,8 +390,13 @@ def neg_log_restricted_posterior_gaussian_logsigma2_prior(
         Observation inputs and targets.
     log_sigma2_0 : scalar
         Prior mean for ``log(sigma^2)``.
-    gamma : float, default=4.0
-        Prior scale parameter.
+    gamma : float, optional
+        Multiplicative factor around ``sigma2_0`` used for prior calibration.
+        If None, default from ``gpmp.config`` is used.
+    sigma2_coverage : float, optional
+        Central Gaussian probability mass assigned to
+        ``[sigma2_0 / gamma, sigma2_0 * gamma]``.
+        If None, default from ``gpmp.config`` is used.
 
     Returns
     -------
@@ -359,7 +409,12 @@ def neg_log_restricted_posterior_gaussian_logsigma2_prior(
     ``log(sigma^2)``.
     """
     nlrl = model.negative_log_restricted_likelihood(covparam, xi, zi)
-    return nlrl - log_prior_gaussian_logsigma2(covparam, log_sigma2_0, gamma=gamma)
+    return nlrl - log_prior_gaussian_logsigma2(
+        covparam,
+        log_sigma2_0,
+        gamma=gamma,
+        sigma2_coverage=sigma2_coverage,
+    )
 
 
 def neg_log_restricted_posterior_with_logrho_prior(
@@ -369,7 +424,7 @@ def neg_log_restricted_posterior_with_logrho_prior(
     zi,
     logrho_min,
     logrho_0,
-    alpha=1.0,
+    alpha=None,
 ):
     """
     Compute negative restricted posterior with prior on ``logrho``.
@@ -386,8 +441,9 @@ def neg_log_restricted_posterior_with_logrho_prior(
         Lower bounds for ``logrho``.
     logrho_0 : array_like
         Reference values for ``logrho``.
-    alpha : float, default=1.0
+    alpha : float, optional
         Linear right-tail slope parameter.
+        If None, default from ``gpmp.config`` is used.
 
     Returns
     -------
@@ -414,10 +470,11 @@ def neg_log_restricted_posterior_gaussian_logsigma2_and_logrho_prior(
     xi,
     zi,
     log_sigma2_0,
-    gamma=4.0,
+    gamma=None,
+    sigma2_coverage=None,
     logrho_min=None,
     logrho_0=None,
-    alpha=1.0,
+    alpha=None,
 ):
     """
     Compute negative restricted posterior with priors on ``log(sigma^2)`` and ``logrho``.
@@ -435,9 +492,10 @@ def neg_log_restricted_posterior_gaussian_logsigma2_and_logrho_prior(
     ``logrho = -covparam[1:]``.
 
     The variance prior term ``log p_{\\sigma^2}`` is Gaussian in
-    ``log(sigma^2)`` with center ``log_sigma2_0`` and scale controlled by
-    ``gamma`` (one standard deviation corresponds to a multiplicative factor
-    ``gamma`` on ``sigma^2``).
+    ``log(sigma^2)`` with center ``log_sigma2_0``. Its log-space standard
+    deviation is calibrated from ``gamma`` and ``sigma2_coverage`` so that:
+
+    ``P(sigma2_0 / gamma <= sigma^2 <= sigma2_0 * gamma) = sigma2_coverage``.
 
     The lengthscale term ``log p_{\\rho}`` is a barrier + linear-tail prior in
     ``logrho`` with componentwise hard support ``logrho > logrho_min`` and
@@ -455,14 +513,20 @@ def neg_log_restricted_posterior_gaussian_logsigma2_and_logrho_prior(
         Observation inputs and targets.
     log_sigma2_0 : scalar
         Gaussian prior center for ``log(sigma^2)``.
-    gamma : float, default=4.0
-        Gaussian prior scale parameter on ``log(sigma^2)``.
+    gamma : float, optional
+        Multiplicative factor around ``sigma2_0`` used for prior calibration.
+        If None, default from ``gpmp.config`` is used.
+    sigma2_coverage : float, optional
+        Central Gaussian probability mass assigned to
+        ``[sigma2_0 / gamma, sigma2_0 * gamma]``.
+        If None, default from ``gpmp.config`` is used.
     logrho_min : array_like, optional
         Lower bounds for ``logrho`` components.
     logrho_0 : array_like, optional
         Reference values for ``logrho`` components.
-    alpha : float, default=1.0
+    alpha : float, optional
         Linear right-tail slope for the ``logrho`` prior.
+        If None, default from ``gpmp.config`` is used.
 
     Returns
     -------
@@ -472,11 +536,19 @@ def neg_log_restricted_posterior_gaussian_logsigma2_and_logrho_prior(
     """
     if logrho_min is None or logrho_0 is None:
         raise ValueError("logrho_min and logrho_0 must be provided.")
+    gamma, sigma2_coverage, alpha = _resolve_prior_defaults(
+        gamma=gamma, sigma2_coverage=sigma2_coverage, alpha=alpha, xi=xi
+    )
 
     nlrl = model.negative_log_restricted_likelihood(covparam, xi, zi)
     return (
         nlrl
-        - log_prior_gaussian_logsigma2(covparam, log_sigma2_0, gamma=gamma)
+        - log_prior_gaussian_logsigma2(
+            covparam,
+            log_sigma2_0,
+            gamma=gamma,
+            sigma2_coverage=sigma2_coverage,
+        )
         - log_prior_logrho_barrier_linear(
             covparam,
             logrho_min=logrho_min,

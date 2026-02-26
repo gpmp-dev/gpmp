@@ -42,6 +42,7 @@ Notes
 import os
 import logging
 from importlib.util import find_spec
+from dataclasses import dataclass
 
 # Read version from VERSION file
 _version_file = os.path.join(os.path.dirname(__file__), "..", "VERSION")
@@ -87,6 +88,14 @@ def _normalize_backend_spec(backend) -> str:
     return b
 
 
+@dataclass
+class _PriorDefaultParameters:
+    gamma: float = 1.5
+    sigma2_coverage: float = 0.95
+    alpha: float = 1.0
+    rho_min_range_factor: float = 1 / 20.0
+
+
 class _GPMPConfig:
     def __init__(self):
         self.version = __version__
@@ -102,6 +111,7 @@ class _GPMPConfig:
         self.device = "cpu"
         self.seed = 1234
         self.caches = {}
+        self.prior_defaults = _PriorDefaultParameters()
 
         # Logger lives in config
         self.logger = logging.getLogger("gpmp")
@@ -135,6 +145,33 @@ class _GPMPConfig:
             f"caches={list(self.caches.keys())}>"
         )
 
+    def _update_prior_defaults_from_kwargs(self, kwargs):
+        """Validate and apply prior-default overrides from ``kwargs`` in place."""
+        if "prior_logsigma2_gamma" in kwargs:
+            g = float(kwargs["prior_logsigma2_gamma"])
+            if g <= 1.0:
+                raise ValueError("prior_logsigma2_gamma must be > 1.")
+            self.prior_defaults.gamma = g
+            kwargs.pop("prior_logsigma2_gamma")
+        if "prior_logsigma2_coverage" in kwargs:
+            c = float(kwargs["prior_logsigma2_coverage"])
+            if not (0.0 < c < 1.0):
+                raise ValueError("prior_logsigma2_coverage must be in (0, 1).")
+            self.prior_defaults.sigma2_coverage = c
+            kwargs.pop("prior_logsigma2_coverage")
+        if "prior_logrho_alpha" in kwargs:
+            a = float(kwargs["prior_logrho_alpha"])
+            if a <= 0.0:
+                raise ValueError("prior_logrho_alpha must be > 0.")
+            self.prior_defaults.alpha = a
+            kwargs.pop("prior_logrho_alpha")
+        if "prior_logrho_min_range_factor" in kwargs:
+            r = float(kwargs["prior_logrho_min_range_factor"])
+            if r <= 0.0:
+                raise ValueError("prior_logrho_min_range_factor must be > 0.")
+            self.prior_defaults.rho_min_range_factor = r
+            kwargs.pop("prior_logrho_min_range_factor")
+
     def update(self, **kwargs):
         # Validate known sensitive fields to avoid inconsistent state.
         if "backend" in kwargs:
@@ -147,6 +184,8 @@ class _GPMPConfig:
             os.environ["GPMP_DTYPE"] = kwargs["dtype"]
             # dtype_resolved must be recomputed by gpmp.num after import.
             kwargs.setdefault("dtype_resolved", None)
+
+        self._update_prior_defaults_from_kwargs(kwargs)
 
         for k, v in kwargs.items():
             setattr(self, k, v)
@@ -217,6 +256,36 @@ def set_dtype(dtype):
 
 def set_device(device):
     _config.device = device
+
+
+def get_default_prior_hyperparameters(xi=None):
+    """
+    Return default prior hyperparameters, optionally conditioned on dataset metadata.
+
+    Parameters
+    ----------
+    xi : array_like, optional
+        Observation points. If provided, must have shape ``(n, d)``.
+        The current policy is dataset-agnostic but this hook centralizes future
+        dataset-dependent default strategies.
+
+    Returns
+    -------
+    dict
+        Dictionary with keys ``gamma``, ``sigma2_coverage``, ``alpha``,
+        ``rho_min_range_factor``.
+    """
+    if xi is not None and hasattr(xi, "shape"):
+        shape = tuple(int(s) for s in xi.shape)
+        if len(shape) != 2:
+            raise ValueError("xi must have shape (n, d).")
+
+    return {
+        "gamma": _config.prior_defaults.gamma,
+        "sigma2_coverage": _config.prior_defaults.sigma2_coverage,
+        "alpha": _config.prior_defaults.alpha,
+        "rho_min_range_factor": _config.prior_defaults.rho_min_range_factor,
+    }
 
 
 def clear_caches(name=None):
