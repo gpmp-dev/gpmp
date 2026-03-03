@@ -36,7 +36,7 @@ neg_log_restricted_posterior_gaussian_logsigma2_and_logrho_prior
 from statistics import NormalDist
 
 import gpmp.num as gnp
-from gpmp.config import get_default_prior_hyperparameters
+from .prior_defaults import get_default_prior_hyperparameters
 
 
 # ------------------------- basic priors -------------------------
@@ -415,7 +415,6 @@ def neg_log_restricted_posterior_gaussian_logsigma2_prior(
         gamma=gamma,
         sigma2_coverage=sigma2_coverage,
     )
-
 
 def neg_log_restricted_posterior_with_logrho_prior(
     model,

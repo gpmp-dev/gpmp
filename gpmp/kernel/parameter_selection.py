@@ -12,7 +12,12 @@ import time
 import numpy as np
 from scipy.optimize import minimize
 import gpmp.num as gnp
-from gpmp.config import get_default_prior_hyperparameters
+from .prior_defaults import resolve_prior_defaults_for_selection
+from .prior_helpers import (
+    resolve_covparam0_prior_and_init,
+    resolve_covparam0_roles_for_update,
+    resolve_logsigma2_logrho_prior_args,
+)
 
 from .utils import check_xi_zi_or_loader
 from .init import anisotropic_parameters_initial_guess
@@ -565,116 +570,6 @@ def negative_log_restricted_likelihood(model, covparam, xi, zi):
     return model.negative_log_restricted_likelihood(covparam, xi, zi)
 
 
-def _minimum_nonzero_gap_distance_1d(xj):
-    """Smallest positive spacing among points in 1D (inf if none)."""
-    xj = gnp.asarray(xj).reshape(-1)
-    if xj.shape[0] < 2:
-        return gnp.inf
-    xs = gnp.sort(xj)
-    diffs = gnp.diff(xs)
-    diffs = diffs[diffs > 0.0]
-    return gnp.min(diffs) if diffs.shape[0] > 0 else gnp.inf
-
-
-def _componentwise_logrho_min_from_xi(xi):
-    """
-    Compute componentwise logrho lower bounds from gaps and component ranges.
-
-    Parameters
-    ----------
-    xi : array_like of shape (n, d)
-        Observation points.
-
-    Returns
-    -------
-    logrho_min_from_gap : array_like of shape (d,)
-        Componentwise ``log(min_nonzero_gap)``; ``-inf`` where no finite gap exists.
-    x_range : array_like of shape (d,)
-        Componentwise range ``max(x[:, j]) - min(x[:, j])``.
-    """
-    xi = gnp.asarray(xi)
-    _n, d = xi.shape
-    vals = []
-    ranges = []
-    for j in range(d):
-        xj = xi[:, j]
-        min_gap = _minimum_nonzero_gap_distance_1d(xi[:, j])
-        vals.append(gnp.log(min_gap) if gnp.isfinite(min_gap) else -gnp.inf)
-        ranges.append(gnp.max(xj) - gnp.min(xj))
-    return gnp.asarray(vals), gnp.asarray(ranges)
-
-
-def compute_logrho_min_from_xi(xi, rho_min_range_factor=None):
-    """
-    Compute safeguarded componentwise ``logrho_min`` from observation points.
-
-    The bound combines two componentwise lower bounds and keeps the tightest (largest)
-    admissible one:
-
-    1. ``log(min nonzero gap)``
-    2. ``log(range * rho_min_range_factor)``
-
-    Parameters
-    ----------
-    xi : array_like of shape (n, d)
-        Observation points.
-    rho_min_range_factor : float, optional
-        Safeguard factor for the range-based lower bound.
-        If None, default from ``gpmp.config`` is used.
-
-    Returns
-    -------
-    logrho_min : array_like of shape (d,)
-        Safeguarded componentwise lower bound for ``logrho``.
-    """
-    if rho_min_range_factor is None:
-        rho_min_range_factor = get_default_prior_hyperparameters(xi)[
-            "rho_min_range_factor"
-        ]
-    if rho_min_range_factor <= 0:
-        raise ValueError("rho_min_range_factor must be strictly positive.")
-    logrho_min_gap, x_range = _componentwise_logrho_min_from_xi(xi)
-    min_rho_from_range = x_range * float(rho_min_range_factor)
-    positive_mask = min_rho_from_range > 0.0
-    min_rho_safe = gnp.where(positive_mask, min_rho_from_range, 1.0)
-    logrho_min_range = gnp.where(positive_mask, gnp.log(min_rho_safe), -gnp.inf)
-    return gnp.maximum(logrho_min_gap, logrho_min_range)
-
-
-def _resolve_prior_defaults_for_selection(
-    xi=None,
-    dataloader=None,
-    gamma=None,
-    sigma2_coverage=None,
-    alpha=None,
-    rho_min_range_factor=None,
-):
-    """Resolve prior defaults from config using available observation points."""
-    xi_for_defaults = xi
-    if (
-        xi_for_defaults is None
-        and dataloader is not None
-        and hasattr(dataloader, "dataset")
-    ):
-        ds = dataloader.dataset
-        if hasattr(ds, "x_list"):
-            xi_for_defaults = (
-                gnp.concatenate(ds.x_list, axis=0)
-                if isinstance(ds.x_list, list)
-                else ds.x_list
-            )
-    defaults = get_default_prior_hyperparameters(xi_for_defaults)
-    if gamma is None:
-        gamma = defaults["gamma"]
-    if sigma2_coverage is None:
-        sigma2_coverage = defaults["sigma2_coverage"]
-    if alpha is None:
-        alpha = defaults["alpha"]
-    if rho_min_range_factor is None:
-        rho_min_range_factor = defaults["rho_min_range_factor"]
-    return gamma, sigma2_coverage, alpha, rho_min_range_factor
-
-
 # ------------------------------------------------------------------------
 #
 #                   specific parameter selection procedures
@@ -809,6 +704,7 @@ def select_parameters_with_remap(
     zi=None,
     dataloader=None,
     covparam0=None,
+    covparam0_init=None,
     info=False,
     verbosity=0,
     **kwargs,
@@ -825,7 +721,10 @@ def select_parameters_with_remap(
     dataloader : iterable, optional
         Batch loader alternative to ``xi, zi``.
     covparam0 : array_like, optional
-        Initial covariance parameters.
+        Covariance parameters used to anchor prior hyperparameters.
+    covparam0_init : array_like, optional
+        Initial covariance parameters for the optimizer.
+        If None, ``covparam0`` is used.
     info : bool, default=False
         If True, return optimization diagnostics.
     verbosity : int, default=0
@@ -847,6 +746,7 @@ def select_parameters_with_remap(
         zi=zi,
         dataloader=dataloader,
         covparam0=covparam0,
+        covparam0_init=covparam0_init,
         info=info,
         verbosity=verbosity,
         **kwargs,
@@ -1029,8 +929,10 @@ def select_parameters_with_remap_gaussian_logsigma2(
     info=False,
     verbosity=0,
     *,
-    gamma=None,
-    sigma2_coverage=None,
+    covparam0_prior=None,
+    prior_gamma=None,
+    prior_sigma2_coverage=None,
+    covparam0_init=None,
     bounds=None,
     bounds_auto=True,
     bounds_delta=10.0,
@@ -1049,19 +951,26 @@ def select_parameters_with_remap_gaussian_logsigma2(
     dataloader : iterable, optional
         Batch loader alternative to ``xi, zi``.
     covparam0 : array_like, optional
-        Initial covariance parameters. If None, an anisotropic initial guess
-        is computed.
+        Shared fallback covariance parameters. Used when one of
+        ``covparam0_prior`` or ``covparam0_init`` is not provided.
+    covparam0_prior : array_like, optional
+        Covariance parameters used to define the prior center
+        ``prior_log_sigma2_0``. If None, an anisotropic initial guess is computed.
+    covparam0_init : array_like, optional
+        Initial covariance parameters for optimization.
+        If None, ``covparam0`` is used when provided; otherwise an anisotropic
+        initial guess is computed.
     info : bool, default=False
         If True, return optimization diagnostics.
     verbosity : int, default=0
         Verbosity level forwarded to generic criterion selection.
-    gamma : float, optional
+    prior_gamma : float, optional
         Multiplicative factor around ``sigma2_0`` used for prior calibration.
-        If None, default from ``gpmp.config`` is used.
-    sigma2_coverage : float, optional
+        If None, the default configured in ``gpmp.kernel.prior_defaults`` is used.
+    prior_sigma2_coverage : float, optional
         Central Gaussian probability mass assigned to
-        ``[sigma2_0 / gamma, sigma2_0 * gamma]``.
-        If None, default from ``gpmp.config`` is used.
+        ``[sigma2_0 / prior_gamma, sigma2_0 * prior_gamma]``.
+        If None, the default configured in ``gpmp.kernel.prior_defaults`` is used.
     bounds, bounds_auto, bounds_delta :
         Bounds configuration in normalized parameter space.
     method : {"SLSQP", "L-BFGS-B"}, default="SLSQP"
@@ -1078,17 +987,25 @@ def select_parameters_with_remap_gaussian_logsigma2(
 
     Notes
     -----
-    The Gaussian prior center ``log_sigma2_0`` is taken from ``covparam0[0]``.
+    The Gaussian prior center ``prior_log_sigma2_0`` is taken from
+    ``covparam0_prior[0]``.
     """
-    if covparam0 is None:
-        covparam0 = anisotropic_parameters_initial_guess(model, xi, zi, dataloader)
-    gamma, sigma2_coverage, _ = _resolve_prior_defaults_for_selection(
+    covparam0_prior, covparam0_init = resolve_covparam0_prior_and_init(
+        model,
+        xi=xi,
+        zi=zi,
+        dataloader=dataloader,
+        covparam0=covparam0,
+        covparam0_prior=covparam0_prior,
+        covparam0_init=covparam0_init,
+    )
+    prior_gamma, prior_sigma2_coverage, _, _ = resolve_prior_defaults_for_selection(
         xi=xi,
         dataloader=dataloader,
-        gamma=gamma,
-        sigma2_coverage=sigma2_coverage,
+        gamma=prior_gamma,
+        sigma2_coverage=prior_sigma2_coverage,
     )
-    log_sigma2_0 = covparam0[0]
+    prior_log_sigma2_0 = covparam0_prior[0]
 
     def criterion(m, covparam, x, z):
         return neg_log_restricted_posterior_gaussian_logsigma2_prior(
@@ -1096,9 +1013,9 @@ def select_parameters_with_remap_gaussian_logsigma2(
             covparam,
             x,
             z,
-            log_sigma2_0=log_sigma2_0,
-            gamma=gamma,
-            sigma2_coverage=sigma2_coverage,
+            log_sigma2_0=prior_log_sigma2_0,
+            gamma=prior_gamma,
+            sigma2_coverage=prior_sigma2_coverage,
         )
 
     return select_parameters_with_criterion(
@@ -1107,7 +1024,7 @@ def select_parameters_with_remap_gaussian_logsigma2(
         xi=xi,
         zi=zi,
         dataloader=dataloader,
-        covparam0=covparam0,
+        covparam0=covparam0_init,
         info=info,
         verbosity=verbosity,
         bounds=bounds,
@@ -1126,8 +1043,11 @@ def update_parameters_with_remap_gaussian_logsigma2(
     info=False,
     verbosity=0,
     *,
-    gamma=None,
-    sigma2_coverage=None,
+    covparam0=None,
+    covparam0_prior=None,
+    covparam0_init=None,
+    prior_gamma=None,
+    prior_sigma2_coverage=None,
     bounds=None,
     bounds_auto=True,
     bounds_delta=10.0,
@@ -1145,17 +1065,29 @@ def update_parameters_with_remap_gaussian_logsigma2(
         Observation arrays.
     dataloader : iterable, optional
         Batch loader alternative to ``xi, zi``.
+    covparam0 : array_like, optional
+        Shared fallback covariance parameters.
+        If provided without ``covparam0_prior``, it is reused as prior anchor
+        and a warning is emitted.
     info : bool, default=False
         If True, return optimization diagnostics.
     verbosity : int, default=0
         Verbosity level forwarded to the selector function.
-    gamma : float, optional
+    covparam0_prior : array_like, optional
+        Covariance parameters used to anchor prior hyperparameters.
+        If None, ``covparam0`` is used when provided; otherwise ``model.covparam``
+        is used when available; otherwise an anisotropic initial guess is used.
+    covparam0_init : array_like, optional
+        Initial covariance parameters for optimization.
+        If None, uses ``covparam0`` when provided; otherwise falls back to
+        ``model.covparam`` then an anisotropic initial guess.
+    prior_gamma : float, optional
         Multiplicative factor around ``sigma2_0`` used for prior calibration.
-        If None, default from ``gpmp.config`` is used.
-    sigma2_coverage : float, optional
+        If None, the default configured in ``gpmp.kernel.prior_defaults`` is used.
+    prior_sigma2_coverage : float, optional
         Central Gaussian probability mass assigned to
-        ``[sigma2_0 / gamma, sigma2_0 * gamma]``.
-        If None, default from ``gpmp.config`` is used.
+        ``[sigma2_0 / prior_gamma, sigma2_0 * prior_gamma]``.
+        If None, the default configured in ``gpmp.kernel.prior_defaults`` is used.
     bounds, bounds_auto, bounds_delta :
         Bounds configuration in normalized parameter space.
     method : {"SLSQP", "L-BFGS-B"}, default="SLSQP"
@@ -1170,19 +1102,27 @@ def update_parameters_with_remap_gaussian_logsigma2(
     info_ret : dict | None
         Diagnostics dictionary if ``info=True``, else None.
     """
-    covparam0 = model.covparam
-    if covparam0 is None:
-        covparam0 = anisotropic_parameters_initial_guess(model, xi, zi, dataloader)
+    covparam0_prior, covparam0_init = resolve_covparam0_roles_for_update(
+        model,
+        xi=xi,
+        zi=zi,
+        dataloader=dataloader,
+        covparam0=covparam0,
+        covparam0_prior=covparam0_prior,
+        covparam0_init=covparam0_init,
+    )
     return select_parameters_with_remap_gaussian_logsigma2(
         model,
         xi=xi,
         zi=zi,
         dataloader=dataloader,
         covparam0=covparam0,
+        covparam0_prior=covparam0_prior,
+        covparam0_init=covparam0_init,
         info=info,
         verbosity=verbosity,
-        gamma=gamma,
-        sigma2_coverage=sigma2_coverage,
+        prior_gamma=prior_gamma,
+        prior_sigma2_coverage=prior_sigma2_coverage,
         bounds=bounds,
         bounds_auto=bounds_auto,
         bounds_delta=bounds_delta,
@@ -1201,12 +1141,15 @@ def select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
     info=False,
     verbosity=0,
     *,
-    gamma=None,
-    sigma2_coverage=None,
-    rho_min_range_factor=None,
-    logrho_min=None,
-    logrho_0=None,
-    alpha=None,
+    covparam0_prior=None,
+    prior_gamma=None,
+    prior_sigma2_coverage=None,
+    prior_rho_min_range_factor=None,
+    prior_logrho_min=None,
+    prior_log_sigma2_0=None,
+    prior_logrho_0=None,
+    prior_alpha=None,
+    covparam0_init=None,
     bounds=None,
     bounds_auto=True,
     bounds_delta=10.0,
@@ -1229,17 +1172,18 @@ def select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
     ``logrho=-covparam[1:]``.
 
     ``log p_{\\sigma^2}`` is Gaussian in ``log(sigma^2)`` and centered at
-    ``log_sigma2_0`` inferred from ``covparam0``. Its log-space standard
-    deviation is calibrated from ``gamma`` and ``sigma2_coverage`` so that
-    ``P(sigma2_0 / gamma <= sigma^2 <= sigma2_0 * gamma) = sigma2_coverage``.
+    ``prior_log_sigma2_0`` inferred from ``covparam0_prior`` (or overridden by
+    ``prior_log_sigma2_0`` when provided). Its log-space standard
+    deviation is calibrated from ``prior_gamma`` and ``prior_sigma2_coverage`` so that
+    ``P(sigma2_0 / prior_gamma <= sigma^2 <= sigma2_0 * prior_gamma) = prior_sigma2_coverage``.
 
     ``log p_{\\rho}`` is a barrier + linear-tail prior in ``logrho``:
-    componentwise support is ``logrho > logrho_min``, the minimum is at
-    ``logrho_0``, and ``alpha`` controls the right-tail linear slope.
+    componentwise support is ``logrho > prior_logrho_min``, the minimum is at
+    ``prior_logrho_0``, and ``prior_alpha`` controls the right-tail linear slope.
 
-    When ``logrho_min`` is not provided, it is inferred from observation points
+    When ``prior_logrho_min`` is not provided, it is inferred from observation points
     by combining a minimum-gap bound and a range-based safeguard controlled by
-    ``rho_min_range_factor``.
+    ``prior_rho_min_range_factor``.
 
     Parameters
     ----------
@@ -1250,32 +1194,43 @@ def select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
     dataloader : iterable, optional
         Batch loader alternative to ``xi, zi``.
     covparam0 : array_like, optional
-        Initial covariance parameters. If None, an anisotropic initial guess
-        is computed.
+        Shared fallback covariance parameters. Used when one of
+        ``covparam0_prior`` or ``covparam0_init`` is not provided.
+    covparam0_prior : array_like, optional
+        Covariance parameters used to anchor prior hyperparameters.
+        If None, an anisotropic initial guess is computed.
+    covparam0_init : array_like, optional
+        Initial covariance parameters for optimization.
+        If None, ``covparam0`` is used when provided; otherwise an anisotropic
+        initial guess is computed.
     info : bool, default=False
         If True, return optimization diagnostics.
     verbosity : int, default=0
         Verbosity level forwarded to generic criterion selection.
-    gamma : float, optional
+    prior_gamma : float, optional
         Multiplicative factor around ``sigma2_0`` used for prior calibration.
-        If None, default from ``gpmp.config`` is used.
-    sigma2_coverage : float, optional
+        If None, the default configured in ``gpmp.kernel.prior_defaults`` is used.
+    prior_sigma2_coverage : float, optional
         Central Gaussian probability mass assigned to
-        ``[sigma2_0 / gamma, sigma2_0 * gamma]``.
-        If None, default from ``gpmp.config`` is used.
-    rho_min_range_factor : float, optional
-        Safeguard factor used when ``logrho_min`` is inferred from data.
+        ``[sigma2_0 / prior_gamma, sigma2_0 * prior_gamma]``.
+        If None, the default configured in ``gpmp.kernel.prior_defaults`` is used.
+    prior_rho_min_range_factor : float, optional
+        Safeguard factor used when ``prior_logrho_min`` is inferred from data.
         It defines the range-based candidate lower bound
-        ``log(range(x[:, j]) * rho_min_range_factor)`` is
+        ``log(range(x[:, j]) * prior_rho_min_range_factor)`` is
         applied in addition to the minimum-gap bound.
-        If None, default from ``gpmp.config`` is used.
-    logrho_min : array_like, optional
+        If None, the default configured in ``gpmp.kernel.prior_defaults`` is used.
+    prior_logrho_min : array_like, optional
         Lower bounds for ``logrho`` prior support.
-    logrho_0 : array_like, optional
-        Reference values for ``logrho`` prior.
-    alpha : float, optional
+    prior_log_sigma2_0 : float, optional
+        Override for the Gaussian prior center on ``log(sigma^2)``.
+        If None, ``covparam0_prior[0]`` is used.
+    prior_logrho_0 : array_like, optional
+        Override reference values for ``logrho`` prior.
+        If None, ``-covparam0_prior[1:]`` is used.
+    prior_alpha : float, optional
         Linear right-tail slope of the ``logrho`` barrier-linear prior.
-        If None, default from ``gpmp.config`` is used.
+        If None, the default configured in ``gpmp.kernel.prior_defaults`` is used.
     bounds, bounds_auto, bounds_delta :
         Bounds configuration in normalized parameter space.
     method : {"SLSQP", "L-BFGS-B"}, default="SLSQP"
@@ -1292,51 +1247,44 @@ def select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
 
     Notes
     -----
-    If ``logrho_min`` is None, this function uses:
+    ``covparam0`` anchors prior hyperparameters by default. This behavior can
+    be overridden by passing ``prior_log_sigma2_0`` and/or ``prior_logrho_0`` explicitly.
+
+    If ``prior_logrho_min`` is None, this function uses:
     - ``xi`` if provided, else
     - ``dataloader.dataset.x_list`` (when available).
     The inferred bound is the componentwise maximum of:
-    ``log(min_nonzero_gap)`` and ``log(range * rho_min_range_factor)``.
+    ``log(min_nonzero_gap)`` and ``log(range * prior_rho_min_range_factor)``.
     """
-    if covparam0 is None:
-        covparam0 = anisotropic_parameters_initial_guess(model, xi, zi, dataloader)
-    gamma, sigma2_coverage, alpha, rho_min_range_factor = (
-        _resolve_prior_defaults_for_selection(
-            xi=xi,
-            dataloader=dataloader,
-            gamma=gamma,
-            sigma2_coverage=sigma2_coverage,
-            alpha=alpha,
-            rho_min_range_factor=rho_min_range_factor,
-        )
+    covparam0_prior, covparam0_init = resolve_covparam0_prior_and_init(
+        model,
+        xi=xi,
+        zi=zi,
+        dataloader=dataloader,
+        covparam0=covparam0,
+        covparam0_prior=covparam0_prior,
+        covparam0_init=covparam0_init,
     )
-
-    log_sigma2_0 = covparam0[0]
-    logrho_0 = -covparam0[1:] if logrho_0 is None else logrho_0
-    if logrho_min is None:
-        if xi is not None:
-            xi_for_min = xi
-        elif dataloader is not None and hasattr(dataloader, "dataset"):
-            ds = dataloader.dataset
-            if hasattr(ds, "x_list"):
-                xi_for_min = (
-                    gnp.concatenate(ds.x_list, axis=0)
-                    if isinstance(ds.x_list, list)
-                    else ds.x_list
-                )
-            else:
-                raise ValueError(
-                    "dataloader.dataset must provide x_list when logrho_min is None."
-                )
-        else:
-            raise ValueError(
-                "xi or dataloader.dataset.x_list must be provided when logrho_min is None."
-            )
-        logrho_min = compute_logrho_min_from_xi(
-            xi_for_min, rho_min_range_factor=rho_min_range_factor
-        )
-    logrho_min = gnp.asarray(logrho_min)
-    logrho_0 = gnp.asarray(logrho_0)
+    (
+        prior_gamma,
+        prior_sigma2_coverage,
+        prior_alpha,
+        prior_rho_min_range_factor,
+        prior_log_sigma2_0,
+        prior_logrho_0,
+        prior_logrho_min,
+    ) = resolve_logsigma2_logrho_prior_args(
+        covparam0_prior=covparam0_prior,
+        xi=xi,
+        dataloader=dataloader,
+        prior_gamma=prior_gamma,
+        prior_sigma2_coverage=prior_sigma2_coverage,
+        prior_alpha=prior_alpha,
+        prior_rho_min_range_factor=prior_rho_min_range_factor,
+        prior_log_sigma2_0=prior_log_sigma2_0,
+        prior_logrho_0=prior_logrho_0,
+        prior_logrho_min=prior_logrho_min,
+    )
 
     def criterion(m, covparam, x, z):
         return neg_log_restricted_posterior_gaussian_logsigma2_and_logrho_prior(
@@ -1344,12 +1292,12 @@ def select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
             covparam,
             x,
             z,
-            log_sigma2_0=log_sigma2_0,
-            gamma=gamma,
-            sigma2_coverage=sigma2_coverage,
-            logrho_min=logrho_min,
-            logrho_0=logrho_0,
-            alpha=alpha,
+            log_sigma2_0=prior_log_sigma2_0,
+            gamma=prior_gamma,
+            sigma2_coverage=prior_sigma2_coverage,
+            logrho_min=prior_logrho_min,
+            logrho_0=prior_logrho_0,
+            alpha=prior_alpha,
         )
 
     return select_parameters_with_criterion(
@@ -1358,7 +1306,7 @@ def select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
         xi=xi,
         zi=zi,
         dataloader=dataloader,
-        covparam0=covparam0,
+        covparam0=covparam0_init,
         info=info,
         verbosity=verbosity,
         bounds=bounds,
@@ -1377,12 +1325,16 @@ def update_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
     info=False,
     verbosity=0,
     *,
-    gamma=None,
-    sigma2_coverage=None,
-    rho_min_range_factor=None,
-    logrho_min=None,
-    logrho_0=None,
-    alpha=None,
+    covparam0=None,
+    covparam0_prior=None,
+    covparam0_init=None,
+    prior_gamma=None,
+    prior_sigma2_coverage=None,
+    prior_rho_min_range_factor=None,
+    prior_logrho_min=None,
+    prior_log_sigma2_0=None,
+    prior_logrho_0=None,
+    prior_alpha=None,
     bounds=None,
     bounds_auto=True,
     bounds_delta=10.0,
@@ -1391,24 +1343,66 @@ def update_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
 ):
     """
     Update covariance parameters with REMAP and priors on ``log(sigma^2)`` and ``logrho``.
+
+    Parameters
+    ----------
+    model : gpmp.core.Model
+        GP model instance.
+    xi, zi : array_like, optional
+        Observation arrays.
+    dataloader : iterable, optional
+        Batch loader alternative to ``xi, zi``.
+    covparam0 : array_like, optional
+        Shared fallback covariance parameters.
+        If provided without ``covparam0_prior``, it is reused as prior anchor
+        and a warning is emitted.
+    info : bool, default=False
+        If True, return optimization diagnostics.
+    verbosity : int, default=0
+        Verbosity level forwarded to the selector function.
+    covparam0_prior : array_like, optional
+        Covariance parameters used to anchor prior hyperparameters.
+        If None, ``covparam0`` is used when provided; otherwise ``model.covparam``
+        is used when available; otherwise an anisotropic initial guess is used.
+    covparam0_init : array_like, optional
+        Initial covariance parameters for optimization.
+        If None, uses ``covparam0`` when provided; otherwise falls back to
+        ``model.covparam`` then an anisotropic initial guess.
+    prior_gamma, prior_sigma2_coverage, prior_rho_min_range_factor :
+        Prior hyperparameters forwarded to
+        ``select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior``.
+        Missing values are resolved from ``gpmp.kernel.prior_defaults``.
+    prior_logrho_min, prior_log_sigma2_0, prior_logrho_0, prior_alpha :
+        Optional prior overrides forwarded to the selector function.
+    bounds, bounds_auto, bounds_delta, method, method_options :
+        Optimization settings forwarded to the selector function.
     """
-    covparam0 = model.covparam
-    if covparam0 is None:
-        covparam0 = anisotropic_parameters_initial_guess(model, xi, zi, dataloader)
+    covparam0_prior, covparam0_init = resolve_covparam0_roles_for_update(
+        model,
+        xi=xi,
+        zi=zi,
+        dataloader=dataloader,
+        covparam0=covparam0,
+        covparam0_prior=covparam0_prior,
+        covparam0_init=covparam0_init,
+    )
     return select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
         model,
         xi=xi,
         zi=zi,
         dataloader=dataloader,
         covparam0=covparam0,
+        covparam0_prior=covparam0_prior,
+        covparam0_init=covparam0_init,
         info=info,
         verbosity=verbosity,
-        gamma=gamma,
-        sigma2_coverage=sigma2_coverage,
-        rho_min_range_factor=rho_min_range_factor,
-        logrho_min=logrho_min,
-        logrho_0=logrho_0,
-        alpha=alpha,
+        prior_gamma=prior_gamma,
+        prior_sigma2_coverage=prior_sigma2_coverage,
+        prior_rho_min_range_factor=prior_rho_min_range_factor,
+        prior_logrho_min=prior_logrho_min,
+        prior_log_sigma2_0=prior_log_sigma2_0,
+        prior_logrho_0=prior_logrho_0,
+        prior_alpha=prior_alpha,
         bounds=bounds,
         bounds_auto=bounds_auto,
         bounds_delta=bounds_delta,

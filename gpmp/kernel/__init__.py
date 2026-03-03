@@ -24,6 +24,8 @@ parameter_selection
     Parameter optimization (ML, REML, REMAP) and selection criteria.
 priors
     Log-prior formulations (Jeffreys, power-law, reference).
+prior_defaults
+    Default hyperparameters used by prior-based selection criteria.
 utils
     Internal helper functions for data preparation and validation.
 
@@ -66,8 +68,8 @@ from .parameter_selection import (
     update_parameters_with_remap_gaussian_logsigma2,
     select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior,
     update_parameters_with_remap_gaussian_logsigma2_and_logrho_prior,
-    compute_logrho_min_from_xi,
 )
+from .prior_helpers import compute_logrho_min_from_xi
 from .priors import (
     log_prior_jeffreys_variance,
     log_prior_power_law,
@@ -84,6 +86,7 @@ from .priors import (
 from .bounds import (
     empirical_bounds_factory,
 )
+from . import prior_defaults
 
 __all__ = [
     # Kernels

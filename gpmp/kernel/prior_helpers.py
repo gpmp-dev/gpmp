@@ -13,7 +13,10 @@ import warnings
 import gpmp.num as gnp
 
 from .init import anisotropic_parameters_initial_guess
-from .prior_defaults import get_default_prior_hyperparameters
+from .prior_defaults import (
+    get_default_prior_hyperparameters,
+    resolve_prior_defaults_for_selection,
+)
 
 
 def _minimum_nonzero_gap_distance_1d(xj):
@@ -92,7 +95,7 @@ def compute_logrho_min_from_xi(xi, prior_rho_min_range_factor=None):
     return gnp.maximum(logrho_min_gap, logrho_min_range)
 
 
-def _resolve_covparam0_prior_and_init(
+def resolve_covparam0_prior_and_init(
     model,
     xi=None,
     zi=None,
@@ -146,7 +149,7 @@ def _resolve_covparam0_prior_and_init(
     return covparam0_prior, covparam0_init
 
 
-def _resolve_covparam0_roles_for_update(
+def resolve_covparam0_roles_for_update(
     model,
     xi=None,
     zi=None,
@@ -212,3 +215,78 @@ def _resolve_covparam0_roles_for_update(
             )
 
     return covparam0_prior, covparam0_init
+
+
+def resolve_logsigma2_logrho_prior_args(
+    *,
+    covparam0_prior,
+    xi=None,
+    dataloader=None,
+    prior_gamma=None,
+    prior_sigma2_coverage=None,
+    prior_alpha=None,
+    prior_rho_min_range_factor=None,
+    prior_log_sigma2_0=None,
+    prior_logrho_0=None,
+    prior_logrho_min=None,
+):
+    """
+    Resolve defaults and reference values for gaussian-logsigma2 + logrho prior.
+
+    Returns
+    -------
+    tuple
+        ``(prior_gamma, prior_sigma2_coverage, prior_alpha,
+        prior_rho_min_range_factor, prior_log_sigma2_0, prior_logrho_0,
+        prior_logrho_min)``.
+    """
+    prior_gamma, prior_sigma2_coverage, prior_alpha, prior_rho_min_range_factor = (
+        resolve_prior_defaults_for_selection(
+            xi=xi,
+            dataloader=dataloader,
+            gamma=prior_gamma,
+            sigma2_coverage=prior_sigma2_coverage,
+            alpha=prior_alpha,
+            rho_min_range_factor=prior_rho_min_range_factor,
+        )
+    )
+
+    prior_log_sigma2_0 = (
+        covparam0_prior[0] if prior_log_sigma2_0 is None else prior_log_sigma2_0
+    )
+    prior_logrho_0 = -covparam0_prior[1:] if prior_logrho_0 is None else prior_logrho_0
+    prior_logrho_0 = gnp.asarray(prior_logrho_0)
+
+    if prior_logrho_min is None:
+        if xi is not None:
+            xi_for_min = xi
+        elif dataloader is not None and hasattr(dataloader, "dataset"):
+            ds = dataloader.dataset
+            if hasattr(ds, "x_list"):
+                xi_for_min = (
+                    gnp.concatenate(ds.x_list, axis=0)
+                    if isinstance(ds.x_list, list)
+                    else ds.x_list
+                )
+            else:
+                raise ValueError(
+                    "dataloader.dataset must provide x_list when prior_logrho_min is None."
+                )
+        else:
+            raise ValueError(
+                "xi or dataloader.dataset.x_list must be provided when prior_logrho_min is None."
+            )
+        prior_logrho_min = compute_logrho_min_from_xi(
+            xi_for_min, prior_rho_min_range_factor=prior_rho_min_range_factor
+        )
+    prior_logrho_min = gnp.asarray(prior_logrho_min)
+
+    return (
+        prior_gamma,
+        prior_sigma2_coverage,
+        prior_alpha,
+        prior_rho_min_range_factor,
+        prior_log_sigma2_0,
+        prior_logrho_0,
+        prior_logrho_min,
+    )
