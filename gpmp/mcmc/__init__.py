@@ -26,6 +26,8 @@ run_smc_sampling, run_subset_simulation
     High-level SMC/subset-simulation entry points.
 sample_from_selection_criterion_mh, sample_from_selection_criterion_nuts, sample_from_selection_criterion_smc
     Posterior parameter sampling helpers.
+get_log_target_values
+    Helper to retrieve stored MH log-target traces.
 """
 from __future__ import annotations
 
@@ -49,6 +51,7 @@ __all__ = [
     "sample_from_selection_criterion_mh",
     "sample_from_selection_criterion_nuts",
     "sample_from_selection_criterion_smc",
+    "get_log_target_values",
 ]
 
 _EXPORT_TO_MODULE = {
@@ -73,6 +76,7 @@ _EXPORT_TO_MODULE = {
     "sample_from_selection_criterion_mh": "param_posterior",
     "sample_from_selection_criterion_nuts": "param_posterior",
     "sample_from_selection_criterion_smc": "param_posterior",
+    "get_log_target_values": "param_posterior",
 }
 
 

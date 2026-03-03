@@ -133,7 +133,7 @@ from numpy import (
     logical_or,
 )
 from numpy.linalg import norm, cond, cholesky, qr, svd, inv
-from numpy import pi, inf
+from numpy import pi, inf, nan
 from numpy import finfo, float64
 from scipy.special import gammaln
 from scipy.linalg import solve, solve_triangular, cho_factor, cho_solve

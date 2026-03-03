@@ -5,7 +5,46 @@
 # License: GPLv3 (see LICENSE)
 # --------------------------------------------------------------
 """
-Metropolis–Hastings sampler
+Adaptive Metropolis-Hastings sampler for parameter-space exploration.
+
+This module provides:
+
+- ``MHOptions``: configuration of chain count, proposal adaptation, progress,
+  and diagnostics thresholds.
+- ``MetropolisHastings``: multi-chain random-walk MH sampler with optional
+  adaptive proposal updates.
+- ``sample_multivariate_normal_with_jitter``: robust Gaussian proposal helper
+  that adds diagonal jitter when covariance factorization fails.
+
+Algorithmic notes
+-----------------
+- Target density is provided through ``log_target(theta)``.
+- Proposals are random-walk Gaussian (default), with optional asymmetric
+  correction if ``symmetric=False``.
+- Two adaptation modes are available:
+  - Robbins-Monro (RM): scalar/diagonal scale adaptation toward a target
+    acceptance rate.
+  - Haario: empirical covariance adaptation with per-chain scaling factors.
+
+Recorded traces
+---------------
+After calling ``MetropolisHastings.scheduler(...)``, the sampler stores:
+
+- ``x``: chain states, shape ``(n_chains, 1 + n_steps_total, dim)``.
+- ``accept``: acceptance indicators (0/1), shape
+  ``(n_chains, 1 + n_steps_total)``.
+- ``log_target_values``: cached log-target values aligned with ``x``,
+  shape ``(n_chains, 1 + n_steps_total)``.
+
+The current implementation evaluates ``log_target`` inside ``mhstep`` and
+propagates cached values across steps to limit redundant evaluations.
+
+Typical usage
+-------------
+1. Instantiate ``MHOptions``.
+2. Build ``MetropolisHastings(log_target=..., options=...)``.
+3. Run ``scheduler(chains_state_initial, n_steps_total, burnin_period)``.
+4. Inspect traces/diagnostics (acceptance rates, convergence checks, plots).
 """
 
 import time
@@ -125,6 +164,7 @@ class MetropolisHastings:
             ]
         # chain history: shape(n_chains, n_steps, dim)
         self.x = None
+        self.log_target_values = None
         self.accept = None
         self.rates = None
 
@@ -330,27 +370,34 @@ class MetropolisHastings:
         cumsum = gnp.cumsum(acc, axis=1)
         for c in range(n_chains):
             # For the first `window` samples, average over available samples.
-            rates[c, :window] = cumsum[c, :window] / (
-                gnp.arange(window) + 1
-            )
+            rates[c, :window] = cumsum[c, :window] / (gnp.arange(window) + 1)
             # For samples t >= window, average over the last `window` samples.
-            rates[c, window:] = (
-                cumsum[c, window:] - cumsum[c, :-window]
-            ) / window
+            rates[c, window:] = (cumsum[c, window:] - cumsum[c, :-window]) / window
 
         return rates
 
-    def mhstep(self, x_current: gnp.ndarray, chain_idx: int) -> Tuple[gnp.ndarray, bool]:
+    def mhstep(
+        self,
+        x_current: gnp.ndarray,
+        chain_idx: int,
+        log_target_x_current: Optional[float] = None,
+    ) -> Tuple[gnp.ndarray, bool, float, float]:
         """
         Single Metropolis–Hastings update for chain chain_idx.
         If symmetric=False, includes reverse-proposal terms in acceptance.
         """
+        if log_target_x_current is None or gnp.isnan(log_target_x_current):
+            try:
+                log_target_x_current = gnp.to_scalar(self.log_target(x_current))
+            except Exception:
+                log_target_x_current = -gnp.inf
+
         y = self.prop_rnd(x_current, chain_idx)
         try:
             log_target_y = gnp.to_scalar(self.log_target(y))
-        except:
-            log_target_y = -float("inf")
-        log_a = log_target_y - gnp.to_scalar(self.log_target(x_current))
+        except Exception:
+            log_target_y = -gnp.inf
+        log_a = log_target_y - log_target_x_current
         if not self.symmetric:
             log_a += gnp.to_scalar(
                 self._log_prop(y, x_current, chain_idx)
@@ -358,7 +405,9 @@ class MetropolisHastings:
             )
         u = max(gnp.to_scalar(gnp.rand()), 1e-300)
         accept = math.log(u) < log_a
-        return (y, True) if accept else (x_current, False)
+        if accept:
+            return y, True, log_target_y, log_target_x_current
+        return x_current, False, log_target_x_current, log_target_x_current
 
     def run_samples(
         self,
@@ -372,7 +421,18 @@ class MetropolisHastings:
         i1 = self.global_iter + 1 + n_steps
         for t in range(i0, i1):
             for c in range(self.n_chains):
-                self.x[c, t], self.accept[c, t] = self.mhstep(self.x[c, t - 1], c)
+                prev_log_target = self.log_target_values[c, t - 1]
+                (
+                    self.x[c, t],
+                    self.accept[c, t],
+                    log_target_next,
+                    log_target_prev,
+                ) = self.mhstep(
+                    self.x[c, t - 1],
+                    c,
+                    log_target_x_current=prev_log_target,
+                )
+                self.log_target_values[c, t] = log_target_next
             self.global_iter += 1
             if show_global_progress:
                 if self.global_iter % self.options.progress_interval == 0:
@@ -526,7 +586,9 @@ class MetropolisHastings:
                     )
                     min_ar_v = gnp.to_scalar(gnp.min(min_ar))
                     max_ar_v = gnp.to_scalar(gnp.max(max_ar))
-                    print(f"  Min / Max acceptance rate: {min_ar_v:.3f} / {max_ar_v:.3f}")
+                    print(
+                        f"  Min / Max acceptance rate: {min_ar_v:.3f} / {max_ar_v:.3f}"
+                    )
                     print(f"  Gelman-Rubin: {gr_results}")
                     self.burnin_period = self.global_iter
                     converged_early = True
@@ -591,6 +653,9 @@ class MetropolisHastings:
         self.x = gnp.empty((self.n_chains, 1 + n_steps_total, self.dim))
         # Store acceptance as numeric 0/1 so reductions stay backend-agnostic.
         self.accept = gnp.zeros((self.n_chains, 1 + n_steps_total))
+        self.log_target_values = gnp.full(
+            (self.n_chains, 1 + n_steps_total), gnp.nan
+        )
         self.burnin_period = burnin_period
         self.global_iter = 0
         self.global_total = 1 + n_steps_total

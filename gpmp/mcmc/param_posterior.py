@@ -5,17 +5,36 @@
 # License: GPLv3 (see LICENSE)
 # --------------------------------------------------------------
 """
-MCMC sampling from a GP parameter posterior.
+Posterior sampling helpers from GP parameter selection criteria.
 
-Convention
-----------
-selection_criterion(p) -> scalar
-returns a negative log-posterior (or any negative objective whose exponential
-defines a density on p).
+This module bridges parameter-selection objectives and posterior samplers:
+it turns a selection criterion ``J(theta)`` (typically a negative
+log-posterior) into a log-density
 
-All samplers below use the log density:
-    log_prob(p) = -selection_criterion(p)
-with an optional box constraint sampling_box giving log_prob = -inf outside.
+``log_prob(theta) = -J(theta)``.
+
+A hard truncation box can optionally be applied through ``sampling_box``:
+outside the box, ``log_prob(theta) = -inf``.
+
+Public entry points
+-------------------
+sample_from_selection_criterion_mh
+    Adaptive Metropolis-Hastings sampler wrapper.
+sample_from_selection_criterion_nuts
+    NUTS wrapper with warmup/adaptation controls.
+sample_from_selection_criterion_smc
+    Tempered Sequential Monte Carlo sampler wrapper.
+get_log_target_values
+    Helper returning stored MH log-target traces.
+
+Input conventions
+-----------------
+- Exactly one of ``info`` or ``selection_criterion`` must be provided.
+- ``info`` is expected to contain at least ``covparam`` and criterion callables
+  as produced by parameter-selection routines.
+- ``init_box`` controls initialization support (mandatory for SMC, optional for
+  MH/NUTS when random initialization is requested).
+- ``sampling_box`` controls truncation of the target density during sampling.
 """
 
 from __future__ import annotations
@@ -225,6 +244,56 @@ def _make_log_prob(
     return log_prob
 
 
+def get_log_target_values(
+    mh: MetropolisHastings,
+    *,
+    discard_burnin: bool = False,
+) -> gnp.ndarray:
+    """
+    Return stored MH log-target values.
+
+    Parameters
+    ----------
+    mh : MetropolisHastings
+        MH sampler instance returned by
+        ``sample_from_selection_criterion_mh``.
+    discard_burnin : bool, default=False
+        If True, return only values after ``mh.burnin_period``.
+
+    Returns
+    -------
+    ndarray
+        Log-target values with shape ``(n_chains, n_steps)`` when
+        ``discard_burnin=False``, or
+        ``(n_chains, n_steps - burnin_period)`` when ``discard_burnin=True``.
+
+    Raises
+    ------
+    ValueError
+        If ``mh.log_target_values`` is unavailable or burn-in indices are invalid.
+    """
+    vals = getattr(mh, "log_target_values", None)
+    if vals is None:
+        raise ValueError(
+            "mh.log_target_values is not available. Run mh.scheduler(...) first."
+        )
+
+    vals = gnp.asarray(vals)
+    if vals.ndim != 2:
+        raise ValueError("mh.log_target_values must be a 2D array.")
+
+    if not discard_burnin:
+        return vals
+
+    b = int(mh.burnin_period)
+    if b < 0:
+        raise ValueError("mh.burnin_period must be >= 0.")
+    if b > int(vals.shape[1]):
+        raise ValueError("mh.burnin_period cannot exceed the number of stored steps.")
+
+    return vals[:, b:]
+
+
 # ---------------------------------------------------------------------
 # Metropolis-Hastings
 # ---------------------------------------------------------------------
@@ -246,6 +315,60 @@ def sample_from_selection_criterion_mh(
     plot_chains: bool = True,
     plot_empirical_distributions: bool = True,
 ):
+    """
+    Sample from a parameter posterior with adaptive Metropolis-Hastings.
+
+    The target log-density is defined as ``log_target(theta) = -J(theta)``,
+    where ``J`` is the selection criterion. When ``sampling_box`` is provided,
+    points outside the box are assigned ``-inf`` log-density.
+
+    Parameters
+    ----------
+    info : object, optional
+        Optimization info object carrying at least ``covparam`` and a criterion
+        callable (typically ``selection_criterion_nograd`` or
+        ``selection_criterion``). Provide exactly one of ``info`` and
+        ``selection_criterion``.
+    selection_criterion : callable, optional
+        Negative log-posterior (or any negative objective) with signature
+        ``f(theta) -> scalar``. Provide exactly one of ``info`` and
+        ``selection_criterion``.
+    param_initial_states : array_like, optional
+        Initial parameter states. Accepted shapes are scalar, ``(dim,)``,
+        ``(n_chains, dim)``, ``(1, dim)``, and ``(dim, n_chains)``.
+    random_init : bool, default=False
+        If True, initialize chains uniformly in ``init_box``.
+    init_box : list, optional
+        Initialization box ``[lower, upper]`` used only when
+        ``random_init=True``.
+    sampling_box : list, optional
+        Hard sampling bounds ``[lower, upper]`` used to truncate the target
+        density during MH transitions.
+    n_steps_total : int, default=10000
+        Total number of MH steps per chain, including burn-in.
+    burnin_period : int, default=4000
+        Number of initial steps discarded in the returned samples.
+    n_chains : int, default=2
+        Number of MH chains.
+    n_pool : int, default=2
+        Chain pooling factor used by covariance adaptation.
+    silent : bool, default=False
+        If True, suppress MH textual diagnostics.
+    show_progress : bool, default=True
+        If True and ``silent=False``, print global progress messages.
+    plot_chains : bool, default=True
+        If True, display MH chain traces after sampling.
+    plot_empirical_distributions : bool, default=True
+        If True, display marginal empirical distributions after sampling.
+
+    Returns
+    -------
+    samples_post_burnin : ndarray
+        Posterior samples with shape ``(n_chains, n_steps_total - burnin_period, dim)``.
+    mh : MetropolisHastings
+        Sampler instance containing full trajectories, acceptance history, and
+        diagnostics.
+    """
     crit = _resolve_selection_criterion(
         info,
         selection_criterion,
@@ -352,6 +475,79 @@ def sample_from_selection_criterion_nuts(
     diagnostics_show: bool = True,
     diagnostics_save_dir: str = None,
 ):
+    """
+    Sample from a parameter posterior with the No-U-Turn Sampler (NUTS).
+
+    The target log-density is defined as ``log_prob(theta) = -J(theta)``,
+    where ``J`` is the selection criterion. When ``sampling_box`` is provided,
+    points outside the box are assigned ``-inf`` log-density.
+
+    Parameters
+    ----------
+    info : object, optional
+        Optimization info object carrying at least ``covparam`` and a
+        differentiable criterion callable. Provide exactly one of ``info`` and
+        ``selection_criterion``.
+    selection_criterion : callable, optional
+        Differentiable negative log-posterior with signature
+        ``f(theta) -> scalar``. Provide exactly one of ``info`` and
+        ``selection_criterion``.
+    param_initial_states : array_like, optional
+        Initial parameter states. Accepted shapes are scalar, ``(dim,)``,
+        ``(n_chains, dim)``, ``(1, dim)``, and ``(dim, n_chains)``.
+    random_init : bool, default=False
+        If True, initialize chains uniformly in ``init_box``.
+    init_box : list, optional
+        Initialization box ``[lower, upper]`` used only when
+        ``random_init=True``.
+    sampling_box : list, optional
+        Hard sampling bounds ``[lower, upper]`` used to truncate the target
+        density during NUTS transitions.
+    num_samples : int, default=2000
+        Number of post-warmup samples per chain.
+    num_warmup : int, default=1000
+        Number of warmup iterations per chain.
+    n_chains : int, default=2
+        Number of chains.
+    target_accept : float, default=0.8
+        Target acceptance probability for dual averaging.
+    max_depth : int, default=10
+        Maximum tree depth per NUTS iteration.
+    delta_max : float, default=1000.0
+        Divergence threshold on Hamiltonian error.
+    jitter : float, default=1e-4
+        Lower clipping value for diagonal mass entries.
+    init_step_size : float, optional
+        User-provided initial step size. If None, a heuristic is used.
+    init_mass_diag : array_like, optional
+        User-provided initial diagonal mass vector of shape ``(dim,)``.
+    seed : int, optional
+        Random seed used by NUTS.
+    progress : bool, default=True
+        If True, display progress bars.
+    verbose : int, default=1
+        Logging verbosity level.
+    log_every : int, default=50
+        Logging frequency in iterations.
+    options : NUTSOptions, optional
+        Optional fully specified NUTS options object.
+    plot_diagnostics : bool, default=False
+        If True, generate NUTS diagnostic figures.
+    diagnostics_window : int, default=50
+        Moving-average window for diagnostics.
+    diagnostics_show : bool, default=True
+        If True, show diagnostic plots interactively.
+    diagnostics_save_dir : str, optional
+        Directory where diagnostic plots are saved when provided.
+
+    Returns
+    -------
+    samples : ndarray
+        Posterior samples with shape ``(n_chains, num_samples, dim)``.
+    info_nuts : dict
+        NUTS diagnostics and adaptation outputs (acceptance, divergences,
+        tree depth, leapfrog counts, final step size, and final mass diagonal).
+    """
     crit = _resolve_selection_criterion(
         info,
         selection_criterion,
@@ -433,6 +629,54 @@ def sample_from_selection_criterion_smc(
     plot_marginals: bool = False,
     plot_particles: bool = False,
 ):
+    """
+    Sample from a parameter posterior with Sequential Monte Carlo tempering.
+
+    The sampler targets a sequence of tempered densities of the form
+    ``exp(-J(theta) / temperature)`` from ``initial_temperature`` down to
+    ``final_temperature``. When ``sampling_box`` is provided, points outside
+    the box are assigned ``-inf`` log-density.
+
+    Parameters
+    ----------
+    info : object, optional
+        Optimization info object carrying at least ``covparam`` and a criterion
+        callable. Provide exactly one of ``info`` and ``selection_criterion``.
+    selection_criterion : callable, optional
+        Negative log-posterior with signature ``f(theta) -> scalar``.
+        Provide exactly one of ``info`` and ``selection_criterion``.
+    init_box : list
+        Mandatory initialization box ``[lower, upper]`` used to initialize SMC
+        particles.
+    sampling_box : list, optional
+        Hard sampling bounds ``[lower, upper]`` used to truncate the target
+        density during SMC.
+    n_particles : int, default=1000
+        Number of SMC particles.
+    initial_temperature : float, default=1e6
+        Initial tempering parameter (high temperature, easier target).
+    final_temperature : float, default=1.0
+        Final tempering parameter (target posterior scale).
+    min_ess_ratio : float, default=0.5
+        Minimum effective sample size ratio used by the tempering scheduler.
+    mh_steps : int, default=20
+        Number of MH move steps per SMC stage.
+    max_stages : int, default=50
+        Reserved stage budget parameter for compatibility.
+    debug : bool, default=False
+        If True, print detailed SMC diagnostics.
+    plot_marginals : bool, default=False
+        If True, plot empirical marginal distributions from SMC.
+    plot_particles : bool, default=False
+        Reserved plotting flag for compatibility.
+
+    Returns
+    -------
+    particles : ParticlesSet
+        Final particle set after tempering.
+    smc_instance : SMC
+        SMC driver instance containing execution logs and diagnostics.
+    """
     f = _resolve_selection_criterion(
         info,
         selection_criterion,

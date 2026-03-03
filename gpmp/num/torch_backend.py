@@ -108,7 +108,7 @@ from torch import (
 )
 from torch.linalg import cond, cholesky, qr, inv
 from torch import rand, randn
-from torch import pi, inf
+from torch import pi, inf, nan
 from torch import finfo, float64
 from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.distributions.normal import Normal
