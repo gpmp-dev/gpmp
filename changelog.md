@@ -1,3 +1,11 @@
+- 0.9.35 prior defaults and remap robustness updates
+  * kernel/parameter_selection.py: add logrho_min safeguard and improve REMAP prior handling
+  * kernel/priors.py: centralize prior-default hyperparameters plumbing
+  * kernel: improve prior specification and related API consistency
+  * mcmc/mh.py: expose log_target traces for posterior-sampling diagnostics
+  * num/torch_backend.py: support scalar calls in rand / randn
+  * kernel/parameter_selection.py: improve REMAP logsigma2/logrho docstrings
+
 - 0.9.34 parameter selection and torch random updates
   * parameter_selection.py: stop masking programming errors during optimization
   * torch_backend.py: fix rand/randn shape forwarding compatibility
