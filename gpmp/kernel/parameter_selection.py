@@ -23,8 +23,8 @@ from .utils import check_xi_zi_or_loader
 from .init import anisotropic_parameters_initial_guess
 from .priors import (
     neg_log_restricted_posterior_power_laws_prior,
-    neg_log_restricted_posterior_gaussian_logsigma2_prior,
-    neg_log_restricted_posterior_gaussian_logsigma2_and_logrho_prior,
+    neg_log_restricted_posterior_logsigma2_prior,
+    neg_log_restricted_posterior_logsigma2_and_logrho_prior,
 )
 
 
@@ -1008,7 +1008,7 @@ def select_parameters_with_remap_gaussian_logsigma2(
     prior_log_sigma2_0 = covparam0_prior[0]
 
     def criterion(m, covparam, x, z):
-        return neg_log_restricted_posterior_gaussian_logsigma2_prior(
+        return neg_log_restricted_posterior_logsigma2_prior(
             m,
             covparam,
             x,
@@ -1287,7 +1287,7 @@ def select_parameters_with_remap_gaussian_logsigma2_and_logrho_prior(
     )
 
     def criterion(m, covparam, x, z):
-        return neg_log_restricted_posterior_gaussian_logsigma2_and_logrho_prior(
+        return neg_log_restricted_posterior_logsigma2_and_logrho_prior(
             m,
             covparam,
             x,

@@ -368,7 +368,7 @@ def neg_log_restricted_posterior_power_laws_prior(model, covparam, xi, zi):
     return nlrl - log_prior_power_law(covparam)
 
 
-def neg_log_restricted_posterior_gaussian_logsigma2_prior(
+def neg_log_restricted_posterior_logsigma2_prior(
     model,
     covparam,
     xi,
@@ -463,7 +463,7 @@ def neg_log_restricted_posterior_with_logrho_prior(
     )
 
 
-def neg_log_restricted_posterior_gaussian_logsigma2_and_logrho_prior(
+def neg_log_restricted_posterior_logsigma2_and_logrho_prior(
     model,
     covparam,
     xi,

@@ -257,6 +257,10 @@ def to_np(x):
 
 
 def to_scalar(x):
+    if isinstance(x, (int, float, bool)):
+        return x
+    if isinstance(x, numpy.generic):
+        return x.item()
     return x.item()
 
 

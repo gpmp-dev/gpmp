@@ -239,6 +239,8 @@ def to_np(x):
     return x
 
 def to_scalar(x):
+    if isinstance(x, (int, float, bool)):
+        return x
     return x.item()
 
 def isarray(x):

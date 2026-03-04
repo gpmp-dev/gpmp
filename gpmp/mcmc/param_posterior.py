@@ -223,11 +223,42 @@ def _random_initial_states(
     return gnp.asarray(theta, dtype=gnp_dtype)
 
 
-def _make_log_prob(
+def _make_log_prob_mh(
     selection_criterion: Callable,
     lower_b: Optional[gnp.ndarray],
     upper_b: Optional[gnp.ndarray],
+    temperature: float = 1.0,
 ) -> Callable[[gnp.ndarray], gnp.ndarray]:
+    temperature = float(temperature)
+    if temperature <= 0.0:
+        raise ValueError("temperature must be > 0.")
+
+    def log_prob(p):
+        p = gnp.asarray(p)
+        if lower_b is not None:
+            if gnp.any(p < lower_b) or gnp.any(p > upper_b):
+                return -gnp.inf
+
+        try:
+            v = selection_criterion(p)
+        except Exception:
+            return -gnp.inf
+
+        return -gnp.asarray(v) / temperature
+
+    return log_prob
+
+
+def _make_log_prob_nuts(
+    selection_criterion: Callable,
+    lower_b: Optional[gnp.ndarray],
+    upper_b: Optional[gnp.ndarray],
+    temperature: float = 1.0,
+) -> Callable[[gnp.ndarray], gnp.ndarray]:
+    temperature = float(temperature)
+    if temperature <= 0.0:
+        raise ValueError("temperature must be > 0.")
+
     def log_prob(p):
         p = gnp.asarray(p)
         if lower_b is not None:
@@ -239,7 +270,7 @@ def _make_log_prob(
         except Exception:
             return gnp.safe_neginf()
 
-        return -gnp.asarray(v)
+        return -gnp.asarray(v) / temperature
 
     return log_prob
 
@@ -306,6 +337,7 @@ def sample_from_selection_criterion_mh(
     random_init: bool = False,
     init_box: list = None,
     sampling_box: list = None,
+    temperature: float = 1.0,
     n_steps_total: int = 10_000,
     burnin_period: int = 4_000,
     n_chains: int = 2,
@@ -318,7 +350,8 @@ def sample_from_selection_criterion_mh(
     """
     Sample from a parameter posterior with adaptive Metropolis-Hastings.
 
-    The target log-density is defined as ``log_target(theta) = -J(theta)``,
+    The target log-density is defined as
+    ``log_target(theta) = -J(theta) / temperature``,
     where ``J`` is the selection criterion. When ``sampling_box`` is provided,
     points outside the box are assigned ``-inf`` log-density.
 
@@ -344,6 +377,11 @@ def sample_from_selection_criterion_mh(
     sampling_box : list, optional
         Hard sampling bounds ``[lower, upper]`` used to truncate the target
         density during MH transitions.
+    temperature : float, default=1.0
+        Tempering factor applied to the criterion in log-space.
+        Must be strictly positive.
+        ``temperature=1.0`` gives the nominal target;
+        larger values flatten the target density.
     n_steps_total : int, default=10000
         Total number of MH steps per chain, including burn-in.
     burnin_period : int, default=4000
@@ -400,7 +438,7 @@ def sample_from_selection_criterion_mh(
     if n_steps_total < burnin_period:
         raise ValueError("n_steps_total must be greater than burnin_period.")
 
-    log_target = _make_log_prob(crit, lower_b, upper_b)
+    log_target = _make_log_prob_mh(crit, lower_b, upper_b, temperature=temperature)
 
     show_prog = show_progress and not silent
     options = MHOptions(
@@ -576,7 +614,7 @@ def sample_from_selection_criterion_nuts(
     else:
         theta0 = _normalize_initial_states(info, param_initial_states, n_chains, dim)
 
-    log_prob = _make_log_prob(crit, lower_b, upper_b)
+    log_prob = _make_log_prob_nuts(crit, lower_b, upper_b)
 
     samples_raw, info_nuts = nuts_sample(
         log_prob=log_prob,
@@ -704,7 +742,7 @@ def sample_from_selection_criterion_smc(
         if x.ndim == 1:
             if lower_b is not None:
                 if bool(gnp.any(x < lower_b)) or bool(gnp.any(x > upper_b)):
-                    return gnp.return_neginf()
+                    return -gnp.inf
             return -_criterion_scalar(x) / temperature
 
         if x.ndim == 2:
@@ -713,7 +751,7 @@ def sample_from_selection_criterion_smc(
             if lower_b is None:
                 return out
             in_box = gnp.all(x >= lower_b, axis=1) & gnp.all(x <= upper_b, axis=1)
-            return gnp.where(in_box, out, gnp.safe_neginf())
+            return gnp.where(in_box, out, -gnp.inf)
 
         raise ValueError("x must be 1D or 2D.")
 

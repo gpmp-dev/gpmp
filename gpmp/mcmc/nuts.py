@@ -924,6 +924,7 @@ def nuts_sample(
     warmup_div = gnp.empty((num_warmup, chains), dtype=bool)
     warmup_depth = gnp.empty((num_warmup, chains), dtype=int)
     warmup_nlf = gnp.empty((num_warmup, chains), dtype=int)
+    warmup_log_target = gnp.empty((num_warmup, chains), dtype=gnp_dtype)
     warmup_eps = gnp.empty(num_warmup, dtype=gnp_dtype)
 
     # tqdm
@@ -960,6 +961,7 @@ def nuts_sample(
             q[c] = q_new
             warmup_accept[t, c] = a
             warmup_div[t, c] = div
+            warmup_log_target[t, c] = gnp.asarray(log_prob(q_new)).reshape(())
             warmup_depth[t, c] = depth
             warmup_nlf[t, c] = nlf
             acc_sum += a
@@ -1048,6 +1050,7 @@ def nuts_sample(
     divergent = gnp.empty((num_samples, chains), dtype=bool)
     tree_depth = gnp.empty((num_samples, chains), dtype=int)
     n_leapfrog = gnp.empty((num_samples, chains), dtype=int)
+    log_target = gnp.empty((num_samples, chains), dtype=gnp_dtype)
 
     if use_tqdm:
         try:
@@ -1080,6 +1083,7 @@ def nuts_sample(
             accept[t, c] = a
             divergent[t, c] = div
             tree_depth[t, c] = depth
+            log_target[t, c] = gnp.asarray(log_prob(q_new)).reshape(())
             n_leapfrog[t, c] = nlf
             acc_sum += a
             div_sum += int(div)
@@ -1114,11 +1118,13 @@ def nuts_sample(
         "warmup_accept_stat": warmup_accept,
         "warmup_divergent": warmup_div,
         "warmup_tree_depth": warmup_depth,
+        "warmup_log_prob_trace": warmup_log_target,
         "warmup_n_leapfrog": warmup_nlf,
         "accept_stat": accept,
         "divergent": divergent,
         "tree_depth": tree_depth,
         "n_leapfrog": n_leapfrog,
+        "log_prob_trace": log_target,
         "step_size_final": gnp.asarray(step_size_final),
         "mass_diag_final": gnp.copy(mass_diag),
     }

@@ -78,9 +78,9 @@ from .priors import (
     log_prior_logrho_barrier_linear,
     log_prior_reference,
     neg_log_restricted_posterior_power_laws_prior,
-    neg_log_restricted_posterior_gaussian_logsigma2_prior,
+    neg_log_restricted_posterior_logsigma2_prior,
     neg_log_restricted_posterior_with_logrho_prior,
-    neg_log_restricted_posterior_gaussian_logsigma2_and_logrho_prior,
+    neg_log_restricted_posterior_logsigma2_and_logrho_prior,
 )
 
 from .bounds import (
