@@ -84,6 +84,7 @@ from numpy import (
     empty,
     empty_like,
     zeros_like,
+    ones_like,
     zeros,
     ones,
     full,
