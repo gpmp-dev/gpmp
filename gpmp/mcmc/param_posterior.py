@@ -24,6 +24,8 @@ sample_from_selection_criterion_nuts
     NUTS wrapper with warmup/adaptation controls.
 sample_from_selection_criterion_smc
     Tempered Sequential Monte Carlo sampler wrapper.
+sample_from_selection_criterion_svgd
+    Annealed Stein variational gradient descent wrapper.
 get_log_target_values
     Helper returning stored MH log-target traces.
 
@@ -48,6 +50,7 @@ from gpmp.misc.designs import randunif
 from .mh import MHOptions, MetropolisHastings
 from .nuts import NUTSOptions, nuts_sample, plot_nuts_diagnostics
 from .smc import run_smc_sampling
+from .svgd import SVGDOptions, svgd_sample
 
 gnp_dtype = gnp.get_dtype()
 _backend = config.get_backend()
@@ -769,3 +772,220 @@ def sample_from_selection_criterion_smc(
     )
 
     return particles, smc_instance
+
+
+# ---------------------------------------------------------------------
+# Stein variational gradient descent (SVGD)
+# ---------------------------------------------------------------------
+
+
+def sample_from_selection_criterion_svgd(
+    info: object = None,
+    selection_criterion: Callable = None,  # negative log-posterior
+    particles_initial: gnp.ndarray = None,
+    random_init: bool = False,
+    init_box: list = None,
+    sampling_box: list = None,
+    n_particles: int = 32,
+    n_steps: int = 500,
+    step_size: float = 1e-2,
+    initial_temperature: float = 10.0,
+    final_temperature: float = 1.0,
+    annealing_schedule: str = "geometric",
+    bandwidth: float = None,
+    bandwidth_scale: float = 1.0,
+    bandwidth_min: float = None,
+    preconditioner_diag: gnp.ndarray = None,
+    init_jitter: float = 1e-3,
+    jitter: float = 1e-12,
+    progress: bool = True,
+    verbose: int = 1,
+    log_every: int = 50,
+    store_particles_history: bool = False,
+    options: SVGDOptions = None,
+):
+    """
+    Sample approximately from a parameter posterior with annealed SVGD.
+
+    The transported target density is
+    ``exp(-J(theta) / temperature)``, where ``J`` is the selection criterion
+    and ``temperature`` follows an annealing schedule from
+    ``initial_temperature`` to ``final_temperature``.
+
+    Parameters
+    ----------
+    info : object, optional
+        Optimization info object carrying at least ``covparam`` and a
+        differentiable criterion callable. Provide exactly one of ``info`` and
+        ``selection_criterion``.
+    selection_criterion : callable, optional
+        Differentiable negative log-posterior with signature
+        ``f(theta) -> scalar``. Provide exactly one of ``info`` and
+        ``selection_criterion``.
+    particles_initial : array_like, optional
+        Initial particle cloud. Accepted shapes are ``(dim,)`` or
+        ``(n_particles, dim)``. A 1D vector is replicated across particles and
+        optionally perturbed by ``init_jitter``.
+    random_init : bool, default=False
+        If True, initialize particles uniformly in ``init_box``.
+    init_box : list, optional
+        Initialization box ``[lower, upper]`` used when ``random_init=True``.
+    sampling_box : list, optional
+        Hard sampling bounds ``[lower, upper]`` used both to truncate the
+        target density and to project transported particles.
+    n_particles : int, default=32
+        Number of SVGD particles when an explicit 2D particle cloud is not
+        provided.
+    n_steps : int, default=500
+        Number of SVGD transport steps.
+    step_size : float, default=1e-2
+        Particle transport step size.
+    initial_temperature : float, default=10.0
+        Initial annealing temperature.
+    final_temperature : float, default=1.0
+        Final annealing temperature.
+    annealing_schedule : {"linear", "geometric"}, default="geometric"
+        Temperature schedule used during transport.
+    bandwidth : float, optional
+        RBF kernel bandwidth. If None, the median heuristic is used.
+    bandwidth_scale : float, default=1.0
+        Multiplicative factor applied to the bandwidth.
+    bandwidth_min : float, optional
+        Lower bound enforced on the effective bandwidth.
+    preconditioner_diag : array_like, optional
+        Positive diagonal preconditioner applied coordinatewise to the SVGD
+        velocity.
+    init_jitter : float, default=1e-3
+        Gaussian perturbation standard deviation applied when a single initial
+        point is replicated into a particle cloud.
+    jitter : float, default=1e-12
+        Numerical safeguard for bandwidth and preconditioner clipping.
+    progress : bool, default=True
+        If True, display SVGD progress messages.
+    verbose : int, default=1
+        Verbosity level forwarded to ``svgd_sample``.
+    log_every : int, default=50
+        Logging frequency in SVGD iterations.
+    store_particles_history : bool, default=False
+        If True, store the full particle trajectory history.
+    options : SVGDOptions, optional
+        Optional fully specified SVGD options object.
+
+    Returns
+    -------
+    particles : ndarray
+        Final particle cloud with shape ``(n_particles, dim)``.
+    info_svgd : dict
+        SVGD traces and diagnostics returned by ``gpmp.mcmc.svgd_sample``.
+    """
+    crit = _resolve_selection_criterion(
+        info,
+        selection_criterion,
+        require_differentiable=True,
+    )
+
+    dim_box = init_box if init_box is not None else sampling_box
+    dim = _infer_dim(info, particles_initial, dim_box)
+
+    lower_b = upper_b = None
+    if sampling_box is not None:
+        lower_b, upper_b, _, _ = _normalize_bounds(
+            sampling_box, dim, box_name="sampling_box"
+        )
+
+    if particles_initial is None:
+        if random_init:
+            if init_box is None:
+                raise ValueError("init_box must be provided when random_init is True.")
+            particles0 = None
+            init_box_eff = init_box
+        else:
+            if info is None:
+                raise ValueError(
+                    "particles_initial must be provided when info is None and random_init is False."
+                )
+            x0 = gnp.asarray(info.covparam, dtype=gnp_dtype).reshape(-1)
+            if int(x0.shape[0]) != dim:
+                raise ValueError("info.covparam has incompatible dimension.")
+            particles0 = gnp.tile(x0.reshape(1, -1), (int(n_particles), 1))
+            if int(n_particles) > 1 and float(init_jitter) > 0.0:
+                particles0 = particles0 + float(init_jitter) * gnp.randn(
+                    int(n_particles), dim
+                )
+            init_box_eff = None
+    else:
+        particles0 = gnp.asarray(particles_initial, dtype=gnp_dtype)
+        if particles0.ndim == 0:
+            if dim != 1:
+                raise ValueError("Scalar particles_initial is only valid when dim == 1.")
+            particles0 = gnp.tile(particles0.reshape(1, 1), (int(n_particles), 1))
+            if int(n_particles) > 1 and float(init_jitter) > 0.0:
+                particles0 = particles0 + float(init_jitter) * gnp.randn(
+                    int(n_particles), 1
+                )
+        elif particles0.ndim == 1:
+            if int(particles0.shape[0]) != dim:
+                raise ValueError("1D particles_initial must have length equal to dim.")
+            particles0 = gnp.tile(particles0.reshape(1, -1), (int(n_particles), 1))
+            if int(n_particles) > 1 and float(init_jitter) > 0.0:
+                particles0 = particles0 + float(init_jitter) * gnp.randn(
+                    int(n_particles), dim
+                )
+        elif particles0.ndim == 2:
+            if int(particles0.shape[1]) != dim:
+                raise ValueError("2D particles_initial must have shape (n_particles, dim).")
+            if int(particles0.shape[0]) == 1 and int(n_particles) > 1:
+                particles0 = gnp.tile(particles0, (int(n_particles), 1))
+                if float(init_jitter) > 0.0:
+                    particles0 = particles0 + float(init_jitter) * gnp.randn(
+                        int(n_particles), dim
+                    )
+        else:
+            raise ValueError("particles_initial must be scalar, 1D, or 2D.")
+        init_box_eff = None
+
+    if particles0 is not None and lower_b is not None:
+        particles0 = gnp.clip(
+            particles0, min=lower_b.reshape(1, -1), max=upper_b.reshape(1, -1)
+        )
+        n_particles_eff = int(particles0.shape[0])
+    elif particles0 is not None:
+        n_particles_eff = int(particles0.shape[0])
+    else:
+        n_particles_eff = int(n_particles)
+
+    log_prob = _make_log_prob_nuts(
+        crit,
+        lower_b,
+        upper_b,
+        temperature=1.0,
+    )
+
+    if options is None:
+        options = SVGDOptions(
+            n_steps=n_steps,
+            step_size=step_size,
+            bandwidth=bandwidth,
+            bandwidth_scale=bandwidth_scale,
+            bandwidth_min=bandwidth_min,
+            preconditioner_diag=preconditioner_diag,
+            initial_temperature=initial_temperature,
+            final_temperature=final_temperature,
+            annealing_schedule=annealing_schedule,
+            sampling_box=sampling_box,
+            store_particles_history=store_particles_history,
+            verbose=verbose,
+            progress=progress,
+            log_every=log_every,
+            jitter=jitter,
+        )
+
+    particles, info_svgd = svgd_sample(
+        log_prob=log_prob,
+        particles_initial=particles0,
+        n_particles=n_particles_eff,
+        dim=dim,
+        init_box=init_box_eff,
+        options=options,
+    )
+    return particles, info_svgd

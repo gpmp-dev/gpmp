@@ -11,6 +11,7 @@ This subpackage gathers:
 - Metropolis-Hastings tools
 - NUTS sampling
 - Sequential Monte Carlo (SMC) utilities
+- Stein variational gradient descent (SVGD)
 
 Public API
 ----------
@@ -26,8 +27,14 @@ run_smc_sampling, run_subset_simulation
     High-level SMC/subset-simulation entry points.
 sample_from_selection_criterion_mh, sample_from_selection_criterion_nuts, sample_from_selection_criterion_smc
     Posterior parameter sampling helpers.
+sample_from_selection_criterion_svgd
+    Posterior parameter sampling helper based on SVGD.
 get_log_target_values
     Helper to retrieve stored MH log-target traces.
+SVGDOptions, rbf_kernel_matrix, svgd_step, svgd_sample
+    Minimal SVGD transport tools.
+plot_svgd_empirical_distributions
+    Histogram/KDE plots for final SVGD particle marginals.
 """
 from __future__ import annotations
 
@@ -51,7 +58,13 @@ __all__ = [
     "sample_from_selection_criterion_mh",
     "sample_from_selection_criterion_nuts",
     "sample_from_selection_criterion_smc",
+    "sample_from_selection_criterion_svgd",
     "get_log_target_values",
+    "SVGDOptions",
+    "rbf_kernel_matrix",
+    "svgd_step",
+    "svgd_sample",
+    "plot_svgd_empirical_distributions",
 ]
 
 _EXPORT_TO_MODULE = {
@@ -76,7 +89,14 @@ _EXPORT_TO_MODULE = {
     "sample_from_selection_criterion_mh": "param_posterior",
     "sample_from_selection_criterion_nuts": "param_posterior",
     "sample_from_selection_criterion_smc": "param_posterior",
+    "sample_from_selection_criterion_svgd": "param_posterior",
     "get_log_target_values": "param_posterior",
+    # SVGD
+    "SVGDOptions": "svgd",
+    "rbf_kernel_matrix": "svgd",
+    "svgd_step": "svgd",
+    "svgd_sample": "svgd",
+    "plot_svgd_empirical_distributions": "svgd",
 }
 
 
