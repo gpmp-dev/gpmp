@@ -235,55 +235,164 @@ class Figure:
                 )
 
 
-def crosssections(model, xi, zi, box, ind_i, ind_dim, nt=100):
-    """Display "cross-section" predictions at points xi[ind_i] along dimensions
-    specified in ind_dim.
+def crosssections(
+    model,
+    xi,
+    zi,
+    box,
+    ind_i=None,
+    ind_dim=None,
+    nt=100,
+    show_data=True,
+    figsize=None,
+):
+    """Display prediction cross sections.
+
+    Each cross section starts from one anchor observation and sweeps one
+    input coordinate through its range while keeping all other coordinates
+    fixed. The posterior mean and coverage intervals are plotted along the
+    slice.
 
     Parameters
     ----------
-    model : _type_
-        _description_
-    xi : _type_
-        _description_
-    zi : _type_
-        _description_
-    box : _type_
-        _description_
-    ind_i : _type_
-        _description_
-    ind_dim : _type_
-        _description_
+    model : object
+        GP model with a ``predict(xi, zi, xt)`` method.
+    xi : array-like
+        Observation points, shape ``(n, d)``.
+    zi : array-like
+        Scalar observations, shape ``(n,)`` or ``(n, 1)``.
+    box : array-like
+        Input domain bounds, shape ``(2, d)``.
+    ind_i : sequence of int, int, {"min", "max"}, optional
+        Anchor observation indices. If ``"min"`` or ``"max"``, use the
+        observation with the smallest or largest scalar value. If ``None``,
+        use ``"min"``.
+    ind_dim : sequence of int or int, optional
+        Input dimensions to sweep. If ``None``, sweep all dimensions.
     nt : int, optional
-        _description_, by default 100
+        Number of points per cross section, by default 100.
+    show_data : bool, optional
+        If True, plot observations projected onto each swept coordinate and
+        highlight the anchor observation.
+    figsize : tuple of float, optional
+        Matplotlib figure size. If ``None``, choose a size from the number
+        of swept dimensions and anchor observations.
+
+    Returns
+    -------
+    Figure
+        GPmp figure object.
     """
-    box = np.array(box)
+    xi_np = np.asarray(gnp.to_np(xi))
+    zi_np = np.asarray(gnp.to_np(zi))
+    box = np.asarray(box, dtype=float)
+    nt = int(nt)
+
+    if xi_np.ndim != 2:
+        raise ValueError("xi must have shape (n, d).")
+    if box.shape != (2, xi_np.shape[1]):
+        raise ValueError("box must have shape (2, d).")
+    if zi_np.shape[0] != xi_np.shape[0] or zi_np.size != xi_np.shape[0]:
+        raise ValueError("zi must be scalar-valued with shape (n,) or (n, 1).")
+    if nt < 2:
+        raise ValueError("nt must be >= 2.")
+
+    zi_vec = zi_np.reshape(-1)
+
+    if ind_i is None:
+        ind_i = "min"
+    if isinstance(ind_i, str):
+        if ind_i == "min":
+            ind_i = [int(np.nanargmin(zi_vec))]
+        elif ind_i == "max":
+            ind_i = [int(np.nanargmax(zi_vec))]
+        else:
+            raise ValueError("ind_i must be None, 'min', 'max', an int, or a sequence.")
+    elif np.isscalar(ind_i):
+        ind_i = [int(ind_i)]
+    else:
+        ind_i = [int(i) for i in ind_i]
+
+    if ind_dim is None:
+        ind_dim = list(range(xi_np.shape[1]))
+    elif np.isscalar(ind_dim):
+        ind_dim = [int(ind_dim)]
+    else:
+        ind_dim = [int(d) for d in ind_dim]
+
     num_crosssections = len(ind_i)
     num_dims = len(ind_dim)
 
-    fig = Figure(num_dims, num_crosssections)
+    if figsize is None:
+        figsize = (4.8 * num_crosssections, 2.4 * num_dims)
+
+    fig = Figure(num_dims, num_crosssections, figsize=figsize)
 
     for i in range(num_crosssections):
+        anchor_idx = ind_i[i]
+        if anchor_idx < 0 or anchor_idx >= xi_np.shape[0]:
+            raise IndexError("ind_i contains an out-of-bounds observation index.")
         for d in range(num_dims):
+            dim_idx = ind_dim[d]
+            if dim_idx < 0 or dim_idx >= xi_np.shape[1]:
+                raise IndexError("ind_dim contains an out-of-bounds dimension index.")
+
             t = np.sort(
                 np.concatenate(
                     (
-                        np.linspace(box[0, d], box[1, d], nt - 1),
-                        np.array([xi[ind_i[i], ind_dim[d]]]),
+                        np.linspace(box[0, dim_idx], box[1, dim_idx], nt - 1),
+                        np.array([xi_np[anchor_idx, dim_idx]]),
                     )
                 )
             )
-            xt = np.tile(xi[ind_i[i], :], (nt, 1))
-            xt[:, ind_dim[d]] = t
-            (zpm, zpv) = model.predict(xi, zi, xt)
-            zpv = np.maximum(zpv, 0)
+            xt = np.tile(xi_np[anchor_idx, :], (nt, 1))
+            xt[:, dim_idx] = t
+            (zpm, zpv) = model.predict(xi, zi, gnp.asarray(xt))
+            zpm = np.asarray(gnp.to_np(zpm)).reshape(-1)
+            zpv = np.maximum(np.asarray(gnp.to_np(zpv)).reshape(-1), 0.0)
+
             fig.subplot(num_crosssections * d + i + 1)
-            fig.plotgp(t, zpm, zpv)
-            fig.plot(xi[ind_i[i], ind_dim[d]] * np.array([1, 1]), fig.ax.get_ylim())
+            first_panel = i == 0 and d == 0
+            fig.plotgp(
+                t,
+                zpm,
+                zpv,
+                show_mean_label=first_panel,
+                show_ci_labels=first_panel,
+            )
+            if show_data:
+                fig.ax.plot(
+                    xi_np[:, dim_idx],
+                    zi_vec,
+                    "ko",
+                    alpha=0.25,
+                    markersize=3,
+                    label="projected observations" if first_panel else None,
+                )
+                fig.ax.plot(
+                    xi_np[anchor_idx, dim_idx],
+                    zi_vec[anchor_idx],
+                    "ro",
+                    markersize=5,
+                    label="anchor" if first_panel else None,
+                )
+            fig.ax.axvline(
+                xi_np[anchor_idx, dim_idx],
+                color="k",
+                linestyle=":",
+                linewidth=1,
+            )
             fig.grid()
+            fig.ax.set_xlabel(r"$x_{:d}$".format(dim_idx))
             if i == 0:
-                fig.ax.set_ylabel("z along x_{:d}".format(d + 1))
+                fig.ax.set_ylabel(r"$z$ along $x_{:d}$".format(dim_idx))
             if d == 0:
                 fig.ax.set_title("cross section {:d}".format(i + 1))
+            if first_panel and show_data:
+                fig.ax.legend(fontsize=8)
+
+    fig.fig.tight_layout()
+    return fig
 
 
 def plot_loo(zi, zloom, zloov):
