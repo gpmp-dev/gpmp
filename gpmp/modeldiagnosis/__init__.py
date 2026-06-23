@@ -7,14 +7,15 @@
 """
 Model diagnosis utilities for GPmp.
 
-Defines
--------
+Notes
+-----
 This package groups helpers for:
-- parameter statistics on selection criteria
-- predictive performance metrics
-- report construction and display
-- plotting helpers
-- small utilities for printing and data description
+
+- parameter statistics on selection criteria;
+- predictive performance metrics;
+- report construction and display;
+- plotting helpers;
+- small utilities for printing and data description.
 
 Public API
 ----------

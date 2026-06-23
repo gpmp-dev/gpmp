@@ -47,25 +47,31 @@ def modeldiagnosis_init(
     Parameters
     ----------
     model : object
-        Must expose attributes:
-        - covparam
-        - meanparam (optional)
+        Must expose these attributes:
+
+        - ``covparam``
+        - ``meanparam`` (optional)
     info : object
-        Must expose attributes:
-        - success
-        - best_value_returned
-        - nfev
-        - total_time
-        - selection_criterion(params)   (for initial_val)
-        - initial_params
-        - fun
+        Must expose these attributes:
+
+        - ``success``
+        - ``best_value_returned``
+        - ``nfev``
+        - ``total_time``
+        - ``selection_criterion(params)`` for ``initial_val``
+        - ``initial_params``
+        - ``fun``
+
         May expose:
-        - bounds : array-like, shape (n_total_params, 2)
-          Bounds in the optimizer parameter space, ordered as [meanparam, covparam].
+
+        - ``bounds`` : array-like, shape ``(n_total_params, 2)``.
+          Bounds in optimizer parameter space, ordered as
+          ``[meanparam, covparam]``.
     model_type : str, optional
         Used only when param_obj is not provided. Supported values:
-        - "linear_mean_matern_anisotropic"
-        - "linear_mean_matern_anisotropic_noisy"
+
+        - ``"linear_mean_matern_anisotropic"``
+        - ``"linear_mean_matern_anisotropic_noisy"``
     param_obj : Param, optional
         If provided, this Param is used directly. If info.bounds is present, bounds
         are still projected onto the covariance part of this Param when possible.
@@ -74,12 +80,13 @@ def modeldiagnosis_init(
     -------
     md : dict
         Keys:
-        - "optim_info" : info
-        - "param_selection" : dict
-        - "parameters" : dict (param_obj.to_simple_dict())
-        - "param_obj" : Param
-        - "loo" : dict (reserved)
-        - "data" : dict (reserved)
+
+        - ``"optim_info"`` : info
+        - ``"param_selection"`` : dict
+        - ``"parameters"`` : dict, from ``param_obj.to_simple_dict()``
+        - ``"param_obj"`` : Param
+        - ``"loo"`` : dict, reserved
+        - ``"data"`` : dict, reserved
     """
     md: Dict[str, Any] = {
         "optim_info": info,
