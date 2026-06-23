@@ -1,15 +1,16 @@
-# gpmp/misc/param.py
+# gpmp/parameter/param.py
 # --------------------------------------------------------------
 # Author: Emmanuel Vazquez <emmanuel.vazquez@centralesupelec.fr>
 # Copyright (c) 2022-2026, CentraleSupelec
 # License: GPLv3 (see LICENSE)
 # --------------------------------------------------------------
 """
-Param: structured parameter management
+Structured parameter objects for GPmp.
 
-This class provides a flexible and extensible structure to manage
-parameters in hierarchical Gaussian process models or other statistical
-models.
+This module provides helper objects for naming, normalizing, displaying,
+and inspecting parameter vectors. It sits on top of the array-based GPmp
+API: :mod:`gpmp.core` and :mod:`gpmp.kernel` operate on plain arrays and
+are not tied to ``Param`` objects.
 
 Features:
 - Parameters can be grouped hierarchically using a tree-like path structure

@@ -26,7 +26,7 @@ from typing import Any, Dict, Optional
 import numpy as np
 
 import gpmp.num as gnp
-from gpmp.misc.param import (
+from gpmp.parameter import (
     param_from_covparam_anisotropic,
     param_from_covparam_anisotropic_noisy,
 )

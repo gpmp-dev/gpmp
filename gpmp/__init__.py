@@ -36,6 +36,7 @@ __all__ = [
     "dataloader",
     "modeldiagnosis",
     "mcmc",
+    "parameter",
     "misc",
     "plot",
 ]
@@ -47,6 +48,7 @@ _LAZY_SUBMODULES: Final[set[str]] = {
     "dataloader",
     "modeldiagnosis",
     "mcmc",
+    "parameter",
     "misc",
     "plot",
 }

@@ -8,7 +8,6 @@
 Miscellaneous utility modules for GPmp.
 """
 
-from . import param
 from . import dataframe
 from . import scoringrules
 from . import designs

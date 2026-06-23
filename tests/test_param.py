@@ -1,5 +1,5 @@
 import gpmp.num as gnp
-from gpmp.misc.param import Param, Normalization
+from gpmp.parameter import Param, Normalization
 
 def test_basic_construction():
     p = Param(
