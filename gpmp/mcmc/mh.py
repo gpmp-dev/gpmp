@@ -117,13 +117,13 @@ class MetropolisHastings:
     Metropolis–Hastings sampler with two adaptive strategies:
 
     - RM (Robbins–Monro) for diagonal or scalar proposals
-      ~ adjust proposal_params[i] *= exp(step * (rate - target))
+      ``proposal_params[i] *= exp(step * (rate - target))``
 
     - Haario for full covariance:
-      self.haario_scaling_factors[i] gets updated similarly,
-      and each chain's proposal = scaling * EmpCov + eps*I.
-      The default 2.38^2/dim factor comes from empirical results
-      on multivariate Gaussians suggesting optimal acceptance ~0.23.
+      ``self.haario_scaling_factors[i]`` gets updated similarly, and each
+      chain uses proposal covariance ``scaling * EmpCov + eps * I``. The
+      default ``2.38**2 / dim`` factor comes from empirical results on
+      multivariate Gaussians suggesting optimal acceptance near 0.23.
     """
 
     def __init__(

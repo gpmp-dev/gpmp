@@ -28,7 +28,8 @@ However, for the purpose of the example, GPmp provides functions for:
  * distance matrix
  * Matérn kernels with half-integer regularities
  * parameter selection procedures (ML / REML / REMAP / custom)
- * MCMC samplers for parameter posterior exploration (MH / NUTS / SMC)
+ * MCMC and particle samplers for parameter posterior exploration
+   (MH / NUTS / SMC)
  * data loader helpers for splitting and batching
  * model diagnosis
  * visualization helper
@@ -39,7 +40,7 @@ However, for the purpose of the example, GPmp provides functions for:
 GPmp supports two numerical backends:
 - **NumPy:** Default backend; often faster for many small-to-medium workloads.
 - **PyTorch:** Provides automatic differentiation and is most beneficial
-  when gradients are central and/or in higher-dimensional parameter settings.
+  when gradients are needed and/or in higher-dimensional parameter settings.
 
 Backend selection order at import time:
 1. If GPMP_BACKEND is set to torch or numpy, use it.
@@ -93,7 +94,7 @@ Typical steps:
 ## Documentation
 
 GPmp’s documentation is built with
-[Sphinx](https://www.sphinx-doc.org/en/master/) using the PyData
+[Sphinx](https://www.sphinx-doc.org/en/master/) using the Furo
 theme. To generate the HTML documentation:
 
 ```bash
@@ -111,15 +112,15 @@ If you use GPmp in your research, please cite it as follows:
   title        = {GPmp: the Gaussian Process micro package},
   year         = {2026},
   url          = {https://github.com/gpmp-dev/gpmp},
-  note         = {Version x.y},
+  note         = {Version 0.9.35},
 }
 ```
 
-*Please update the version number as appropriate.*
+*Please update the version number when citing another release.*
 
 ## Future Work
 
-- Expand documentation and tutorials. Improve
+- Expand documentation and tutorials.
 
 ## Authors
 

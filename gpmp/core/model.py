@@ -56,12 +56,14 @@ class Model:
 
         K = self.covariance(x, y, self.covparam, pairwise),
 
-        where x is (n x d) and y is either:
-           - (m x d) array of points, or
-           - None, meaning y := x (specialized “tt/ii” path).
-        Pairwise indicates if an (n x m) covariance matrix
-        (pairwise == False) or an (n x 1) vector (n == m, pairwise =
-        True) should be returned
+        where ``x`` has shape ``(n, d)`` and ``y`` is either:
+
+        - an array of points with shape ``(m, d)``;
+        - ``None``, meaning ``y := x`` (specialized "tt/ii" path).
+
+        ``pairwise`` indicates if an ``(n, m)`` covariance matrix
+        (``pairwise == False``) or an ``(n, 1)`` vector
+        (``n == m`` and ``pairwise == True``) should be returned.
 
     meanparam : array_like, optional
         Parameter for the mean function, given as a one-dimensional
@@ -85,36 +87,31 @@ class Model:
         - 'linear_predictor': A linearly parameterized mean function, corresponding to
           the case of "universal" or intrinsic kriging.
 
-    Public API (methods)
-    --------------------
-    predict
-        Posterior mean/variance at target points.
-    loo
-        Leave-one-out predictions via virtual cross-validation.
-    negative_log_likelihood_zero_mean
-        Negative log-likelihood with zero mean.
-    negative_log_likelihood
-        Negative log-likelihood with given mean.
-    negative_log_restricted_likelihood
-        REML criterion (linear_predictor).
-    norm_k_sqrd_with_zero_mean
-        RKHS norm z^T K^-1 z (zero-mean case).
-    norm_k_sqrd
-        RKHS norm (linear_predictor).
-    k_inverses
-        Returns z^T K^-1 z, K^-1 1, and K^-1 z.
-    fisher_information
-        Finite-difference Fisher information (SPD).
-    fisher_information_cpd
-        Fisher information in contrast space (CPD kernels).
-    fisher_information_torch
-        Fisher information via second-order differentiation.
-    sample_paths
-        Unconditional GP sample paths on xt.
-    conditional_sample_paths
-        Conditioning-by-kriging (zero/linear_predictor).
-    conditional_sample_paths_parameterized_mean
-        Conditioning with parameterized mean.
+    Notes
+    -----
+    Main public methods:
+
+    - ``predict``: posterior mean and variance at target points.
+    - ``loo``: leave-one-out predictions via virtual cross-validation.
+    - ``negative_log_likelihood_zero_mean``: negative log-likelihood
+      with zero mean.
+    - ``negative_log_likelihood``: negative log-likelihood with given
+      mean.
+    - ``negative_log_restricted_likelihood``: REML criterion with a
+      linear predictor.
+    - ``norm_k_sqrd_with_zero_mean``: RKHS norm
+      :math:`z^\top K^{-1} z` for the zero-mean case.
+    - ``norm_k_sqrd``: RKHS norm with a linear predictor.
+    - ``k_inverses``: returns :math:`z^\top K^{-1} z`,
+      :math:`K^{-1}1`, and :math:`K^{-1}z`.
+    - ``fisher_information``: finite-difference Fisher information.
+    - ``fisher_information_cpd``: Fisher information in contrast space.
+    - ``fisher_information_torch``: Fisher information via second-order
+      differentiation.
+    - ``sample_paths``: unconditional GP sample paths on target points.
+    - ``conditional_sample_paths``: conditioning by kriging.
+    - ``conditional_sample_paths_parameterized_mean``: conditioning with
+      a parameterized mean.
 
     Examples
     --------
@@ -273,6 +270,7 @@ class Model:
         the data (xi, zi).
 
         Treatment of the mean based on 'meantype':
+
         1. "zero": The function uses the kriging predictor with zero mean.
         2. "linear_predictor": Uses the general / intrinsic kriging predictor.
         3. "parameterized": The zero-mean kriging predictor is used after

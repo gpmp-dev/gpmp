@@ -36,7 +36,8 @@ div.jupyter_container {
 .jupyter_container div.code_cell {
   border: 1px solid #cfcfcf;
   border-radius: 2px;
-  background-color: #003038;
+  background-color: var(--color-code-background);
+  color: var(--color-code-foreground);
   margin: 0 0;
   overflow: auto;
 }
@@ -56,14 +57,15 @@ div.jupyter_container {
   margin: 0 0;
 }
 div.jupyter_container div.highlight {
-  background-color: #f7f7f7; /* for haiku */
+  background-color: var(--color-code-background); /* for haiku */
+  color: var(--color-code-foreground);
 }
 div.jupyter_container {
     padding: 0;
     margin: 0;
 }
 
-/* Prevent alabaster breaking highlight alignment */
+/* Keep syntax-highlighted Jupyter input cells aligned with Sphinx code blocks. */
 div.jupyter_container .hll {
   padding: 0;
   margin: 0;

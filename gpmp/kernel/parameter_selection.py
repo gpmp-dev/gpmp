@@ -47,11 +47,10 @@ def make_selection_criterion_with_gradient(
     model : gpmp.core.Model
         GP model instance passed to ``selection_criterion``.
     selection_criterion : callable
-        Criterion function.
-        Expected signatures:
-        - ``f(model, covparam, xi, zi)`` when ``parameterized_mean=False``
-        - ``f(model, meanparam, covparam, xi, zi)`` when
-          ``parameterized_mean=True``.
+        Criterion function. When ``parameterized_mean`` is False, the expected
+        signature is ``f(model, covparam, xi, zi)``. When
+        ``parameterized_mean`` is True, the expected signature is
+        ``f(model, meanparam, covparam, xi, zi)``.
     xi, zi : array_like, optional
         Observation arrays used for criterion evaluation.
     dataloader : iterable, optional
@@ -59,9 +58,9 @@ def make_selection_criterion_with_gradient(
         Batches must be yielded as ``(xb, zb)``.
     batches_per_eval : int, default=0
         Number of batches used per criterion call when ``dataloader`` is
-        provided.
-        - ``0``: iterate over the full loader each evaluation
-        - ``>0``: use exactly that many batches per call (iterator cycles).
+        provided. Use ``0`` to iterate over the full loader at each
+        evaluation. Use a positive value to evaluate exactly that many batches
+        per call; the iterator cycles when needed.
     parameterized_mean : bool, default=False
         Whether the criterion depends on explicit mean parameters.
     meanparam_len : int, default=1
@@ -82,22 +81,20 @@ def make_selection_criterion_with_gradient(
 
     Notes
     -----
-    Data source contract:
-    exactly one of ``(xi, zi)`` or ``dataloader`` must be provided.
+    Exactly one data source must be provided: either observation arrays
+    ``(xi, zi)`` or ``dataloader``.
 
     Internally, this function wraps ``selection_criterion`` into an adapter
-    accepting either:
-    - covariance parameters only, or
-    - concatenated ``[meanparam, covparam]`` parameters.
+    accepting either covariance parameters only or concatenated
+    ``[meanparam, covparam]`` parameters.
 
     For array data it uses ``gnp.DifferentiableSelectionCriterion``.
     For loader data it uses ``gnp.BatchDifferentiableSelectionCriterion``.
 
-    The four returned callables are complementary:
-    - ``evaluate`` and ``evaluate_pre_grad`` for optimizer value calls,
-    - ``gradient`` for optimizer gradient calls,
-    - ``evaluate_no_grad`` for diagnostics and sampling paths where gradients
-      are not required.
+    The four returned callables are complementary. ``evaluate`` and
+    ``evaluate_pre_grad`` are used for optimizer value calls, ``gradient`` is
+    used for optimizer gradient calls, and ``evaluate_no_grad`` is used for
+    diagnostics and sampling paths where gradients are not required.
     """
     data_source = check_xi_zi_or_loader(xi, zi, dataloader)
 
@@ -306,7 +303,9 @@ def select_parameters_with_criterion(
         GP model whose parameters are optimized.
     criterion : callable
         Criterion minimized by SciPy.
+
         Expected signatures:
+
         - ``criterion(model, covparam, xi, zi)`` when ``parameterized_mean=False``
         - ``criterion(model, meanparam, covparam, xi, zi)`` when
           ``parameterized_mean=True``.

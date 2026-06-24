@@ -4,7 +4,19 @@
 # Copyright (c) 2022-2026, CentraleSupelec
 # License: GPLv3 (see LICENSE)
 # --------------------------------------------------------------
-"""Numerical backend dispatcher for GPmp."""
+"""
+Numerical backend dispatcher for GPmp.
+
+GPmp code uses backend-native numerical objects through this module. With the
+``numpy`` backend, arrays are NumPy arrays. With the ``torch`` backend, arrays
+are PyTorch tensors. Public GPmp functions accept objects convertible by
+``gpmp.num.asarray`` and may return backend-native objects unless their own
+docstring states that they convert outputs to NumPy.
+
+Use this module, usually imported as ``gpmp.num as gnp``, when writing custom
+mean functions, covariance functions, criteria, or examples that should work
+with both supported backends.
+"""
 
 from gpmp.config import init_backend
 

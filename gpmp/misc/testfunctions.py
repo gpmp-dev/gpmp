@@ -78,18 +78,16 @@ def braninhoo(x):
     numpy.array
         A 1D array of shape (n,) containing the Branin-Hoo function values evaluated at the input points.
 
-    Notes
-    -----
-    .. [1] Branin, F. H. and Hoo, S. K. (1972), A Method for Finding Multiple
-        Extrema of a Function of n Variables, in Numerical methods of
-        Nonlinear Optimization (F. A. Lootsma, editor, Academic Press,
-        London), 231-237.
-
-    .. [2] Dixon L.C.W., Szego G.P., Towards Global Optimization 2, North-
-        Holland, Amsterdam, The Netherlands (1978)
-
-    .. [3] Surjanovic, S. and Bingham D. (2013), Branin Function,
-        https://www.sfu.ca/~ssurjano/Code/braninm.html
+    References
+    ----------
+    - Branin, F. H. and Hoo, S. K. (1972), A Method for Finding Multiple
+      Extrema of a Function of n Variables, in Numerical methods of
+      Nonlinear Optimization (F. A. Lootsma, editor, Academic Press,
+      London), 231-237.
+    - Dixon L.C.W., Szego G.P., Towards Global Optimization 2, North-
+      Holland, Amsterdam, The Netherlands (1978).
+    - Surjanovic, S. and Bingham D. (2013), Branin Function,
+      https://www.sfu.ca/~ssurjano/Code/braninm.html
     """
     a = 5.1 / (4 * math.pi**2)
     b = 5 / math.pi
@@ -101,7 +99,7 @@ def braninhoo(x):
 
 
 def hartmann4(x):
-    """Hartmann 4-dimensional function [1, 2]
+    """Hartmann 4-dimensional function.
 
     The 4-dimensional Hartmann function is a multimodal function defined
     on the unit hypercube (i.e., xi in (0, 1), for all i = 1, ..., 4). It is
@@ -125,12 +123,13 @@ def hartmann4(x):
     0.15001, 0.47687, 0.27533] and has a function value of f(x*) = -3.86278.
     The function is generally considered to be difficult to optimize.
 
-    .. [1] Dixon, L. C. W., & Szego, G. P. (1978). The global optimization
-        problem: an introduction. Towards global optimization, 2, 1-15.
-
-    .. [2] Picheny, V., Wagner, T., & Ginsbourger, D. (2012). A benchmark
-        of kriging-based infill criteria for noisy optimization.
-        Based on https://www.sfu.ca/~ssurjano/hart6.html
+    References
+    ----------
+    - Dixon, L. C. W., & Szego, G. P. (1978). The global optimization
+      problem: an introduction. Towards global optimization, 2, 1-15.
+    - Picheny, V., Wagner, T., & Ginsbourger, D. (2012). A benchmark
+      of kriging-based infill criteria for noisy optimization.
+      Based on https://www.sfu.ca/~ssurjano/hart6.html
 
     Authors: Sonja Surjanovic and Derek Bingham, Simon Fraser University
 
@@ -171,7 +170,7 @@ def hartmann4(x):
 
 
 def hartmann6(x):
-    r"""Hartmann 6-dimensional function [1]
+    r"""Hartmann 6-dimensional function.
 
     The 6-dimensional Hartmann function has 6 local minima and a
     a global minimum f(x*) = -3.32237.
@@ -195,13 +194,14 @@ def hartmann6(x):
     Notes
     -----
     
-    .. [1] Dixon, L. C. W., & Szego, G. P. (1978). The global
-        optimization problem: an introduction. Towards global
-        optimization, 2, 1-15.
-
-    .. [2] Picheny, V., Wagner, T., & Ginsbourger, D. (2012). A benchmark
-        of kriging-based infill criteria for noisy optimization.
-        Based on https://www.sfu.ca/~ssurjano/hart6.html
+    References
+    ----------
+    - Dixon, L. C. W., & Szego, G. P. (1978). The global
+      optimization problem: an introduction. Towards global
+      optimization, 2, 1-15.
+    - Picheny, V., Wagner, T., & Ginsbourger, D. (2012). A benchmark
+      of kriging-based infill criteria for noisy optimization.
+      Based on https://www.sfu.ca/~ssurjano/hart6.html
 
     Authors: Sonja Surjanovic and Derek Bingham, Simon Fraser University
 
@@ -244,7 +244,7 @@ def hartmann6(x):
 def borehole(x):
     """Compute the water flow rate through a borehole.
 
-    The Borehole function [1] models water flow through a borehole. Its simplicity
+    The Borehole function models water flow through a borehole. Its simplicity
     and quick evaluation makes it a commonly used function for testing a wide variety
     of methods in computer experiments.
 
@@ -269,11 +269,6 @@ def borehole(x):
 
     Notes
     -----
-    .. [1] Harper, W. V., & Gupta, S. K. (1983). Sensitivity/uncertainty analysis of
-        a borehole scenario comparing Latin Hypercube Sampling and deterministic
-        sensitivity approaches (No. BMI/ONWI-516). Battelle Memorial Inst., Columbus,
-        OH (USA). Office of Nuclear Waste Isolation.
-
     The distributions of the input random variables are:
     
     * rw ~ N(0.10, 0.0161812)
@@ -288,6 +283,13 @@ def borehole(x):
     Above, N(µ, s^2) is the Normal distribution with mean µ and variance s^2.
     Lognormal(µ, s) is the Lognormal distribution of a variable, such that the natural
     logarithm of the variable has a N(µ, s^2) distribution.
+
+    References
+    ----------
+    - Harper, W. V., & Gupta, S. K. (1983). Sensitivity/uncertainty analysis of
+      a borehole scenario comparing Latin Hypercube Sampling and deterministic
+      sensitivity approaches (No. BMI/ONWI-516). Battelle Memorial Inst.,
+      Columbus, OH (USA). Office of Nuclear Waste Isolation.
 
     Authors: Sonja Surjanovic and Derek Bingham, Simon Fraser University
 
@@ -317,8 +319,7 @@ def detpep8d(x):
     r"""Dette & Pepelyshev (2010) 8-Dimensional Function
 
     This function is used for the comparison of computer experiment
-    designs. It is highly curved in some variables and less in others
-    [1].
+    designs. It is highly curved in some variables and less in others.
 
     Input Domain:
 
@@ -334,11 +335,10 @@ def detpep8d(x):
     numpy.ndarray
         1D array of shape (n,) containing the function values for each input sample
 
-    Notes
-    -----
-    .. [1] Dette, H., & Pepelyshev, A. (2010). Generalized Latin
-        hypercube design for computer experiments. Technometrics,
-        52(4).
+    References
+    ----------
+    - Dette, H., & Pepelyshev, A. (2010). Generalized Latin
+      hypercube design for computer experiments. Technometrics, 52(4).
 
     Based on https://www.sfu.ca/~ssurjano/detpep108d.html
 

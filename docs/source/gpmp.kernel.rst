@@ -1,71 +1,64 @@
 gpmp.kernel module
 ==================
 
-.. contents::
-   :local:
+The ``kernel`` package contains covariance functions, covariance-parameter
+initial guesses, likelihood and posterior objective functions, and
+parameter-selection wrappers. These routines operate on backend-native
+:mod:`gpmp.num` arrays and on :class:`gpmp.core.Model` instances.
 
-The kernel module defines helper functions to build covariance functions and select its parameters.
+This page gives the conventions shared by the package. The detailed API is
+split into focused pages so that users can find the relevant functions without
+searching through one long catalog.
 
-Functions
----------
+Covariance parameter convention
+-------------------------------
 
-exponential_kernel
-^^^^^^^^^^^^^^^^^^
+For anisotropic Matern covariances, GPmp uses the vector
 
-.. autofunction:: gpmp.kernel.exponential_kernel
-   :no-index:
+``covparam = [log(sigma2), -log(rho_0), ..., -log(rho_{d-1})]``.
 
-matern32_kernel
-^^^^^^^^^^^^^^^
+Here ``sigma2`` is the process variance and ``rho_j`` is the lengthscale in
+coordinate ``j``. The sign convention is intentional: internally the
+lengthscale coordinates are stored as ``loginvrho_j = -log(rho_j)``. Larger
+``loginvrho_j`` therefore means a shorter lengthscale.
 
-.. autofunction:: gpmp.kernel.matern32_kernel
+Data-source contract
+--------------------
 
-maternp_kernel
-^^^^^^^^^^^^^^
+Parameter-selection functions accept either explicit arrays ``xi, zi`` or a
+``dataloader``. Do not pass both. If arrays are used, ``xi`` has shape
+``(n, d)`` and ``zi`` has shape ``(n,)`` or ``(n, 1)``. Arrays are converted
+with ``gpmp.num.asarray`` internally when needed, and returned parameters are
+backend-native objects.
 
-.. autofunction:: gpmp.kernel.maternp_kernel
+Parameter-selection contract
+----------------------------
 
-maternp_covariance_ii_or_tt
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Use ``select_*`` functions when passing an explicit initial covariance vector.
+Use ``update_*`` functions when the current ``model.covparam`` should be used
+as the optimizer start when available.
 
-.. autofunction:: gpmp.kernel.maternp_covariance_ii_or_tt
+All selection helpers return ``(model, info_ret)``. If ``info=False``,
+``info_ret`` is ``None``. If ``info=True``, ``info_ret`` contains the selected
+``covparam``, optimizer status, objective history, and callable criteria
+``selection_criterion`` and ``selection_criterion_nograd``.
 
-maternp_covariance_it
-^^^^^^^^^^^^^^^^^^^^^
+If a custom selection criterion is used, it must accept backend-native
+``gpmp.num`` objects and return a scalar backend object or Python scalar.
 
-.. autofunction:: gpmp.kernel.maternp_covariance_it
+Where to look
+-------------
 
-maternp_covariance
-^^^^^^^^^^^^^^^^^^
+* :doc:`gpmp.kernel.covariance` documents Matern and exponential covariance
+  helpers and automatic initial guesses for covariance parameters.
+* :doc:`gpmp.kernel.selection` documents likelihood objectives, gradient
+  wrappers, and ML / REML / REMAP selection procedures.
+* :doc:`gpmp.kernel.priors` documents prior terms and REMAP posterior
+  objective functions.
 
-.. autofunction:: gpmp.kernel.maternp_covariance
+.. toctree::
+   :maxdepth: 2
 
-anisotropic_parameters_initial_guess_zero_mean
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. autofunction:: gpmp.kernel.anisotropic_parameters_initial_guess_zero_mean
-
-anisotropic_parameters_initial_guess
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. autofunction:: gpmp.kernel.anisotropic_parameters_initial_guess
-
-make_selection_criterion_with_gradient
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. autofunction:: gpmp.kernel.make_selection_criterion_with_gradient
-
-autoselect_parameters
-^^^^^^^^^^^^^^^^^^^^^
-
-.. autofunction:: gpmp.kernel.autoselect_parameters
-
-select_parameters_with_reml
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. autofunction:: gpmp.kernel.select_parameters_with_reml
-
-update_parameters_with_reml
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. autofunction:: gpmp.kernel.update_parameters_with_reml
+   gpmp.kernel.covariance
+   gpmp.kernel.selection
+   gpmp.kernel.priors

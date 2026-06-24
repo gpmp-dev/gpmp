@@ -616,9 +616,11 @@ class BatchDifferentiableSelectionCriterion:
     loader : torch.utils.data.DataLoader
     reduction : {'mean', 'sum'}, default 'mean'
     batches_per_eval : int, default 0
-        0  -> run over the *whole* loader each call (default behaviour).
-        >0 -> run over exactly this many batches per call, cycling when
-              the iterator is exhausted.
+        Number of batches used in each criterion evaluation.
+
+        - ``0``: run over the whole loader each call.
+        - ``>0``: run over exactly this many batches per call, cycling when
+          the iterator is exhausted.
     """
 
     def __init__(
