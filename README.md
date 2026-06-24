@@ -47,18 +47,25 @@ Backend selection order at import time:
 2. Otherwise: PyTorch if available, else NumPy.
 
 Example:
+```bash
 export GPMP_BACKEND=torch
-# optional:
+# Optional:
 export GPMP_DTYPE=float64
+```
 
 ## Installation
 
-Clone the repository:
+Install the released package from PyPI:
+
+```bash
+pip install gpmp
+```
+
+For development, clone the repository and install it in editable mode:
+
 ```bash
 git clone https://github.com/gpmp-dev/gpmp.git
-```
-Install in development mode:
-```bash
+cd gpmp
 pip install -e .
 ```
 
