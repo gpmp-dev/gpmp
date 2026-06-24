@@ -93,6 +93,8 @@ Typical steps:
 
 ## Documentation
 
+The documentation is available at <https://gpmp-dev.github.io/gpmp/>.
+
 GPmp’s documentation is built with
 [Sphinx](https://www.sphinx-doc.org/en/master/) using the Furo
 theme. To generate the HTML documentation:
