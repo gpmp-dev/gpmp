@@ -109,7 +109,8 @@ class _GPMPConfig:
             h = logging.StreamHandler()
             h.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
             self.logger.addHandler(h)
-        self.logger.setLevel(logging.INFO)
+        log_level_name = os.environ.get("GPMP_LOG_LEVEL", "INFO").upper()
+        self.logger.setLevel(getattr(logging, log_level_name, logging.INFO))
 
     def __str__(self):
         return (
