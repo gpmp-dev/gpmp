@@ -21,6 +21,7 @@ Other subpackages are loaded lazily on first access.
 from __future__ import annotations
 
 import importlib
+import importlib.metadata
 import os
 from typing import Final
 
@@ -62,6 +63,10 @@ def _read_version() -> str:
             v = f.read().strip()
         return v if v else _DEFAULT_VERSION
     except OSError:
+        pass
+    try:
+        return importlib.metadata.version("gpmp")
+    except importlib.metadata.PackageNotFoundError:
         return _DEFAULT_VERSION
 
 

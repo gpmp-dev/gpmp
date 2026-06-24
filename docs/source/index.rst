@@ -89,7 +89,7 @@ How to Cite
      title        = {GPmp: the Gaussian Process micro package},
      year         = {2026},
      url          = {https://github.com/gpmp-dev/gpmp},
-     note         = {Version 0.9.36},
+     note         = {Version 0.9.37},
    }
 
 Authors

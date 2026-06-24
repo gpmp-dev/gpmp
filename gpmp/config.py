@@ -41,6 +41,7 @@ Notes
 
 import os
 import logging
+import importlib.metadata
 from importlib.util import find_spec
 
 # Read version from VERSION file
@@ -48,8 +49,11 @@ _version_file = os.path.join(os.path.dirname(__file__), "..", "VERSION")
 try:
     with open(os.path.abspath(_version_file), "r") as f:
         __version__ = f.read().strip()
-except FileNotFoundError:
-    __version__ = "0.0.0"
+except OSError:
+    try:
+        __version__ = importlib.metadata.version("gpmp")
+    except importlib.metadata.PackageNotFoundError:
+        __version__ = "0.0.0"
 
 
 def _normalize_dtype_spec(dtype) -> str:

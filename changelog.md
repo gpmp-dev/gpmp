@@ -1,3 +1,18 @@
+- 0.9.37 packaging and installed-version fix
+  * gpmp/__init__.py: read installed package metadata when VERSION is absent
+  * config.py: read installed package metadata when VERSION is absent
+  * packaging: prepare PyPI release with corrected installed __version__
+
+- 0.9.36 documentation, packaging and sampling updates
+  * mcmc: add SVGD parameter-sampling prototype and improve MCMC corrections
+  * num: add like-array helpers
+  * parameter: move parameter helpers into gpmp.parameter
+  * plot/plotutils.py: improve cross-section plotting
+  * modeldiagnosis/report.py: polish diagnostics documentation
+  * config.py: expose log-level environment setting
+  * docs: add and improve Sphinx documentation, examples, and README links
+  * packaging: restrict published package contents and add PyPI publishing workflow
+
 - 0.9.35 prior defaults and remap robustness updates
   * kernel/parameter_selection.py: add logrho_min safeguard and improve REMAP prior handling
   * kernel/priors.py: centralize prior-default hyperparameters plumbing
