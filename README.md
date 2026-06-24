@@ -112,7 +112,7 @@ If you use GPmp in your research, please cite it as follows:
   title        = {GPmp: the Gaussian Process micro package},
   year         = {2026},
   url          = {https://github.com/gpmp-dev/gpmp},
-  note         = {Version 0.9.35},
+  note         = {Version 0.9.36},
 }
 ```
 

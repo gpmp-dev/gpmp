@@ -37,7 +37,7 @@ docs = ["sphinx", "numpydoc", "jupyter-sphinx", "witchhazel", "furo"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gpmp", "gpmp.*", "examples", "tests"]
+include = ["gpmp", "gpmp.*"]
 
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}
