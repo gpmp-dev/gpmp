@@ -6,17 +6,17 @@ observations. To distinguish both, we add an extra column to each input row:
 [coords..., flag], with flag=0 for latent targets and flag=1 for noisy
 observations.
 
-The kernel uses only the coordinates for distances. For K(x, x), the latent
+The kernel uses only the coordinates for distances. For k(x, x), the latent
 covariance is computed and noise variance is added on the diagonal where
 flag=1. This means only noisy observations get a noise term. Cross-covariances
-K(x, y) with x not equal to y ignore flags and are purely latent. With
+k(x, y) with x not equal to y ignore flags and are purely latent. With
 pairwise=True, the returned vector is the diagonal of this same covariance
 matrix.
 
 Thus:
-- xi (flag=1) are noisy observations, so K(xi, xi) has diagonal noise.
-- xt (flag=0) are latent targets, so K(xt, xt) is noise-free.
-- The cross block K(xi, xt) is noise-free.
+- xi (flag=1) are noisy observations, so k(xi, xi) has diagonal noise.
+- xt (flag=0) are latent targets, so k(xt, xt) is noise-free.
+- The cross block k(xi, xt) is noise-free.
 
 This yields the posterior distribution of the latent process. To predict noisy
 outputs at targets instead, pass xt with flag=1.

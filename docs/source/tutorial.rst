@@ -1,21 +1,10 @@
 GPmp Tutorial
 =============
 
-This tutorial is an introduction to GPmp, the Gaussian process micro
-package, which provides simple building blocks for GP-based
-algorithms. GPmp keeps modeling choices explicit and offers NumPy and
-PyTorch numerical backends.
-
-GPmp includes several core features such as GP interpolation and
-regression, known or unknown mean / intrinsic kriging, the standard
-Gaussian likelihood, and the restricted likelihood of a model. It also
-supports leave-one-out predictions and conditional sample paths using
-fast cross-validation formulas.
-
-Assuming basic knowledge of GPs, this tutorial aims to provide a
-concise and straightforward introduction to using GPmp to develop
-GP-based algorithms. For those who require further background
-information on GPs, the following references are recommended:
+This tutorial builds a Gaussian-process model with GPmp, selects covariance
+parameters, checks predictions, and inspects one-dimensional cross sections of
+the predictor. It assumes basic knowledge of Gaussian processes. For background
+on kriging, covariance models, and parameter selection, see:
 
  -  Stein, M. L. (1999). `Interpolation of Spatial Data: Some Theory for
     Kriging <https://doi.org/10.1007/978-1-4612-1494-6>`_. Springer.
@@ -33,10 +22,13 @@ information on GPs, the following references are recommended:
 Installation and backend selection
 ----------------------------------
 
-Install GPmp in development mode from the repository root:
+For an editable installation, first clone the repository, then run
+``pip install -e .`` from the cloned repository root:
 
 .. code-block:: shell
 
+   git clone https://github.com/gpmp-dev/gpmp.git
+   cd gpmp
    pip install -e .
 
 GPmp selects its numerical backend at import time. Set
@@ -175,10 +167,10 @@ models and covariance parameterization. GPmp provides REMAP helpers with
 priors on :math:`\log(\sigma^2)` and on log lengthscales.
 
 
-Minimal workflow
+Minimal sequence
 ----------------
 
-The following code is a complete workflow on the four-dimensional
+The following code is a complete GPmp sequence on the four-dimensional
 Hartmann function. It creates observation points, defines a GP model,
 selects covariance parameters by REML, and predicts at test points.
 The observations are treated as noise-free. To use noisy observations or
@@ -188,7 +180,7 @@ one-dimensional noisy-observation example and
 :doc:`examples/sample_paths_noisy` for heteroscedastic noise in
 conditional sample paths.
 
-The example pages extend this workflow in several directions:
+The example pages extend this sequence in several directions:
 :doc:`examples/interpolation_1d` gives the simplest one-dimensional
 case, :doc:`examples/interpolation_2d` and
 :doc:`examples/interpolation_nd` show higher-dimensional interpolation,
@@ -197,13 +189,22 @@ case, :doc:`examples/interpolation_2d` and
 :doc:`examples/posterior_sampling` samples covariance parameters, and
 :doc:`examples/dataloader` uses batched criterion evaluations.
 
+The code below gives the complete setup used by the plots in this tutorial.
 The mean function returns the matrix of mean basis functions evaluated at
-``x``. Here the mean space is the one-dimensional space of constant
-functions. The covariance parameters are selected by REML. After this
-call, ``model.covparam`` contains the selected covariance parameters and
-``info`` contains optimization metadata and selection-criterion callables.
+``x``. Here the mean space is the one-dimensional space of constant functions.
+The covariance parameters are selected by REML. After this call,
+``model.covparam`` contains the selected covariance parameters and ``info``
+contains optimization metadata and selection-criterion callables.
+
+Prediction check
+----------------
+
+In dimension four, there is no direct curve to plot. A first check is therefore
+to compare the posterior mean with reference values at test points.
 
 .. code-block:: python
+
+   import matplotlib.pyplot as plt
 
    import gpmp as gp
    import gpmp.num as gnp
@@ -230,12 +231,21 @@ call, ``model.covparam`` contains the selected covariance parameters and
    model, info = gp.kernel.select_parameters_with_reml(model, xi, zi, info=True)
    zpm, zpv = model.predict(xi, zi, xt)
 
-Prediction check
-----------------
+   zt_plot = zt.reshape(-1)
+   zpm_plot = zpm.reshape(-1)
 
-In dimension four, there is no direct curve to plot. A useful first
-check is therefore to compare the posterior mean with reference values at
-test points.
+   plt.figure()
+   plt.plot(zt_plot, zpm_plot, "ko", markersize=3)
+   lo = min(*plt.xlim(), *plt.ylim())
+   hi = max(*plt.xlim(), *plt.ylim())
+   plt.plot([lo, hi], [lo, hi], "r--", linewidth=1)
+   plt.xlabel("reference value")
+   plt.ylabel("predicted mean")
+   plt.title("Hartmann4: GP prediction on test points")
+   plt.grid(True)
+   plt.show()
+
+The resulting plot is:
 
 .. jupyter-execute::
    :hide-code:
@@ -267,14 +277,14 @@ test points.
    model, info = gp.kernel.select_parameters_with_reml(model, xi, zi, info=True)
    zpm, zpv = model.predict(xi, zi, xt)
 
-   zt_ = gnp.to_np(zt).reshape(-1)
-   zpm_ = gnp.to_np(zpm).reshape(-1)
-   zmin = min(zt_.min(), zpm_.min())
-   zmax = max(zt_.max(), zpm_.max())
+   zt_plot = zt.reshape(-1)
+   zpm_plot = zpm.reshape(-1)
 
    plt.figure()
-   plt.plot(zt_, zpm_, "ko", markersize=3)
-   plt.plot([zmin, zmax], [zmin, zmax], "r--", linewidth=1)
+   plt.plot(zt_plot, zpm_plot, "ko", markersize=3)
+   lo = min(*plt.xlim(), *plt.ylim())
+   hi = max(*plt.xlim(), *plt.ylim())
+   plt.plot([lo, hi], [lo, hi], "r--", linewidth=1)
    plt.xlabel("reference value")
    plt.ylabel("predicted mean")
    plt.title("Hartmann4: GP prediction on test points")
@@ -294,7 +304,17 @@ prediction-performance metrics:
 .. code-block:: python
 
    gp.modeldiagnosis.diag(model, info, xi, zi)
-   gp.modeldiagnosis.perf(model, xi, zi, xtzt=(xt, zt), zpmzpv=(zpm, zpv))
+
+   zloom, zloov, eloo = model.loo(xi, zi)
+   gp.modeldiagnosis.perf(
+       model,
+       xi,
+       zi,
+       loo=True,
+       loo_res=(zloom, zloov, eloo),
+       xtzt=(xt, zt),
+       zpmzpv=(zpm, zpv),
+   )
 
 A typical output starts as follows:
 
@@ -317,9 +337,59 @@ A typical output starts as follows:
      LOO  (n=40):  Q2 = 0.770, rmse/std(z) = 0.479
      Test (n=300): R2 = 0.599, rmse/std(z) = 0.633
 
-The selection report should first be checked for optimizer convergence:
-``cvg_reached`` and ``optimal_val`` should be true. The parameter block
-then reports :math:`\log(\sigma^2)` and the log inverse lengthscales
+Performance output:
+
+.. jupyter-execute::
+   :hide-code:
+
+   zloom, zloov, eloo = model.loo(xi, zi)
+   gp.modeldiagnosis.perf(
+       model,
+       xi,
+       zi,
+       loo=True,
+       loo_res=(zloom, zloov, eloo),
+       xtzt=(xt, zt),
+       zpmzpv=(zpm, zpv),
+   )
+
+The notation in the table is:
+
+.. math::
+
+   \mathrm{TSS} = \sum_i (z_i - \bar z)^2.
+
+For leave-one-out (LOO) prediction, let
+:math:`e_i^{\mathrm{LOO}} = z_i - \widehat z_{-i}(x_i)`, where
+:math:`\widehat z_{-i}` is computed without observation :math:`i`. GPmp
+reports
+
+.. math::
+
+   \mathrm{PRESS} = \sum_i \left(e_i^{\mathrm{LOO}}\right)^2,
+   \qquad
+   Q^2 = 1 - \frac{\mathrm{PRESS}}{\mathrm{TSS}}.
+
+For a test set, let
+:math:`e_i^{\mathrm{test}} = z_i - \widehat z(x_i)`. GPmp reports
+
+.. math::
+
+   \mathrm{RSS} = \sum_i \left(e_i^{\mathrm{test}}\right)^2,
+   \qquad
+   R^2 = 1 - \frac{\mathrm{RSS}}{\mathrm{TSS}}.
+
+In both blocks,
+:math:`\mathrm{RMSE} = \sqrt{\mathrm{SSE}/n}`, with
+:math:`\mathrm{SSE}=\mathrm{PRESS}` for LOO and
+:math:`\mathrm{SSE}=\mathrm{RSS}` for the test set. ``std(z)`` is the
+empirical standard deviation of the reference values in the block.
+``rmse/std(z)`` is a scale-free error. ``press/tss`` and ``rss/tss`` are
+error-to-variance ratios, so smaller values are better.
+
+Check optimizer convergence first: ``cvg_reached`` and ``optimal_val`` should
+be true. The parameter block then reports :math:`\log(\sigma^2)` and the log
+inverse lengthscales
 :math:`-\log(\rho_j)`. In this Hartmann4 run, the selected lengthscales
 are of comparable size, which means that the REML criterion does not
 identify a clearly inactive coordinate. The performance report gives a
@@ -329,15 +399,23 @@ prediction relative to the variance of the observed or test values.
 What-if cross sections
 ----------------------
 
-Prediction cross sections provide a more direct "what-if" analysis than
-criterion cross sections. They can be read as a local sweep study around
-an anchor point. Here the anchor is the observation with the smallest
-observed value. Starting from this point, one input coordinate is swept
-through its range while the other coordinates are kept fixed. Each panel
-shows the posterior mean and Gaussian coverage intervals along that
-one-dimensional slice. The grey points are the observations projected
-onto the swept coordinate. They help locate the data but should not be
-read as values that lie on the conditional slice.
+Prediction cross sections show how predictions change in a local "what-if"
+analysis. They can be read as a local sweep study around an anchor point. Here
+the anchor is the observation with the smallest observed value. Starting from
+this point, one input coordinate is swept through its range while the other
+coordinates are kept fixed. Each panel shows the posterior mean and Gaussian
+coverage intervals along that one-dimensional slice. The grey points are the
+observations projected onto the swept coordinate. They help locate the data but
+should not be read as values that lie on the conditional slice.
+
+.. code-block:: python
+
+   import matplotlib.pyplot as plt
+
+   gp.plot.crosssections(model, xi, zi, box, ind_i="min", ind_dim=list(range(dim)))
+   plt.show()
+
+The resulting plot is:
 
 .. jupyter-execute::
    :hide-code:
@@ -358,17 +436,18 @@ the slice, usually because observations provide little information there.
 Leave-one-out diagnostics
 -------------------------
 
-Leave-one-out (LOO) predictions are useful for checking whether the
-selected covariance parameters produce reasonable predictive
-uncertainties. In the plot below, each point is an observation predicted
-from all other observations. The vertical bars show nominal 95%
-predictive intervals. The same model object is used. No parameter
-selection is run again.
+Leave-one-out (LOO) predictions check whether the selected covariance
+parameters produce predictive intervals consistent with observed errors. In the
+plot below, each point is an observation predicted from all other observations.
+The vertical bars show nominal 95% predictive intervals. The same model object
+is used. No parameter selection is run again.
 
 .. code-block:: python
 
    zloom, zloov, eloo = model.loo(xi, zi)
    gp.plot.plot_loo(zi, zloom, zloov)
+
+The resulting plot is:
 
 .. jupyter-execute::
    :hide-code:

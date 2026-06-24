@@ -10,8 +10,8 @@ Backend object contract
 
 GPmp functions operate on backend-native numerical objects:
 
-* with ``GPMP_BACKEND=numpy``, backend arrays are NumPy ``ndarray`` objects;
-* with ``GPMP_BACKEND=torch``, backend arrays are PyTorch ``Tensor`` objects.
+* With ``GPMP_BACKEND=numpy``, backend arrays are NumPy ``ndarray`` objects.
+* With ``GPMP_BACKEND=torch``, backend arrays are PyTorch ``Tensor`` objects.
 
 Inputs passed to GPmp should be backend objects or objects convertible by
 ``gpmp.num.asarray``. Outputs are backend objects unless a function explicitly
@@ -19,8 +19,8 @@ documents conversion to NumPy. Use ``gpmp.num.to_np`` at plotting, reporting,
 or external-library boundaries when a NumPy array is required.
 
 When writing custom mean functions, covariance functions, or selection
-criteria, use ``gpmp.num`` operations rather than direct ``numpy`` or ``torch``
-calls if the code must be backend-independent.
+criteria, use ``gpmp.num`` operations instead of direct ``numpy`` or ``torch``
+calls when the code must be backend-independent.
 
 Backend selection and dtype
 ---------------------------

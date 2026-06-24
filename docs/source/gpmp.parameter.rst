@@ -2,9 +2,8 @@ gpmp.parameter module
 =====================
 
 The ``gpmp.parameter`` module provides structured helpers around
-covariance-parameter vectors. It is useful for assigning names, paths,
-normalizations, and display metadata to parameters, especially in reports
-and model-container workflows.
+covariance-parameter vectors. It assigns names, paths, normalizations, and
+display metadata to parameters, especially in reports and model-container code.
 
 This module is a convenience layer on top of the lower-level GPmp API.
 The core model and kernel routines remain independent from it: they accept
@@ -32,8 +31,8 @@ Access patterns
 
 Use ``get_by_name`` for a named scalar, ``get_by_path`` for hierarchical
 groups, and ``denormalized_values`` to inspect physical values. Bounds stored
-in ``Param`` are metadata for display and diagnostics; they are not enforced
-by :class:`Param` itself.
+in ``Param`` are metadata for display and diagnostics. They are not enforced by
+:class:`Param` itself.
 
 .. automodule:: gpmp.parameter
    :members:

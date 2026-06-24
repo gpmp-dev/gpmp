@@ -3,7 +3,7 @@
 
 This example builds a one-dimensional noise-free Gaussian process model and
 selects covariance parameters by restricted maximum likelihood (REML). It is the
-recommended first complete workflow because it shows the basic GPmp sequence:
+recommended first complete example because it shows the basic GPmp sequence:
 construct a model, select ``covparam``, predict, and plot the result.
 
 What this example does
@@ -15,13 +15,39 @@ Matern covariance and calls ``gp.kernel.select_parameters_with_reml``. The
 selected covariance parameters are stored in ``model.covparam`` and are then
 used by ``model.predict`` on a dense grid ``xt``.
 
-How to read the figure
-----------------------
+Mathematical object
+-------------------
 
-The figure compares four objects: the reference function, the observations, the
+The noise-free observation model is
+
+.. math::
+
+   Z_i = Z(x_i),
+   \qquad
+   Z \sim \mathcal{GP}(m, k_\theta).
+
+The array ``zi`` stores the realized values :math:`z_i` of :math:`Z_i`. After
+selecting :math:`\theta`, ``model.predict(xi, zi, xt)`` computes the
+conditional Gaussian distribution of :math:`Z_t=Z(x_t)` given
+:math:`Z_i=z_i`. With the usual block notation, this distribution has mean and
+covariance
+
+.. math::
+
+   m_t + k_{ti} k_{ii}^{-1}(z_i - m_i),
+   \qquad
+   k_{tt} - k_{ti} k_{ii}^{-1} k_{it}.
+
+The plotted uncertainty envelope is built from the diagonal of the conditional
+covariance.
+
+Outputs
+-------
+
+The displayed quantities are the reference function, the observations, the
 posterior mean, and the posterior uncertainty envelope. Because the observations
-are treated as noise-free, the posterior mean should interpolate the observed
-values. The uncertainty is small near observations and larger away from them.
+are treated as noise-free, the posterior mean interpolates the observed values.
+The uncertainty is small near observations and larger away from them.
 
 API points
 ----------

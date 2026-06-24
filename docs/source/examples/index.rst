@@ -9,7 +9,7 @@ full script so that the example can be copied or run directly.
 How to use these examples
 -------------------------
 
-Start with :doc:`interpolation_1d` if you want the minimal GPmp workflow:
+Start with :doc:`interpolation_1d` if you want the minimal GPmp sequence:
 construct a model, select covariance parameters, predict, and plot. Move to
 :doc:`interpolation_2d` or :doc:`interpolation_nd` for multidimensional
 problems. Use :doc:`parameter_selection` when the main question is how ML,
@@ -21,10 +21,41 @@ sections, such as long posterior sampling loops, may be discussed but not fully
 executed during the documentation build. The literal script included on each
 page remains the reference implementation.
 
+Notation used below
+-------------------
+
+The example pages use the same names as the scripts. Observation points are
+stored in ``xi`` and written mathematically as :math:`x_i`. Prediction points
+are stored in ``xt`` and written as :math:`x_t`.
+
+The latent process is denoted by :math:`Z`. A typical model is
+
+.. math::
+
+   Z \sim \mathcal{GP}(m, k_\theta),
+
+where :math:`m` is the mean function and :math:`k_\theta` is the covariance
+kernel. In the Matern examples, the covariance parameter vector follows the
+GPmp convention
+
+.. math::
+
+   \theta = \mathrm{covparam}
+   = \left(\log(\sigma^2), -\log(\rho_1), \ldots, -\log(\rho_d)\right).
+
+The covariance blocks are written with lowercase symbols. For example,
+:math:`k_{ii}` is the matrix with entries
+:math:`k_\theta(x_i^a, x_i^b)`, and :math:`k_{it}` contains the covariances
+between observation points and prediction points.
+
+Random variables use uppercase letters. Thus :math:`Z_i = Z(x_i)` and
+:math:`Z_t = Z(x_t)` are random variables. The arrays ``zi`` and ``zt`` store
+realizations, denoted by lowercase :math:`z_i` and :math:`z_t`.
+
 Selected examples
 -----------------
 
-.. list-table:: Selected examples
+.. list-table::
    :header-rows: 1
    :widths: 28 32 40
 

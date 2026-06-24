@@ -26,6 +26,15 @@ prediction-performance metrics. ``selection_criterion_statistics`` and
 ``selection_criterion_statistics_fast`` summarize one-dimensional criterion
 cross sections around selected covariance parameters.
 
+The performance metrics use the following definitions. For targets ``z``,
+``tss`` is :math:`\sum_i (z_i - \bar z)^2`. For leave-one-out prediction,
+``press`` is :math:`\sum_i (z_i - \widehat z_{-i}(x_i))^2` and
+``Q2`` is :math:`1 - \mathrm{press}/\mathrm{tss}`. For test-set prediction,
+``rss`` is :math:`\sum_i (z_i - \widehat z(x_i))^2` and ``R2`` is
+:math:`1 - \mathrm{rss}/\mathrm{tss}`. ``rmse`` is
+:math:`\sqrt{\mathrm{sse}/n}`. ``rmse/std(z)`` divides it by the empirical
+standard deviation of the reference values.
+
 Plotting functions are loaded lazily to avoid importing Matplotlib at package
 import time.
 

@@ -11,10 +11,6 @@ covariance functions, while GPmp supplies common covariance kernels,
 parameter initialization and selection routines, numerical backends, and
 diagnostic helpers.
 
-Numerical arrays are backend-native objects exposed through ``gpmp.num``.
-Use ``import gpmp.num as gnp`` in custom mean, covariance, and criterion
-functions when code should work with both supported backends.
-
 Features
 --------
 
@@ -25,26 +21,34 @@ Features
 * Leave-one-out diagnostics, model reports, and selection-criterion plots.
 * Conditional sample paths and utilities for Matérn covariance models.
 
-Backends
---------
+Positioning
+-----------
 
-GPmp supports two numerical backends:
+GPmp targets kriging and computer-experiment code where the mean function,
+covariance function, covariance parameters, selection criterion, diagnostics,
+and numerical backend objects should remain directly inspectable.
 
-* ``numpy``: the default fallback backend and often efficient for
-  small-to-medium workloads.
-* ``torch``: provides automatic differentiation and is useful when
-  gradient-based parameter selection or high-dimensional parameter
-  problems are part of the workflow.
+* `GPyTorch <https://docs.gpytorch.ai/>`_,
+  `GPflow <https://gpflow.github.io/GPflow/>`_, and
+  `GPJax <https://docs.jaxgaussianprocesses.com/>`_ provide broader
+  automatic-differentiation ecosystems for scalable, variational, deep, or
+  multi-output GP models.
+* `SMT <https://smt.readthedocs.io/>`_ focuses on engineering surrogate
+  modeling, with sampling methods, mixed variables, and several surrogate
+  model families.
+* `scikit-learn <https://scikit-learn.org/stable/modules/gaussian_process.html>`_
+  provides a stable estimator API for standard GP regression and
+  classification.
 
-Backend selection happens at import time. Set ``GPMP_BACKEND`` to
-``numpy`` or ``torch`` before importing GPmp to choose explicitly. If the
-variable is not set, GPmp uses PyTorch when available and otherwise falls
-back to NumPy.
+GPmp's role is narrower: explicit parameter selection and diagnostics for exact
+GP interpolation and regression, with compact code that can be adapted for
+research experiments.
 
-Installation
-------------
+Installation from source
+------------------------
 
-Clone the repository and install it in development mode:
+Editable installation requires a local clone of the repository. Clone GPmp,
+enter the repository root, then run ``pip install -e .``:
 
 .. code-block:: shell
 
@@ -52,17 +56,25 @@ Clone the repository and install it in development mode:
    cd gpmp
    pip install -e .
 
-Install PyTorch separately when the ``torch`` backend is desired.
+Documentation map
+-----------------
 
-Usage
------
+Start with :doc:`tutorial` for a complete Hartmann4 example. Use
+:doc:`examples/index` for task-specific scripts and :doc:`gpmp` for the API
+reference.
 
-See the tutorial and examples for complete workflows.
+Related package
+---------------
+
+`gpmp-contrib <https://github.com/gpmp-dev/gpmp-contrib>`_ extends GPmp with
+computer-experiment objects, model containers, sequential strategies,
+optimization criteria, set-estimation tools, and reGP utilities.
 
 .. toctree::
    :hidden:
    :maxdepth: 3
 
+   self
    tutorial
    examples/index
    gpmp
@@ -83,10 +95,11 @@ How to Cite
 Authors
 -------
 
-See ``AUTHORS.md``.
+See `AUTHORS.md <https://github.com/gpmp-dev/gpmp/blob/main/AUTHORS.md>`_.
 
 License
 -------
 
 GPmp is free software released under the GNU General Public License v3.0.
-See ``LICENSE.txt`` for details.
+See `LICENSE.txt <https://github.com/gpmp-dev/gpmp/blob/main/LICENSE.txt>`_
+for details.

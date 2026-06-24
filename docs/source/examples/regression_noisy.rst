@@ -13,14 +13,41 @@ uses an input flag to identify observation points, so the covariance can add the
 observation-noise variance on the diagonal for observations while leaving
 latent prediction points noise-free.
 
-How to read the figure
-----------------------
+Mathematical object
+-------------------
 
-The plotted observation values are noisy and therefore need not lie exactly on
-the posterior mean. The posterior distribution represents the latent process,
-not the noisy data-generating variable. Compared with the noise-free examples,
-uncertainty remains nonzero at observation locations because the observations
-are imperfect measurements.
+The latent process is still :math:`Z \sim \mathcal{GP}(m, k_\theta)`, but the
+observed random variable is noisy:
+
+.. math::
+
+   Z_i^{\mathrm{obs}} = Z(x_i) + \varepsilon_i,
+   \qquad
+   \varepsilon_i \sim \mathcal{N}(0, \tau_i^2).
+
+The covariance used for the observations is therefore
+
+.. math::
+
+   \operatorname{cov}(Z_i^{\mathrm{obs}}, Z_j^{\mathrm{obs}})
+   =
+   k_\theta(x_i, x_j) + \tau_i^2 \mathbf{1}_{i=j}.
+
+Prediction targets use the latent random variable :math:`Z_t=Z(x_t)`, so the
+cross-covariance between observations and targets is
+:math:`k_\theta(x_i,x_t)`, without an observation-noise term.
+
+In the script, ``zi`` stores realizations of
+:math:`Z_i^{\mathrm{obs}}`.
+
+Outputs
+-------
+
+Observation values are noisy and therefore need not lie exactly on the posterior
+mean. The posterior distribution represents the latent process, not the noisy
+data-generating variable. Compared with the noise-free examples, uncertainty
+remains nonzero at observation locations because the observations are imperfect
+measurements.
 
 API points
 ----------

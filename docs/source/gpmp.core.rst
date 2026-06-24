@@ -3,9 +3,9 @@ gpmp.core module
 
 The ``core`` module defines :class:`gpmp.core.Model`, the array-based GP
 model object. Arrays are backend-native objects provided by :mod:`gpmp.num`.
-With the NumPy backend they are NumPy arrays; with the torch backend they are
+With the NumPy backend they are NumPy arrays. With the torch backend they are
 PyTorch tensors. The core module does not perform parameter selection by
-itself; construct a model here, then use :mod:`gpmp.kernel` to choose
+itself. Construct a model here, then use :mod:`gpmp.kernel` to choose
 covariance parameters when needed.
 
 Use this module when you already have a mean function, a covariance function,

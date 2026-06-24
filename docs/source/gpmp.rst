@@ -8,7 +8,7 @@ module defines the GP model object, and :mod:`gpmp.kernel` provides
 covariance functions and parameter-selection procedures that operate on
 plain covariance-parameter vectors. The :mod:`gpmp.parameter` module is an
 optional helper layer for naming, normalizing, displaying, and inspecting
-these vectors; :mod:`gpmp.core` and :mod:`gpmp.kernel` do not depend on it.
+these vectors. :mod:`gpmp.core` and :mod:`gpmp.kernel` do not depend on it.
 
 Common API conventions
 ----------------------

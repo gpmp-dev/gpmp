@@ -1,10 +1,9 @@
 gpmp.kernel covariance helpers
 ==============================
 
-This page documents covariance functions and covariance-parameter initial
-guesses. These are low-level functions: they work with backend-native arrays
-and plain covariance-parameter vectors, independently from the optional
-:mod:`gpmp.parameter` display helpers.
+Covariance functions and covariance-parameter initial guesses work with
+backend-native arrays and plain covariance-parameter vectors, independently
+from the optional :mod:`gpmp.parameter` display helpers.
 
 Covariance functions
 --------------------

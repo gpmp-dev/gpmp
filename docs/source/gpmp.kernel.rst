@@ -6,9 +6,8 @@ initial guesses, likelihood and posterior objective functions, and
 parameter-selection wrappers. These routines operate on backend-native
 :mod:`gpmp.num` arrays and on :class:`gpmp.core.Model` instances.
 
-This page gives the conventions shared by the package. The detailed API is
-split into focused pages so that users can find the relevant functions without
-searching through one long catalog.
+The conventions below apply across the package. The detailed API is split into
+focused pages for covariance helpers, parameter selection, and prior terms.
 
 Covariance parameter convention
 -------------------------------

@@ -14,23 +14,45 @@ The covariance vector follows the GPmp convention
 ``[log(sigma2), -log(rho_0), -log(rho_1)]``. The selected model is evaluated on
 a regular grid to compare the reference function and the GP approximation.
 
-How to read the figure
-----------------------
+Mathematical object
+-------------------
 
-The four panels show the reference function, GP posterior mean, absolute
-prediction error, and posterior standard deviation. Observation points are
-shown as red dots. The error and posterior standard deviation panels should be
-read together: a well-calibrated model should assign larger uncertainty in
-regions with sparse observations or difficult extrapolation.
+The model is the same noise-free conditional GP as in the 1D interpolation
+example, but with two-dimensional points
+:math:`x=(x_1,x_2)`. The anisotropic Matern kernel uses the scaled distance
+
+.. math::
+
+   h(x,x')
+   =
+   \left[
+   \left(\frac{x_1-x'_1}{\rho_1}\right)^2
+   +
+   \left(\frac{x_2-x'_2}{\rho_2}\right)^2
+   \right]^{1/2}.
+
+The two lengthscales control smoothing along the two coordinate axes. Small
+:math:`\rho_j` allows faster variation along coordinate :math:`j`; large
+:math:`\rho_j` makes the posterior vary more slowly along that coordinate.
+
+Outputs
+-------
+
+The four panels contain the reference function, GP posterior mean, absolute
+prediction error, and posterior standard deviation. Red dots mark observation
+points. The error and posterior standard deviation panels should be read
+together: a well-calibrated model should assign larger uncertainty in regions
+with sparse observations or difficult extrapolation.
 
 API points
 ----------
 
 * ``gp.misc.designs.ldrandunif`` creates a space-filling observation design.
-* ``gp.kernel.make_selection_criterion_with_gradient`` can wrap a custom
-  criterion with a gradient for SciPy optimization.
-* ``gp.kernel.autoselect_parameters`` performs the actual numerical
-  optimization when lower-level control is desired.
+* ``gp.kernel.select_parameters_with_remap`` selects covariance parameters with
+  the default REMAP criterion.
+* ``model.predict`` returns posterior means and variances at the grid points.
+* Convert backend arrays with ``gnp.to_np`` before sending them to Matplotlib
+  functions that expect NumPy arrays.
 
 .. jupyter-execute::
    :hide-code:
@@ -46,31 +68,28 @@ API points
    xi = ex.gp.misc.designs.ldrandunif(dim, ni, box)
    zi = f(xi)
    model = ex.create_model()
-   covparam0 = ex.gp.kernel.anisotropic_parameters_initial_guess(model, xi, zi)
-   nlrl, nlrl_pregrad, nlrl_nograd, dnlrl = (
-       ex.gp.kernel.make_selection_criterion_with_gradient(
-           model, ex.gp.kernel.neg_log_restricted_posterior_power_laws_prior, xi, zi
-       )
-   )
-   covparam, info = ex.gp.kernel.autoselect_parameters(
-       covparam0, nlrl_pregrad, dnlrl, info=True
-   )
-   model.covparam = ex.gnp.asarray(covparam)
+   model, info = ex.gp.kernel.select_parameters_with_remap(model, xi, zi, info=True)
    zpm, zpv = model.predict(xi, zi, xt)
 
-   cmap = plt.get_cmap("PiYG")
+   xt_np = ex.gnp.to_np(xt)
+   xi_np = ex.gnp.to_np(xi)
+   zt_np = ex.gnp.to_np(zt).reshape(nt)
+   zpm_np = ex.gnp.to_np(zpm).reshape(nt)
+   zsd_np = np.sqrt(np.maximum(ex.gnp.to_np(zpv).reshape(nt), 0.0))
+
    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(8, 6))
-   data = [zt, zpm, np.abs(zpm - zt), np.sqrt(zpv)]
+   data = [zt_np, zpm_np, np.abs(zpm_np - zt_np), zsd_np]
    titles = ["reference", "GP approximation", "absolute error", "posterior std"]
-   for ax, z, title in zip(axes.flat, data, titles):
+   cmaps = ["PiYG", "PiYG", "magma_r", "viridis"]
+   for ax, z, title, cmap in zip(axes.flat, data, titles, cmaps):
        cs = ax.contourf(
-           xt[:, 0].reshape(nt),
-           xt[:, 1].reshape(nt),
-           z.reshape(nt),
+           xt_np[:, 0].reshape(nt),
+           xt_np[:, 1].reshape(nt),
+           z,
            levels=30,
            cmap=cmap,
        )
-       ax.plot(xi[:, 0], xi[:, 1], "ro", markersize=3)
+       ax.plot(xi_np[:, 0], xi_np[:, 1], "ro", markersize=3)
        ax.set_title(title)
        ax.set_xlabel("$x_1$")
        ax.set_ylabel("$x_2$")

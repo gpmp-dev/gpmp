@@ -1,10 +1,9 @@
 gpmp.kernel parameter selection
 ===============================
 
-This page documents likelihood objectives and parameter-selection wrappers.
-The functions operate on :class:`gpmp.core.Model` objects and backend-native
-arrays. Selection procedures modify ``model.covparam`` and return
-``(model, info_ret)``.
+Likelihood objectives and parameter-selection wrappers operate on
+:class:`gpmp.core.Model` objects and backend-native arrays. Selection
+procedures modify ``model.covparam`` and return ``(model, info_ret)``.
 
 Likelihood objectives
 ---------------------
@@ -32,7 +31,7 @@ Generic selection helpers
 -------------------------
 
 These helpers build criterion callables, connect them to SciPy optimizers, and
-provide generic selection/update workflows for custom criteria.
+provide generic selection/update procedures for custom criteria.
 
 make_selection_criterion_with_gradient
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

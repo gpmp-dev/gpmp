@@ -79,41 +79,39 @@ def main():
     model = create_model()
 
     # Parameter selection
-    covparam0 = gp.kernel.anisotropic_parameters_initial_guess(model, xi, zi)
-    nlrl, nlrl_pregrad, nlrl_nograd, dnlrl = gp.kernel.make_selection_criterion_with_gradient(
-        model, gp.kernel.neg_log_restricted_posterior_power_laws_prior, xi, zi
-    )
-    covparam_reml, info = gp.kernel.autoselect_parameters(
-        covparam0, nlrl_pregrad, dnlrl, info=True
-    )
-    model.covparam = gnp.asarray(covparam_reml)
+    model, info = gp.kernel.select_parameters_with_remap(model, xi, zi, info=True)
     gp.modeldiagnosis.diag(model, info, xi, zi)
 
     # Prediction
     (zpm, zpv) = model.predict(xi, zi, xt)
 
     # Visualization
-    cmap = plt.get_cmap("PiYG")
     contour_lines = 30
+    xt_np = gnp.to_np(xt)
+    xi_np = gnp.to_np(xi)
+    zt_np = gnp.to_np(zt).reshape(nt)
+    zpm_np = gnp.to_np(zpm).reshape(nt)
+    zsd_np = np.sqrt(np.maximum(gnp.to_np(zpv).reshape(nt), 0.0))
 
     fig, axes = plt.subplots(nrows=2, ncols=2)
-    data = [zt, zpm, np.abs(zpm - zt), np.sqrt(zpv)]
+    data = [zt_np, zpm_np, np.abs(zpm_np - zt_np), zsd_np]
     titles = [
         "function to be approximated",
         f"approximation from {ni} points",
         "true approx error",
         "posterior std",
     ]
+    cmaps = ["PiYG", "PiYG", "magma_r", "viridis"]
 
-    for ax, z, title in zip(axes.flat, data, titles):
+    for ax, z, title, cmap in zip(axes.flat, data, titles, cmaps):
         cs = ax.contourf(
-            xt[:, 0].reshape(nt),
-            xt[:, 1].reshape(nt),
-            z.reshape(nt),
+            xt_np[:, 0].reshape(nt),
+            xt_np[:, 1].reshape(nt),
+            z,
             levels=contour_lines,
             cmap=cmap,
         )
-        ax.plot(xi[:, 0], xi[:, 1], "ro", label="data")
+        ax.plot(xi_np[:, 0], xi_np[:, 1], "ro", label="data")
         ax.set_title(title)
         ax.set_xlabel("$x_1$")
         ax.set_ylabel("$x_2$")

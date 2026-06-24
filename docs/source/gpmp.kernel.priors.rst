@@ -1,10 +1,10 @@
 gpmp.kernel priors
 ==================
 
-This page documents prior terms used by REMAP selection procedures. Prior
-functions return log-prior values. Posterior objective wrappers combine these
-terms with the negative restricted likelihood and return negative log posterior
-values to minimize.
+Prior terms are used by REMAP selection procedures. Prior functions return
+log-prior values. Posterior objective wrappers combine these terms with the
+negative restricted likelihood and return negative log posterior values to
+minimize.
 
 Gaussian prior on log variance
 ------------------------------
@@ -24,8 +24,8 @@ Log lengthscale barrier and linear penalty
 
 The log-lengthscale prior is designed to prevent degenerate noise-model-like
 solutions where lengthscales become too small, while also penalizing overly
-large lengthscales. It is expressed on ``logrho = log(rho)``; remember that
-GPmp stores ``-log(rho)`` in ``covparam``.
+large lengthscales. It is expressed on ``logrho = log(rho)``. GPmp stores
+``-log(rho)`` in ``covparam``.
 
 neglog_f_logrho
 ~~~~~~~~~~~~~~~

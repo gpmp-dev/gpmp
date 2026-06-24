@@ -65,41 +65,48 @@ def constant_mean(x, param):
 
 
 def kernel_ii_or_tt(x, param, pairwise=False):
-    """Covariance between observations or predictands at x."""
+    """Same-set covariance k(x, x).
+
+    This function is used for observation-observation covariance k(x_i, x_i)
+    and prediction-prediction covariance k(x_t, x_t).  With pairwise=True,
+    GPmp asks only for the diagonal vector.
+    """
     p = 2
     sigma2 = gnp.exp(param[0])
     loginvrho = param[1]
+    # Numerical jitter for same-set covariance matrices, not observation noise.
     nugget = 100 * gnp.eps
 
     if pairwise:
-        # return a vector of covariances
-        K = sigma2 * gnp.ones((x.shape[0], ))  # nx x 0
+        # Return diag(k(x, x)) as a vector of shape (n,).
+        K = sigma2 * gnp.ones((x.shape[0], ))
     else:
-        # return a covariance matrix
-        K = gnp.scaled_distance(loginvrho, x, x)  # nx x nx
+        # Return the full same-set covariance matrix of shape (n, n).
+        K = gnp.scaled_distance(loginvrho, x, x)
         K = sigma2 * gp.kernel.maternp_kernel(p, K) + nugget * gnp.eye(K.shape[0])
 
     return K
 
 
 def kernel_it(x, y, param, pairwise=False):
-    """Covariance between observations and prediction points."""
+    """Cross-covariance k(x, y) between two point sets."""
     p = 2
     sigma2 = gnp.exp(param[0])
     loginvrho = param[1]
 
     if pairwise:
-        # return a vector of covariances
-        K = gnp.scaled_distance_elementwise(loginvrho, x, y)  # nx x 0
+        # Return [k(x_i, y_i)] as a vector of shape (n,).
+        K = gnp.scaled_distance_elementwise(loginvrho, x, y)
     else:
-        # return a covariance matrix
-        K = gnp.scaled_distance(loginvrho, x, y)  # nx x ny
+        # Return the full cross-covariance matrix of shape (n_x, n_y).
+        K = gnp.scaled_distance(loginvrho, x, y)
 
     K = sigma2 * gp.kernel.maternp_kernel(p, K)
     return K
 
 
 def kernel(x, y, param, pairwise=False):
+    """Dispatch covariance calls made by gpmp.core.Model."""
     if y is x or y is None:
         return kernel_ii_or_tt(x, param, pairwise)
     else:

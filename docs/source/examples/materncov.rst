@@ -2,9 +2,8 @@ Plotting Matern covariances
 ===========================
 
 This example plots Matern covariance kernels with half-integer smoothness
-parameters. It is the smallest example in the documentation and is useful for
-understanding the shape of the kernels used by the interpolation and regression
-examples.
+parameters. It is the smallest example in the documentation and shows the shape
+of the kernels used by the interpolation and regression examples.
 
 What this example does
 ----------------------
@@ -15,13 +14,41 @@ For half-integer Matern kernels, ``nu = p + 1/2``. Increasing ``p`` produces
 smoother sample paths and a covariance function that is flatter near the
 origin.
 
-How to read the figure
-----------------------
+Mathematical object
+-------------------
+
+The function ``maternp_kernel`` returns the correlation part of a stationary
+Matern covariance. For :math:`\nu = p + 1/2`, GPmp evaluates
+
+.. math::
+
+   c_p(h)
+   =
+   \exp(-2\sqrt{\nu}\,h)
+   \frac{\Gamma(p+1)}{\Gamma(2p+1)}
+   \sum_{j=0}^{p}
+   \frac{(p+j)!}{j!(p-j)!}
+   \left(4\sqrt{\nu}\,h\right)^{p-j}.
+
+The full anisotropic covariance used in later examples has the form
+
+.. math::
+
+   k_\theta(x, x')
+   =
+   \sigma^2 c_p\left(
+       \left\|
+       \left((x_1-x'_1)/\rho_1,\ldots,(x_d-x'_d)/\rho_d\right)
+       \right\|_2
+   \right).
+
+Outputs
+-------
 
 All curves are normalized to one at ``h = 0``. The curve with ``p = 0`` is the
 exponential kernel and decays sharply away from the origin. Larger ``p`` values
-produce stronger local smoothness and a slower initial decay. This plot is only
-a kernel-shape comparison: no observations or parameter selection are involved.
+produce stronger local smoothness and a slower initial decay. No observations or
+parameter selection are involved.
 
 API points
 ----------

@@ -1,7 +1,7 @@
 ML / REML / REMAP parameter selection
 =====================================
 
-This page compares the main covariance-parameter selection criteria used in
+This example compares the main covariance-parameter selection criteria used in
 GPmp: maximum likelihood (ML), restricted maximum likelihood (REML), and
 restricted maximum a posteriori (REMAP). The scripts use the same
 one-dimensional interpolation setup so that only the selection criterion
@@ -12,16 +12,52 @@ What this example does
 
 The rendered preview uses REMAP, selects covariance parameters, and plots the
 posterior prediction. The full scripts below expose the corresponding REMAP,
-REML, and ML workflows. All three procedures optimize a scalar criterion over
+REML, and ML procedures. All three procedures optimize a scalar criterion over
 ``covparam`` but differ in how they handle mean parameters and prior
 regularization.
+
+Mathematical criteria
+---------------------
+
+Let :math:`h_i` denote the matrix of mean basis functions evaluated at the
+observation points, and let :math:`k_{ii}(\theta)` be the covariance matrix.
+For a linear mean :math:`m_\beta(x)=h(x)^\top\beta`, ML profiles out
+:math:`\beta` and minimizes, up to constants independent of :math:`\theta`,
+
+.. math::
+
+   J_{\mathrm{ML}}(\theta)
+   =
+   \frac12 \log |k_{ii}|
+   +
+   \frac12 (z_i-h_i\widehat\beta)^\top
+   k_{ii}^{-1}
+   (z_i-h_i\widehat\beta).
+
+REML adds the determinant term associated with the estimated mean coefficients:
+
+.. math::
+
+   J_{\mathrm{REML}}(\theta)
+   =
+   J_{\mathrm{ML}}(\theta)
+   +
+   \frac12 \log |h_i^\top k_{ii}^{-1} h_i|.
+
+REMAP adds prior regularization on covariance parameters:
+
+.. math::
+
+   J_{\mathrm{REMAP}}(\theta)
+   =
+   J_{\mathrm{REML}}(\theta) - \log \pi(\theta).
 
 How to interpret the comparison
 -------------------------------
 
 ML optimizes the likelihood after estimating mean parameters. REML accounts for
 the degrees of freedom used by the mean and is often preferable when the mean is
-unknown. REMAP adds prior terms to the restricted likelihood; this can stabilize
+unknown. REMAP adds prior terms to the restricted likelihood. This may stabilize
 poorly identified variance or lengthscale parameters. Different criteria can
 lead to different posterior uncertainty, even when the posterior mean looks
 similar.
