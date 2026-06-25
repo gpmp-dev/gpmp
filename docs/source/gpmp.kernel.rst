@@ -7,7 +7,7 @@ parameter-selection wrappers. These routines operate on backend-native
 :mod:`gpmp.num` arrays and on :class:`gpmp.core.Model` instances.
 
 The conventions below apply across the package. The detailed API is split into
-focused pages for covariance helpers, parameter selection, and prior terms.
+pages for covariance helpers, parameter selection, and prior terms.
 
 Covariance parameter convention
 -------------------------------
@@ -45,8 +45,8 @@ All selection helpers return ``(model, info_ret)``. If ``info=False``,
 If a custom selection criterion is used, it must accept backend-native
 ``gpmp.num`` objects and return a scalar backend object or Python scalar.
 
-Where to look
--------------
+API pages
+---------
 
 * :doc:`gpmp.kernel.covariance` documents Matern and exponential covariance
   helpers and automatic initial guesses for covariance parameters.

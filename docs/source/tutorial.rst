@@ -4,20 +4,10 @@ GPmp Tutorial
 This tutorial builds a Gaussian-process model with GPmp, selects covariance
 parameters, checks predictions, and inspects one-dimensional cross sections of
 the predictor. It assumes basic knowledge of Gaussian processes. For background
-on kriging, covariance models, and parameter selection, see:
-
- -  Stein, M. L. (1999). `Interpolation of Spatial Data: Some Theory for
-    Kriging <https://doi.org/10.1007/978-1-4612-1494-6>`_. Springer.
- -  Chilès, J.-P., & Delfiner, P. (1999). `Geostatistics: Modeling Spatial
-    Uncertainty <https://doi.org/10.1002/9780470316993>`_. Wiley.
- -  Rasmussen, C. E., & Williams, C. K. I. (2005). `Gaussian Processes
-    for Machine Learning <https://doi.org/10.7551/mitpress/3206.001.0001>`_.
-    MIT Press.
- -  Petit, S. J., Bect, J., Feliot, P., & Vazquez, E. (2023). `Parameter
-    Selection in Gaussian Process Interpolation: An Empirical Study of
-    Selection Criteria <https://doi.org/10.1137/21M1444710>`_.
-    SIAM/ASA Journal on Uncertainty Quantification, 11(4), 1308-1328.
-    `arXiv:2107.06006 <https://arxiv.org/abs/2107.06006>`_.
+on Gaussian-process prediction, see
+:cite:p:`stein1999kriging,chiles1999geostatistics,rasmussen2006gaussian`.
+For parameter selection in GP interpolation, see
+:cite:p:`petit2023parameter`.
 
 Installation and backend selection
 ----------------------------------
@@ -52,29 +42,28 @@ otherwise falls back to NumPy. Install PyTorch separately when the
 Basics
 ------
 
-As mentioned above, we use the framework of kriging to obtain the
-posterior distribution of a Gaussian process from
-observations. Hereafter, the notation :math:`\xi \sim \mathrm{GP}(m,k)`
-means that :math:`\xi` is a Gaussian process with mean function
-:math:`m:x\in\mathcal{X}\mapsto\mathrm{E}(\xi(x))` and covariance
+In kriging, observations are modeled as values of a Gaussian process. The
+notation :math:`Z \sim \mathrm{GP}(m,k)` means that :math:`Z` is a Gaussian
+process with mean function
+:math:`m:x\in\mathcal{X}\mapsto\mathrm{E}(Z(x))` and covariance
 function :math:`k:(x,y)\in\mathcal{X}^2\mapsto
-\mathrm{cov}(\xi(x),\xi(y))`, with respect to a probability space
+\mathrm{cov}(Z(x),Z(y))`, with respect to a probability space
 :math:`(\Omega,\mathcal{B},\mathbb{P}_0)`.
 
-Consider the model :math:`\xi` defined by:
+Consider the model :math:`Z` defined by:
 
 .. math::
 
    \left\{
    \begin{array}{l}
-   \xi \sim \mathrm{GP}(m,k), \\
-   m(\cdot) = \sum_{i=1}^q \beta_i p_i(\cdot), \\
+   Z \sim \mathrm{GP}(m,k), \\
+   m(\cdot) = \sum_{\ell=1}^q \beta_\ell p_\ell(\cdot), \\
    \beta_1,\ldots,\beta_q \in \mathbb{R},
    \end{array}\right.
 
-where the :math:`\beta_i`'s are unknown parameters, the :math:`p_i`'s
-form a basis of d-variate polynomials, and :math:`k` is a continuous,
-strictly positive-definite function.
+where the :math:`\beta_\ell` are unknown parameters, the :math:`p_\ell`
+are mean basis functions on :math:`\mathcal X`, and :math:`k` is a continuous,
+strictly positive-definite covariance function.
 
 
 Parameter selection
@@ -85,8 +74,8 @@ Matérn covariance models, the first entry is usually
 :math:`\log(\sigma^2)` and the remaining entries are log inverse
 lengthscales, :math:`-\log(\rho_j)`.
 
-The choice of selection criterion is part of the modeling problem. See
-Petit, Bect, Feliot, and Vazquez (2023) for an empirical comparison of
+The choice of selection criterion is part of the modeling problem.
+:cite:t:`petit2023parameter` gives an empirical comparison of
 parameter-selection criteria in GP interpolation.
 
 Let :math:`z \in \mathbb{R}^n` be the vector of observations,
@@ -122,29 +111,36 @@ the ML criterion is
 Restricted maximum likelihood
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Restricted maximum likelihood (REML) integrates out the linear mean
-parameters. It is often preferable when the mean is unknown because it
-accounts for the degrees of freedom used to estimate the mean. Define
+Restricted maximum likelihood (REML) uses linear contrasts that eliminate the
+unknown mean coefficients. Let :math:`W\in\mathbb{R}^{n\times(n-q)}` have full
+column rank and satisfy
 
 .. math::
 
-   W_\theta =
-   K_\theta^{-1}
-   - K_\theta^{-1}P
-   \left(P^\top K_\theta^{-1}P\right)^{-1}
-   P^\top K_\theta^{-1}.
+   W^\top P = 0.
 
-The REML criterion is
+In GPmp, :math:`W` is built from a complete QR factorization of :math:`P`, so
+its columns form an orthonormal basis of the null space of :math:`P^\top`. The
+contrast vector :math:`W^\top z` has covariance
+
+.. math::
+
+   G_\theta = W^\top K_\theta W,
+
+and does not depend on :math:`\beta`. The REML criterion implemented in GPmp is
+the negative log-likelihood of these contrasts:
 
 .. math::
 
    \hat\theta_{\mathrm{REML}} \in \arg\min_\theta
    \left[
-      \frac12 \log |K_\theta|
-      + \frac12 \log |P^\top K_\theta^{-1}P|
-      + \frac12 z^\top W_\theta z
+      \frac12 \log |G_\theta|
+      + \frac12 (W^\top z)^\top G_\theta^{-1}(W^\top z)
       + \frac{n-q}{2}\log(2\pi)
    \right].
+
+This is the restricted likelihood formulation used to select covariance
+parameters when the mean is a linear predictor :cite:p:`stein1999kriging`.
 
 REMAP
 ^^^^^
@@ -161,10 +157,10 @@ parameters to the restricted likelihood. If
    \right],
 
 where :math:`\mathrm{NLRL}` is the negative log restricted likelihood.
-The prior can regularize poorly identified covariance parameters. See
-Stein (1999) and Chilès and Delfiner (1999) for background on kriging
-models and covariance parameterization. GPmp provides REMAP helpers with
-priors on :math:`\log(\sigma^2)` and on log lengthscales.
+The prior can regularize poorly identified covariance parameters. Background
+on kriging models and covariance parameterization is given by
+:cite:t:`stein1999kriging,chiles1999geostatistics`. GPmp provides REMAP
+helpers with priors on :math:`\log(\sigma^2)` and on log lengthscales.
 
 
 Minimal sequence
@@ -231,11 +227,8 @@ to compare the posterior mean with reference values at test points.
    model, info = gp.kernel.select_parameters_with_reml(model, xi, zi, info=True)
    zpm, zpv = model.predict(xi, zi, xt)
 
-   zt_plot = zt.reshape(-1)
-   zpm_plot = zpm.reshape(-1)
-
    plt.figure()
-   plt.plot(zt_plot, zpm_plot, "ko", markersize=3)
+   plt.plot(zt, zpm, "ko", markersize=3)
    lo = min(*plt.xlim(), *plt.ylim())
    hi = max(*plt.xlim(), *plt.ylim())
    plt.plot([lo, hi], [lo, hi], "r--", linewidth=1)
@@ -277,11 +270,8 @@ The resulting plot is:
    model, info = gp.kernel.select_parameters_with_reml(model, xi, zi, info=True)
    zpm, zpv = model.predict(xi, zi, xt)
 
-   zt_plot = zt.reshape(-1)
-   zpm_plot = zpm.reshape(-1)
-
    plt.figure()
-   plt.plot(zt_plot, zpm_plot, "ko", markersize=3)
+   plt.plot(zt, zpm, "ko", markersize=3)
    lo = min(*plt.xlim(), *plt.ylim())
    hi = max(*plt.xlim(), *plt.ylim())
    plt.plot([lo, hi], [lo, hi], "r--", linewidth=1)
@@ -353,11 +343,12 @@ Performance output:
        zpmzpv=(zpm, zpv),
    )
 
-The notation in the table is:
+For a block of reference values indexed by :math:`A`, the total sum of
+squares is
 
 .. math::
 
-   \mathrm{TSS} = \sum_i (z_i - \bar z)^2.
+   \mathrm{TSS}_A = \sum_{a\in A} (z_a - \bar z_A)^2.
 
 For leave-one-out (LOO) prediction, let
 :math:`e_i^{\mathrm{LOO}} = z_i - \widehat z_{-i}(x_i)`, where
@@ -368,16 +359,16 @@ reports
 
    \mathrm{PRESS} = \sum_i \left(e_i^{\mathrm{LOO}}\right)^2,
    \qquad
-   Q^2 = 1 - \frac{\mathrm{PRESS}}{\mathrm{TSS}}.
+   Q^2 = 1 - \frac{\mathrm{PRESS}}{\mathrm{TSS}_{\mathrm{obs}}}.
 
 For a test set, let
-:math:`e_i^{\mathrm{test}} = z_i - \widehat z(x_i)`. GPmp reports
+:math:`e_t^{\mathrm{test}} = z_t - \widehat z(x_t)`. GPmp reports
 
 .. math::
 
-   \mathrm{RSS} = \sum_i \left(e_i^{\mathrm{test}}\right)^2,
+   \mathrm{RSS} = \sum_t \left(e_t^{\mathrm{test}}\right)^2,
    \qquad
-   R^2 = 1 - \frac{\mathrm{RSS}}{\mathrm{TSS}}.
+   R^2 = 1 - \frac{\mathrm{RSS}}{\mathrm{TSS}_{\mathrm{test}}}.
 
 In both blocks,
 :math:`\mathrm{RMSE} = \sqrt{\mathrm{SSE}/n}`, with

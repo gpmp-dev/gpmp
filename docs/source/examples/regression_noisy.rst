@@ -13,8 +13,8 @@ uses an input flag to identify observation points, so the covariance can add the
 observation-noise variance on the diagonal for observations while leaving
 latent prediction points noise-free.
 
-Mathematical object
--------------------
+Mathematical description
+------------------------
 
 The latent process is still :math:`Z \sim \mathcal{GP}(m, k_\theta)`, but the
 observed random variable is noisy:

@@ -19,30 +19,51 @@ regularization.
 Mathematical criteria
 ---------------------
 
-Let :math:`h_i` denote the matrix of mean basis functions evaluated at the
-observation points, and let :math:`k_{ii}(\theta)` be the covariance matrix.
+Let :math:`P_i` denote the matrix of mean basis functions evaluated at the
+observation points, and let :math:`K_{ii}(\theta)` be the covariance matrix.
 For a linear mean :math:`m_\beta(x)=h(x)^\top\beta`, ML profiles out
-:math:`\beta` and minimizes, up to constants independent of :math:`\theta`,
+:math:`\beta`. The profiled estimator is
+
+.. math::
+
+   \widehat\beta_\theta
+   =
+   \left(P_i^\top K_{ii}^{-1}P_i\right)^{-1}
+   P_i^\top K_{ii}^{-1}z_i.
+
+Up to constants independent of :math:`\theta`, the ML criterion is
 
 .. math::
 
    J_{\mathrm{ML}}(\theta)
    =
-   \frac12 \log |k_{ii}|
+   \frac12 \log |K_{ii}|
    +
-   \frac12 (z_i-h_i\widehat\beta)^\top
-   k_{ii}^{-1}
-   (z_i-h_i\widehat\beta).
+   \frac12 (z_i-P_i\widehat\beta_\theta)^\top
+   K_{ii}^{-1}
+   (z_i-P_i\widehat\beta_\theta).
 
-REML adds the determinant term associated with the estimated mean coefficients:
+REML is computed from contrasts that remove the linear mean. Let
+:math:`W_i\in\mathbb{R}^{n\times(n-q)}` have full column rank and satisfy
+:math:`W_i^\top P_i=0`. GPmp builds :math:`W_i` from a complete QR
+factorization of :math:`P_i`. With
+
+.. math::
+
+   G_\theta = W_i^\top K_{ii}(\theta) W_i,
+
+the REML criterion implemented in GPmp is, up to constants independent of
+:math:`\theta`,
 
 .. math::
 
    J_{\mathrm{REML}}(\theta)
    =
-   J_{\mathrm{ML}}(\theta)
+   \frac12 \log |G_\theta|
    +
-   \frac12 \log |h_i^\top k_{ii}^{-1} h_i|.
+   \frac12 (W_i^\top z_i)^\top
+   G_\theta^{-1}
+   (W_i^\top z_i).
 
 REMAP adds prior regularization on covariance parameters:
 
@@ -57,10 +78,10 @@ How to interpret the comparison
 
 ML optimizes the likelihood after estimating mean parameters. REML accounts for
 the degrees of freedom used by the mean and is often preferable when the mean is
-unknown. REMAP adds prior terms to the restricted likelihood. This may stabilize
-poorly identified variance or lengthscale parameters. Different criteria can
-lead to different posterior uncertainty, even when the posterior mean looks
-similar.
+unknown. See :cite:p:`stein1999kriging`. REMAP adds prior terms to the
+restricted likelihood. This may stabilize poorly identified variance or
+lengthscale parameters. Different criteria can lead to different posterior
+uncertainty, even when the posterior mean looks similar.
 
 API points
 ----------

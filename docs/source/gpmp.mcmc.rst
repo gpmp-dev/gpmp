@@ -25,8 +25,8 @@ For MH and NUTS, pass ``param_initial_states`` explicitly or set
 The parameter dimension is inferred from ``info.covparam``, initial states, or
 the supplied box.
 
-Experimental samplers are intentionally not documented here until their API is
-stable.
+Experimental samplers are omitted from the public API page until their call
+signature and return objects are fixed.
 
 Posterior parameter sampling
 ----------------------------
@@ -41,6 +41,21 @@ Posterior parameter sampling
 
 Metropolis-Hastings
 -------------------
+
+GPmp's Metropolis-Hastings implementation is a multi-chain Gaussian
+random-walk sampler. The default public wrapper
+``sample_from_selection_criterion_mh`` uses Haario empirical-covariance
+adaptation with ``adaptation_interval=50`` and target acceptance rate 0.3.
+The ``n_pool`` option controls how chains are grouped when empirical proposal
+covariances are estimated. The public wrapper keeps adaptation active after
+burn-in. Use the lower-level ``MHOptions`` object if a frozen post-burn-in
+proposal is required. The lower-level sampler can also use a Robbins-Monro
+scale adaptation by setting ``adaptation_method="RM"`` in ``MHOptions``.
+
+The sampler stores three traces after ``scheduler`` has run: ``x`` for chain
+states, ``accept`` for acceptance indicators, and ``log_target_values`` for
+cached target log-densities. Use ``get_log_target_values`` to retrieve the
+stored log-density trace without recomputing the criterion.
 
 .. autoclass:: gpmp.mcmc.MHOptions
 

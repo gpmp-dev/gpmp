@@ -310,7 +310,7 @@ def make_anisotropic_param(
     name_prefix: str = "",
 ) -> Param:
     """
-    Build a Param object for anisotropic covariance [sigma2, rho_1, ..., rho_d].
+    Build a Param object for anisotropic covariance [sigma2, rho_0, ..., rho_{d-1}].
 
     If `values` is provided, its length must be d + 1.
     If not, d must be specified and default values [0.0, -1.0, ..., -1.0] are used.

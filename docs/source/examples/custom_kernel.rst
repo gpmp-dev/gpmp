@@ -36,18 +36,21 @@ Covariance construction
 
 ``gpmp.core.Model`` calls the covariance function in three situations:
 
-``k(x_i, x_i)``
-    Covariance matrix between observation points.  In the example, this is
-    handled by ``kernel_ii_or_tt``.
+``K_ii``
+    Covariance matrix between observation points, with entries
+    :math:`k(x_i^a,x_i^b)`. In the example, this is handled by
+    ``kernel_ii_or_tt``.
 
-``k(x_i, x_t)``
-    Cross-covariance matrix between observation points and prediction points.
-    In the example, this is handled by ``kernel_it``.
+``K_it``
+    Cross-covariance matrix between observation points and prediction points,
+    with entries :math:`k(x_i^a,x_t^b)`. In the example, this is handled by
+    ``kernel_it``.
 
-``k(x_t, x_t)``
-    Prior covariance at prediction points.  GPmp uses only its diagonal when
-    computing posterior variances, unless a full posterior covariance matrix is
-    requested.  In the example, this is also handled by ``kernel_ii_or_tt``.
+``K_tt``
+    Prior covariance matrix at prediction points, with entries
+    :math:`k(x_t^a,x_t^b)`. GPmp uses only its diagonal when computing
+    posterior variances, unless a full posterior covariance matrix is
+    requested. In the example, this is also handled by ``kernel_ii_or_tt``.
 
 The suffix ``ii_or_tt`` means "same-set covariance": the two arguments are the
 same point set, either observations ``x_i`` or prediction points ``x_t``.  The

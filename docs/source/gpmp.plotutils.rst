@@ -3,8 +3,8 @@ gpmp.plot module
 
 The ``gpmp.plot`` module contains Matplotlib-based helpers for common GP
 figures. It accepts backend-native :mod:`gpmp.num` objects and converts them
-to NumPy internally before plotting. The functions are intentionally
-lightweight and return a GPmp ``Figure`` wrapper when applicable.
+to NumPy internally before plotting. The functions return a GPmp ``Figure``
+wrapper when applicable.
 
 Main functions
 --------------

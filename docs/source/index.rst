@@ -1,15 +1,16 @@
 GPmp Documentation
 ==================
 
-``GPmp`` is a lightweight toolkit for Gaussian process modeling. It
-provides compact building blocks for GP interpolation, regression,
-parameter selection, diagnostics, posterior parameter sampling, and
-conditional simulation.
+``GPmp`` provides building blocks for kriging / Gaussian-process (GP)
+interpolation and regression: covariance modeling, covariance-parameter
+selection, diagnostics, conditional simulation, and posterior sampling of
+covariance parameters.
 
-The package favors explicit modeling choices: users provide the mean and
-covariance functions, while GPmp supplies common covariance kernels,
-parameter initialization and selection routines, numerical backends, and
-diagnostic helpers.
+The package is meant for GP-based algorithms and research software. Its API is
+small and explicit: users provide the mean and covariance functions, choose or
+define selection criteria, inspect diagnostics, and keep numerical backend
+objects visible through ``gpmp.num``. The backend can be either NumPy or
+PyTorch.
 
 Features
 --------
@@ -24,25 +25,23 @@ Features
 Positioning
 -----------
 
-GPmp targets kriging and computer-experiment code where the mean function,
-covariance function, covariance parameters, selection criterion, diagnostics,
-and numerical backend objects should remain directly inspectable.
+Users provide the mean and covariance functions. GPmp supplies covariance
+kernels, parameter initialization and selection routines, numerical backends,
+diagnostics, and posterior samplers.
 
 * `GPyTorch <https://docs.gpytorch.ai/>`_,
   `GPflow <https://gpflow.github.io/GPflow/>`_, and
-  `GPJax <https://docs.jaxgaussianprocesses.com/>`_ provide broader
-  automatic-differentiation ecosystems for scalable, variational, deep, or
-  multi-output GP models.
-* `SMT <https://smt.readthedocs.io/>`_ focuses on engineering surrogate
-  modeling, with sampling methods, mixed variables, and several surrogate
-  model families.
+  `GPJax <https://docs.jaxgaussianprocesses.com/>`_ provide APIs for
+  scalable, variational, deep, or multi-output GP models.
+* `SMT <https://smt.readthedocs.io/>`_ provides engineering surrogate
+  modeling tools, with sampling methods, mixed variables, and several
+  surrogate model families.
 * `scikit-learn <https://scikit-learn.org/stable/modules/gaussian_process.html>`_
   provides a stable estimator API for standard GP regression and
   classification.
 
-GPmp's role is narrower: explicit parameter selection and diagnostics for exact
-GP interpolation and regression, with compact code that can be adapted for
-research experiments.
+GPmp exposes parameter selection, diagnostics, and exact Gaussian-process
+computations in code that can be adapted for GP-based algorithms.
 
 Installation from source
 ------------------------
@@ -56,12 +55,17 @@ enter the repository root, then run ``pip install -e .``:
    cd gpmp
    pip install -e .
 
-Documentation map
------------------
+Documentation contents
+----------------------
 
-Start with :doc:`tutorial` for a complete Hartmann4 example. Use
-:doc:`examples/index` for task-specific scripts and :doc:`gpmp` for the API
-reference.
+* :doc:`tutorial` builds and diagnoses a Hartmann4 interpolation model.
+* :doc:`examples/index` contains rendered scripts for interpolation,
+  regression, parameter selection, posterior sampling, sample paths, and
+  dataloader-based selection.
+* :doc:`gpmp` documents the public API, including backend objects, core models,
+  kernels, parameter helpers, diagnostics, samplers, plotting helpers, designs,
+  and test functions.
+* :doc:`references` lists the literature cited by the tutorial and examples.
 
 Related package
 ---------------
@@ -78,6 +82,7 @@ optimization criteria, set-estimation tools, and reGP utilities.
    tutorial
    examples/index
    gpmp
+   references
 
 How to Cite
 -----------

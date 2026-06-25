@@ -22,7 +22,7 @@ def _minimum_nonzero_gap_distance_1d(xj):
 def empirical_bounds_factory(
     xi, zi, *, mean_paramlength=0, var_lower_factor=2.0, var_upper_factor=10.0, length_lower_factor=2.0
 ):
-    """Build bounds for params [mean..., log(sigma2), -log(rho_1), ..., -log(rho_d)]."""
+    """Build bounds for params [mean..., log(sigma2), -log(rho_0), ..., -log(rho_{d-1})]."""
     xi = gnp.asarray(xi)
     zi = gnp.asarray(zi).reshape(-1)
     _n, d = xi.shape

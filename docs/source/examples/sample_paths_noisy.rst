@@ -13,8 +13,8 @@ posterior distribution, and draws conditional paths compatible with noisy
 observations. The covariance includes the observation-noise term where needed,
 while predictions and paths target the latent process.
 
-Mathematical object
--------------------
+Mathematical description
+------------------------
 
 The noisy observation random variables are
 
@@ -26,14 +26,15 @@ The noisy observation random variables are
 
 with :math:`\tau_i^2` depending on the observation location. The array ``zi``
 stores realized noisy values :math:`z_i^{\mathrm{obs}}`. The conditional
-distribution of the latent process at prediction points is computed with the
-observation covariance
+distribution of the latent process at prediction points is computed with
+the observation covariance. Let :math:`K_{ii}` be the covariance matrix with
+entries :math:`k_\theta(x_i^a,x_i^b)`. Then
 
 .. math::
 
-   k_{ii}^{\mathrm{obs}}
+   K_{ii}^{\mathrm{obs}}
    =
-   k_\theta(x_i,x_i) + \operatorname{diag}(\tau_1^2,\ldots,\tau_n^2).
+   K_{ii} + \operatorname{diag}(\tau_1^2,\ldots,\tau_n^2).
 
 The conditional paths target :math:`Z_t=Z(x_t)`, not
 :math:`Z_t^{\mathrm{obs}}`. They therefore need not pass through the noisy

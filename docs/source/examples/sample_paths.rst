@@ -14,21 +14,22 @@ sample paths from the posterior process. The conditional paths are generated so
 that they are consistent with the observations and with the selected covariance
 model.
 
-Mathematical object
--------------------
+Mathematical description
+------------------------
 
 The script first draws prior paths from
 :math:`Z \sim \mathcal{GP}(m, k_\theta)`. It then transforms those paths into
-conditional paths. In the noise-free case, the target distribution is
+conditional paths by conditioning with kriging weights
+:cite:p:`chiles1999geostatistics`. Let :math:`Z_i^{(s)}` and
+:math:`Z_t^{(s)}` denote one simulated path at observation and prediction
+points, and let :math:`\Lambda` be the kriging-weight matrix returned by
+``model.predict(..., return_lambdas=True)``. The conditioned path is
 
 .. math::
 
-   Z_t\mid Z_i=z_i
-   \sim
-   \mathcal{N}\left(
-       m_t + k_{ti} k_{ii}^{-1}(z_i-m_i),
-       k_{tt} - k_{ti} k_{ii}^{-1} k_{it}
-   \right).
+   Z_{t,c}^{(s)}
+   =
+   Z_t^{(s)} + \Lambda^\top\left(z_i - Z_i^{(s)}\right).
 
 The conditioning step changes each prior path so that the values at the
 observation points match the realized data :math:`z_i`.

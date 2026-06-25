@@ -38,7 +38,8 @@ extensions = [
     "numpydoc",
     'sphinx.ext.viewcode',
     "jupyter_sphinx",
-    "sphinx.ext.mathjax"
+    "sphinx.ext.mathjax",
+    "sphinxcontrib.bibtex",
 ]
 
 USE_IMGMATH = False
@@ -75,6 +76,7 @@ autosummary_generate = True
 numpydoc_class_members_toctree = False
 numpydoc_show_class_members = False
 imgmath_latex_preamble = r'\usepackage[utf8]{inputenc}'
+bibtex_bibfiles = ["references.bib"]
 
 
 # -- Options for HTML output -------------------------------------------------
@@ -86,12 +88,16 @@ html_logo = "_static/logo.png"
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ["_static"]
+html_css_files = [
+    "custom.css",
+]
 
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 html_theme_options = {
     "source_repository": "https://github.com/gpmp-dev/gpmp/",
     "source_branch": "main",
     "source_directory": "docs/source/",
+    "top_of_page_buttons": [],
     "light_css_variables": {
         "color-brand-primary": "#003d45",
         "color-brand-content": "#027bab",

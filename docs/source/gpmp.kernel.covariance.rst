@@ -10,7 +10,7 @@ Covariance functions
 
 ``exponential_kernel``, ``matern32_kernel``, and ``maternp_kernel`` evaluate
 correlation kernels as functions of a scaled distance. ``maternp_covariance``
-combines the Matern kernel with the GPmp covariance-parameter convention
+combines the Matern kernel with the covariance-parameter convention
 ``[log(sigma2), -log(rho_0), ...]`` and is the usual covariance function for
 anisotropic Matern models.
 

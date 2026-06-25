@@ -10,29 +10,29 @@ What this example does
 
 The script selects a two-dimensional test function, draws observation points,
 constructs a GP model, and selects covariance parameters with a REMAP criterion.
-The covariance vector follows the GPmp convention
+The covariance vector follows the convention
 ``[log(sigma2), -log(rho_0), -log(rho_1)]``. The selected model is evaluated on
 a regular grid to compare the reference function and the GP approximation.
 
-Mathematical object
--------------------
+Mathematical description
+------------------------
 
 The model is the same noise-free conditional GP as in the 1D interpolation
 example, but with two-dimensional points
-:math:`x=(x_1,x_2)`. The anisotropic Matern kernel uses the scaled distance
+:math:`x=(x_0,x_1)`. The anisotropic Matern kernel uses the scaled distance
 
 .. math::
 
    h(x,x')
    =
    \left[
-   \left(\frac{x_1-x'_1}{\rho_1}\right)^2
+   \left(\frac{x_0-x'_0}{\rho_0}\right)^2
    +
-   \left(\frac{x_2-x'_2}{\rho_2}\right)^2
+   \left(\frac{x_1-x'_1}{\rho_1}\right)^2
    \right]^{1/2}.
 
 The two lengthscales control smoothing along the two coordinate axes. Small
-:math:`\rho_j` allows faster variation along coordinate :math:`j`; large
+:math:`\rho_j` allows faster variation along coordinate :math:`j`. Large
 :math:`\rho_j` makes the posterior vary more slowly along that coordinate.
 
 Outputs
@@ -91,8 +91,8 @@ API points
        )
        ax.plot(xi_np[:, 0], xi_np[:, 1], "ro", markersize=3)
        ax.set_title(title)
-       ax.set_xlabel("$x_1$")
-       ax.set_ylabel("$x_2$")
+       ax.set_xlabel("$x_0$")
+       ax.set_ylabel("$x_1$")
        fig.colorbar(cs, ax=ax, shrink=0.8)
    fig.tight_layout()
 

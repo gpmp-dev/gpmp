@@ -84,7 +84,8 @@ def log_prior_power_law(
     Parameters
     ----------
     covparam : array_like
-        Covariance parameter vector ``[log(sigma^2), loginvrho_1, ..., loginvrho_d]``.
+        Covariance parameter vector
+        ``[log(sigma^2), loginvrho_0, ..., loginvrho_{d-1}]``.
     lambda_var : float, default=1.0
         Power-law exponent coefficient for ``log(sigma^2)``.
     cut_logvariance_high : float, default=9.21

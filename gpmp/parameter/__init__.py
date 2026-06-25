@@ -7,7 +7,7 @@
 """
 Structured parameter objects for GPmp.
 
-This package is a helper layer for naming, normalizing, and displaying
+This package provides helpers for naming, normalizing, and displaying
 parameter vectors. The lower-level :mod:`gpmp.core` and :mod:`gpmp.kernel`
 APIs operate on plain arrays and do not depend on ``gpmp.parameter``.
 """

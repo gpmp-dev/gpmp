@@ -6,9 +6,9 @@ objects managed by :mod:`gpmp.num`: NumPy arrays with the NumPy backend and
 PyTorch tensors with the torch backend. The :mod:`gpmp.core`
 module defines the GP model object, and :mod:`gpmp.kernel` provides
 covariance functions and parameter-selection procedures that operate on
-plain covariance-parameter vectors. The :mod:`gpmp.parameter` module is an
-optional helper layer for naming, normalizing, displaying, and inspecting
-these vectors. :mod:`gpmp.core` and :mod:`gpmp.kernel` do not depend on it.
+plain covariance-parameter vectors. The :mod:`gpmp.parameter` module provides
+helpers for naming, normalizing, displaying, and inspecting these vectors.
+:mod:`gpmp.core` and :mod:`gpmp.kernel` do not depend on it.
 
 Common API conventions
 ----------------------

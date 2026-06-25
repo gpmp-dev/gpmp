@@ -15,20 +15,24 @@ computes LOO predictions. LOO prediction removes one observation at a time,
 predicts it from all other observations, and compares the prediction with the
 removed value.
 
-Mathematical object
--------------------
+Mathematical description
+------------------------
 
-The model remains
+The model remains the universal-kriging model used in the one-dimensional
+example:
 
 .. math::
 
-   Z \sim \mathcal{GP}(m, k_\theta),
+   Z(x)=p(x)^\top\beta+Z_0(x),
+   \qquad
+   Z_0 \sim \mathcal{GP}(0, k_\theta),
    \qquad
    Z_i = Z(x_i),
 
-and ``zi`` stores realized values :math:`z_i`. The input dimension is too large
-for a direct contour plot. The first diagnostic therefore compares realized
-reference values :math:`z_t` with the posterior mean
+and ``zi`` stores realized values :math:`z_i`. In this script the mean basis is
+constant. The input dimension is too large for a direct contour plot. The first
+diagnostic therefore compares realized reference values :math:`z_t` with the
+posterior mean
 :math:`\mathbb{E}[Z_t\mid Z_i=z_i]` on independent test points.
 
 For the LOO diagnostic, each observation is predicted after removing it from
@@ -41,7 +45,7 @@ the conditioning set:
    \mathbb{E}\left[
        Z_i
        \mid
-       Z_j=z_j,\; j\ne i
+       Z_j=z_j,\quad j\ne i
    \right].
 
 The cross-section plots fix all coordinates except one and display
@@ -69,7 +73,7 @@ API points
 ----------
 
 * ``model.loo(xi, zi)`` returns LOO means, variances, and errors.
-* ``gp.plot.plot_loo`` provides a compact diagnostic for high-dimensional
+* ``gp.plot.plot_loo`` plots LOO diagnostics for high-dimensional
   problems where spatial plots are impossible.
 * ``gp.plot.crosssections`` plots one-dimensional slices through selected
   observation points.

@@ -14,8 +14,8 @@ For half-integer Matern kernels, ``nu = p + 1/2``. Increasing ``p`` produces
 smoother sample paths and a covariance function that is flatter near the
 origin.
 
-Mathematical object
--------------------
+Mathematical description
+------------------------
 
 The function ``maternp_kernel`` returns the correlation part of a stationary
 Matern covariance. For :math:`\nu = p + 1/2`, GPmp evaluates
@@ -38,7 +38,10 @@ The full anisotropic covariance used in later examples has the form
    =
    \sigma^2 c_p\left(
        \left\|
-       \left((x_1-x'_1)/\rho_1,\ldots,(x_d-x'_d)/\rho_d\right)
+       \left(
+       (x_0-x'_0)/\rho_0,\ldots,
+       (x_{d-1}-x'_{d-1})/\rho_{d-1}
+       \right)
        \right\|_2
    \right).
 
@@ -55,7 +58,7 @@ API points
 
 * ``gp.kernel.maternp_kernel`` evaluates the correlation kernel as a function
   of scaled distance.
-* ``gp.plot.Figure`` is a lightweight Matplotlib wrapper used throughout the
+* ``gp.plot.Figure`` is a small Matplotlib wrapper used throughout the
   examples.
 * For full covariance matrices with variance and lengthscales, use
   ``gp.kernel.maternp_covariance`` instead.

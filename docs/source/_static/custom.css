@@ -1,0 +1,16 @@
+.github-repo-link {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+}
+
+.github-repo-link svg {
+  color: currentColor;
+  height: 1.25rem;
+  width: 1.25rem;
+}
+
+.mobile-header .github-repo-link svg {
+  height: 1.5rem;
+  width: 1.5rem;
+}

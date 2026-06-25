@@ -14,20 +14,20 @@ it with a ``DataLoader``, and calls ``select_parameters_with_remap`` with the
 ``dataloader`` argument. The selected model is then used for prediction and the
 preview plots predicted values against reference values.
 
-Mathematical object
--------------------
+Mathematical description
+------------------------
 
 The model and REMAP criterion are the same as in the array-based examples. The
 dataloader changes how the criterion is evaluated. If batches
-:math:`b_1,\ldots,b_q` have sizes :math:`n_1,\ldots,n_q`, the batch wrapper
+:math:`b_1,\ldots,b_B` have sizes :math:`n_1,\ldots,n_B`, the batch wrapper
 evaluates a weighted scalar objective of the form
 
 .. math::
 
    \overline J(\theta)
    =
-   \frac{\sum_{\ell=1}^q n_\ell J_\ell(\theta)}
-        {\sum_{\ell=1}^q n_\ell},
+   \frac{\sum_{\ell=1}^B n_\ell J_\ell(\theta)}
+        {\sum_{\ell=1}^B n_\ell},
 
 where :math:`J_\ell(\theta)` is the selection criterion evaluated on batch
 :math:`b_\ell`. With ``batches_per_eval=0``, one criterion call uses the full

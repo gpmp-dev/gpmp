@@ -1,7 +1,7 @@
 gpmp.num module
 ===============
 
-The ``gpmp.num`` module is the numerical backend layer used by GPmp. It
+The ``gpmp.num`` module is the numerical backend interface used by GPmp. It
 dispatches a NumPy-like API to the backend selected for the current Python
 process.
 

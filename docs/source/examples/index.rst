@@ -6,20 +6,20 @@ pages below are rendered from a selected subset of those scripts. Each page
 states the modeling objective, shows at least one plot, and then includes the
 full script so that the example can be copied or run directly.
 
-How to use these examples
--------------------------
+Example coverage
+----------------
 
-Start with :doc:`interpolation_1d` if you want the minimal GPmp sequence:
-construct a model, select covariance parameters, predict, and plot. Move to
-:doc:`interpolation_2d` or :doc:`interpolation_nd` for multidimensional
-problems. Use :doc:`parameter_selection` when the main question is how ML,
-REML, and REMAP differ. Use :doc:`dataloader` when observations are organized
-through batching utilities.
+The selected examples cover the main GPmp operations:
 
-The rendered previews are intentionally shorter than some scripts. Expensive
-sections, such as long posterior sampling loops, may be discussed but not fully
-executed during the documentation build. The literal script included on each
-page remains the reference implementation.
+* :doc:`interpolation_1d` gives the minimal sequence: model construction,
+  covariance-parameter selection, prediction, and plotting.
+* :doc:`interpolation_2d` and :doc:`interpolation_nd` show the same operations
+  when the input dimension is larger than one.
+* :doc:`parameter_selection` compares ML, REML, and REMAP on one data set.
+* :doc:`dataloader` passes observations through ``Dataset`` and ``DataLoader``
+  objects during parameter selection.
+* :doc:`posterior_sampling` uses reduced iteration counts in the documentation
+  build. The code block shows the sampler arguments that control longer runs.
 
 Notation used below
 -------------------
@@ -36,16 +36,19 @@ The latent process is denoted by :math:`Z`. A typical model is
 
 where :math:`m` is the mean function and :math:`k_\theta` is the covariance
 kernel. In the Matern examples, the covariance parameter vector follows the
-GPmp convention
+convention
 
 .. math::
 
    \theta = \mathrm{covparam}
-   = \left(\log(\sigma^2), -\log(\rho_1), \ldots, -\log(\rho_d)\right).
+   =
+   \left(\log(\sigma^2), -\log(\rho_0), \ldots,
+   -\log(\rho_{d-1})\right).
 
-The covariance blocks are written with lowercase symbols. For example,
-:math:`k_{ii}` is the matrix with entries
-:math:`k_\theta(x_i^a, x_i^b)`, and :math:`k_{it}` contains the covariances
+The covariance kernel is written with a lowercase symbol
+:math:`k_\theta`. Covariance matrices and blocks are written with uppercase
+symbols. For example, :math:`K_{ii}` is the matrix with entries
+:math:`k_\theta(x_i^a, x_i^b)`, and :math:`K_{it}` contains the covariances
 between observation points and prediction points.
 
 Random variables use uppercase letters. Thus :math:`Z_i = Z(x_i)` and

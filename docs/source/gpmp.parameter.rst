@@ -5,9 +5,9 @@ The ``gpmp.parameter`` module provides structured helpers around
 covariance-parameter vectors. It assigns names, paths, normalizations, and
 display metadata to parameters, especially in reports and model-container code.
 
-This module is a convenience layer on top of the lower-level GPmp API.
-The core model and kernel routines remain independent from it: they accept
-plain arrays for covariance parameters and do not require ``Param`` objects.
+These helpers sit on top of the lower-level GPmp API. The core model and
+kernel routines remain independent from them: they accept plain arrays for
+covariance parameters and do not require ``Param`` objects.
 
 Use this module when you need a human-readable object for a covariance vector,
 not when calling :mod:`gpmp.core` or :mod:`gpmp.kernel` directly.
