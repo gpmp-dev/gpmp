@@ -20,7 +20,10 @@ from .prior_helpers import (
 )
 
 from .utils import check_xi_zi_or_loader
-from .init import anisotropic_parameters_initial_guess
+from .init import (
+    anisotropic_parameters_initial_guess,
+    anisotropic_parameters_initial_guess_constant_mean,
+)
 from .priors import (
     neg_log_restricted_posterior_power_laws_prior,
     neg_log_restricted_posterior_logsigma2_prior,
@@ -574,6 +577,170 @@ def negative_log_restricted_likelihood(model, covparam, xi, zi):
 #                   specific parameter selection procedures
 #
 # ------------------------------------------------------------------------
+
+
+# --------------------------- ML constant mean ---------------------------
+def select_parameters_with_ml_constant_mean(
+    model,
+    xi=None,
+    zi=None,
+    dataloader=None,
+    meanparam0=None,
+    covparam0=None,
+    info=False,
+    verbosity=0,
+    *,
+    bounds=None,
+    bounds_auto=True,
+    bounds_delta=10.0,
+    method="SLSQP",
+    method_options=None,
+):
+    """
+    Select a constant-mean parameter and covariance parameters with ML.
+
+    This helper follows the implementation pattern used in
+    ``examples/gpmp_example22_1d_interpolation_variation_ml.py``: it optimizes
+    the negative log-likelihood over the concatenated parameter vector
+    ``[meanparam, covparam]`` with one constant mean parameter. The initial
+    values are computed with
+    ``anisotropic_parameters_initial_guess_constant_mean`` when needed.
+
+    Parameters
+    ----------
+    model : gpmp.core.Model
+        GP model instance with a parameterized constant mean
+        (``model.meantype == "parameterized"``).
+    xi, zi : array_like, optional
+        Observation arrays.
+    dataloader : iterable, optional
+        Batch loader alternative to ``xi, zi``.
+    meanparam0, covparam0 : array_like, optional
+        Initial mean and covariance parameters in normalized space. If either
+        is None, both are initialized with
+        ``anisotropic_parameters_initial_guess_constant_mean`` and explicit
+        values passed by the user are kept.
+    info : bool, default=False
+        If True, return optimization diagnostics.
+    verbosity : int, default=0
+        Verbosity level forwarded to generic criterion selection.
+    bounds, bounds_auto, bounds_delta :
+        Bounds configuration in normalized parameter space.
+    method : {"SLSQP", "L-BFGS-B"}, default="SLSQP"
+        Optimization method.
+    method_options : dict, optional
+        Extra options passed to SciPy ``minimize``.
+
+    Returns
+    -------
+    model : gpmp.core.Model
+        Updated model.
+    info_ret : dict | None
+        Diagnostics dictionary if ``info=True``, else None.
+    """
+    if getattr(model, "meantype", None) != "parameterized":
+        raise ValueError(
+            "select_parameters_with_ml_constant_mean requires a model with "
+            "meantype='parameterized'."
+        )
+
+    if meanparam0 is None or covparam0 is None:
+        meanparam0_guess, covparam0_guess = (
+            anisotropic_parameters_initial_guess_constant_mean(
+                model, xi, zi, dataloader
+            )
+        )
+        if meanparam0 is None:
+            meanparam0 = meanparam0_guess
+        if covparam0 is None:
+            covparam0 = covparam0_guess
+
+    meanparam0 = gnp.asarray(meanparam0).reshape(-1)
+    if int(meanparam0.shape[0]) != 1:
+        raise ValueError("meanparam0 must contain exactly one constant-mean parameter.")
+    covparam0 = gnp.asarray(covparam0).reshape(-1)
+
+    return select_parameters_with_criterion(
+        model,
+        negative_log_likelihood,
+        xi=xi,
+        zi=zi,
+        dataloader=dataloader,
+        meanparam0=meanparam0,
+        covparam0=covparam0,
+        parameterized_mean=True,
+        meanparam_len=1,
+        info=info,
+        verbosity=verbosity,
+        bounds=bounds,
+        bounds_auto=bounds_auto,
+        bounds_delta=bounds_delta,
+        method=method,
+        method_options=method_options,
+    )
+
+
+def update_parameters_with_ml_constant_mean(
+    model,
+    xi=None,
+    zi=None,
+    dataloader=None,
+    info=False,
+    *,
+    bounds=None,
+    bounds_auto=True,
+    bounds_delta=10.0,
+    method="SLSQP",
+    method_options=None,
+):
+    """
+    Update a constant-mean parameter and covariance parameters with ML.
+
+    The current ``model.meanparam`` and ``model.covparam`` are used as
+    optimizer initial values when available. Missing initial values are filled
+    by ``select_parameters_with_ml_constant_mean`` using
+    ``anisotropic_parameters_initial_guess_constant_mean``.
+
+    Parameters
+    ----------
+    model : gpmp.core.Model
+        GP model instance with a parameterized constant mean
+        (``model.meantype == "parameterized"``).
+    xi, zi : array_like, optional
+        Observation arrays.
+    dataloader : iterable, optional
+        Batch loader alternative to ``xi, zi``.
+    info : bool, default=False
+        If True, return optimization diagnostics.
+    bounds, bounds_auto, bounds_delta :
+        Bounds configuration in normalized parameter space.
+    method : {"SLSQP", "L-BFGS-B"}, default="SLSQP"
+        Optimization method.
+    method_options : dict, optional
+        Extra options passed to SciPy ``minimize``.
+
+    Returns
+    -------
+    model : gpmp.core.Model
+        Updated model.
+    info_ret : dict | None
+        Diagnostics dictionary if ``info=True``, else None.
+    """
+    return select_parameters_with_ml_constant_mean(
+        model,
+        xi=xi,
+        zi=zi,
+        dataloader=dataloader,
+        meanparam0=model.meanparam,
+        covparam0=model.covparam,
+        info=info,
+        verbosity=0,
+        bounds=bounds,
+        bounds_auto=bounds_auto,
+        bounds_delta=bounds_delta,
+        method=method,
+        method_options=method_options,
+    )
 
 
 # --------------------------------- REML ---------------------------------

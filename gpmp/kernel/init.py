@@ -11,22 +11,32 @@ from math import log
 import gpmp.num as gnp
 from .utils import prepare_data
 
+
+def _dataloader_x_delta(dataloader):
+    dataset = dataloader.dataset
+    return dataset._reduce_max("x") - dataset._reduce_min("x")
+
+
+def _covparam_from_sigma2_and_rho(sigma2, rho):
+    return gnp.concatenate((gnp.asarray(gnp.log(sigma2)).reshape(1), -gnp.log(rho)))
+
+
 def anisotropic_parameters_initial_guess_zero_mean(model, xi=None, zi=None, dataloader=None):
     """Anisotropic initialization with zero mean."""
     xi_, zi_, _n, d, source = prepare_data(xi, zi, dataloader)
     delta = (gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)) if source == "arrays" \
-            else (dataloader.dataset_x_max - dataloader.dataset_x_min)
+            else _dataloader_x_delta(dataloader)
     rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi**0.5) * delta
     covparam = gnp.concatenate((gnp.array([gnp.log(1.0)]), -gnp.log(rho)))
     sigma2_GLS_fn = lambda x, z: 1.0 / x.shape[0] * model.norm_k_sqrd_with_zero_mean(x, z, covparam)
     sigma2_GLS = sigma2_GLS_fn(xi_, zi_) if source == "arrays" else dataloader.reduce_mean(sigma2_GLS_fn)
-    return gnp.concatenate((gnp.log(sigma2_GLS), -gnp.log(rho)))
+    return _covparam_from_sigma2_and_rho(sigma2_GLS, rho)
 
 def anisotropic_parameters_initial_guess_constant_mean(model, xi=None, zi=None, dataloader=None):
     """Anisotropic initialization with parameterized constant mean."""
     xi_, zi_, n, d, source = prepare_data(xi, zi, dataloader)
     delta = (gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)) if source == "arrays" \
-            else (dataloader.dataset_x_max - dataloader.dataset_x_min)
+            else _dataloader_x_delta(dataloader)
     rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi**0.5) * delta
     covparam = gnp.concatenate((gnp.array([gnp.log(1.0)]), -gnp.log(rho)))
     if source == "arrays":
@@ -39,13 +49,13 @@ def anisotropic_parameters_initial_guess_constant_mean(model, xi=None, zi=None, 
             return gnp.stack([gnp.sum(Kinvz) / gnp.sum(Kinv1), zTKinvz / x.shape[0]], axis=-1)
         mean_and_sigma2 = dataloader.reduce_mean(per_batch_gls)
         mean_GLS, sigma2_GLS = mean_and_sigma2[0], mean_and_sigma2[1]
-    return mean_GLS.reshape(1), gnp.concatenate((gnp.log(sigma2_GLS), -gnp.log(rho)))
+    return mean_GLS.reshape(1), _covparam_from_sigma2_and_rho(sigma2_GLS, rho)
 
 def anisotropic_parameters_initial_guess(model, xi=None, zi=None, dataloader=None):
     """Anisotropic initialization for general mean handling."""
     xi_, zi_, n, d, source = prepare_data(xi, zi, dataloader)
     delta = (gnp.max(xi_, axis=0) - gnp.min(xi_, axis=0)) if source == "arrays" \
-            else (dataloader.dataset_x_max() - dataloader.dataset_x_min())
+            else _dataloader_x_delta(dataloader)
     rho = gnp.exp(gnp.gammaln(d / 2 + 1) / d) / (gnp.pi**0.5) * delta
     covparam = gnp.concatenate((gnp.array([log(1.0)]), -gnp.log(rho)))
     if source == "arrays":
@@ -53,4 +63,4 @@ def anisotropic_parameters_initial_guess(model, xi=None, zi=None, dataloader=Non
     else:
         def per_batch_sigma2(x, z): return model.norm_k_sqrd(x, z, covparam) / x.shape[0]
         sigma2_GLS = dataloader.reduce_mean(per_batch_sigma2)
-    return gnp.concatenate((gnp.log(sigma2_GLS), -gnp.log(rho)))
+    return _covparam_from_sigma2_and_rho(sigma2_GLS, rho)

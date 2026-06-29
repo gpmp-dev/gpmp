@@ -497,13 +497,17 @@ class DataLoader:
         mean : Array
             Weighted mean over all samples.
         """
-        total = gnp.array([0.0])
+        total = None
         total_weight = 0
 
         for x_batch, z_batch in self:
             batch_size = x_batch.shape[0]
             value = func(x_batch, z_batch)
-            total += value * batch_size
+            weighted_value = value * batch_size
+            if total is None:
+                total = gnp.zeros_like(value) + weighted_value
+            else:
+                total += weighted_value
             total_weight += batch_size
 
         return total / total_weight

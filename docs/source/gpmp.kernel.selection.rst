@@ -60,6 +60,16 @@ These are the main public procedures for common criteria. ``select_*`` uses an
 explicit initial covariance vector when provided. ``update_*`` starts from the
 current ``model.covparam`` when it exists.
 
+select_parameters_with_ml_constant_mean
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autofunction:: gpmp.kernel.select_parameters_with_ml_constant_mean
+
+update_parameters_with_ml_constant_mean
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autofunction:: gpmp.kernel.update_parameters_with_ml_constant_mean
+
 select_parameters_with_reml
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
